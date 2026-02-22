@@ -6,7 +6,7 @@ git submodule update --remote
 REPO="erpukraine/odoo-ee-erpu" PROJECT="vataga" VERSION="v1.0"
 IMAGE_NAME=${REPO}:${PROJECT}-${VERSION}
 UPDATED_MODULES=`git diff --diff-filter=d --name-only HEAD~1..HEAD \
-    | egrep -o "^[^\/]+\/" | sed 's/.$//' | uniq \
+    | egrep -o "^[^\/]+\/" | sed 's/.$//' | grep -v '^\.' | uniq \
     | awk -vORS=, '{ print $1 }' | sed 's/,$/\n/'`
 if [ -z ${UPDATED_MODULES} ]; then echo "Nothing to test"; exit 0; fi
 echo "Testing ${UPDATED_MODULES}"
