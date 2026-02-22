@@ -2,7 +2,7 @@ name: CI
 
 on:
   pull_request:
-    branches-ignore:
+     branches:
       - main
       - staging
 
@@ -26,5 +26,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 3
       - name: Run tests
         run: ./tests.sh

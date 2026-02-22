@@ -1,0 +1,24 @@
+{
+	"folders": [
+		{	"name": "Project Addons",
+			"path": "/mnt/extra-addons"
+		},
+		{	"name": "ERPU Addons",
+			"path": "/mnt/erpu-addons"
+		},
+		{	"name": "Odoo Core",
+			"path": "/usr/lib/python3/dist-packages/odoo"
+		},
+		{	"name": "Odoo EE",
+			"path": "/mnt/enterprise-addons"
+		}
+	],
+	"settings": {
+		"cSpell.words": [
+			"erpu",
+			"gstatic",
+			"roboto"
+		],
+		"python.pythonPath": "/usr/bin/python3"
+	}
+}

@@ -1,0 +1,12 @@
+{
+    "python.pythonPath": "/usr/bin/python3",
+    "python.linting.enabled": true,
+    "python.linting.pylintEnabled": true,
+    "cSpell.ignoreWords": [
+        "nanos",
+        "psbo",
+        "uuids",
+        "єктом"
+    ],
+    "restructuredtext.confPath": ""
+}
