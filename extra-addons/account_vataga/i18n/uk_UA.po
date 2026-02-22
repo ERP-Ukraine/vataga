@@ -1,0 +1,222 @@
+# Translation of Odoo Server.
+# This file contains the translation of the following modules:
+# 	* account_vataga
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: Odoo Server 17.0+e-20250706\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2025-08-25 09:43+0000\n"
+"PO-Revision-Date: 2025-08-25 09:43+0000\n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: \n"
+"Plural-Forms: \n"
+
+#. module: account_vataga
+#: model_terms:ir.ui.view,arch_db:account_vataga.res_config_settings_view_form_pumb
+msgid "- <code>$</code><code>{invoice_date}</code> This is Bill Date."
+msgstr "- <code>$</code><code>{invoice_date}</code> Дата рахунку."
+
+#. module: account_vataga
+#: model_terms:ir.ui.view,arch_db:account_vataga.res_config_settings_view_form_pumb
+msgid "- <code>$</code><code>{ref}</code> This is Bill Reference."
+msgstr "- <code>$</code><code>{ref}</code> Референс рахунку."
+
+#. module: account_vataga
+#: model_terms:ir.ui.view,arch_db:account_vataga.res_config_settings_view_form_pumb
+msgid ""
+"- <code>$</code><code>{sale_ua_contract_id}</code> This is Sale contract."
+msgstr ""
+"- <code>$</code><code>{sale_ua_contract_id}</code> Договір продажу (NEW)"
+
+#. module: account_vataga
+#: model_terms:ir.ui.view,arch_db:account_vataga.res_config_settings_view_form_pumb
+msgid ""
+"- <code>$</code><code>{sc_date_start}</code> This is Sale contract Start "
+"Date."
+msgstr ""
+"- <code>$</code><code>{sc_date_start}</code> Дата початку Договору продажу "
+"(NEW)"
+
+#. module: account_vataga
+#: model_terms:ir.ui.view,arch_db:account_vataga.res_config_settings_view_form_pumb
+msgid "- <code>$</code><code>{tax_info}</code> Taxes information."
+msgstr "- <code>$</code><code>{tax_info}</code> Информація по налогам."
+
+#. module: account_vataga
+#: model_terms:ir.ui.view,arch_db:account_vataga.res_config_settings_view_form_pumb
+msgid "- <code>$</code><code>{ua_contract_id}</code> This is Contract."
+msgstr "- <code>$</code><code>{ua_contract_id}</code> Договір."
+
+#. module: account_vataga
+#: model_terms:ir.ui.view,arch_db:account_vataga.res_config_settings_view_form_pumb
+msgid ""
+"- <code>$</code><code>{uc_date_start}</code> This is Contract Start Date."
+msgstr ""
+"- <code>$</code><code>{uc_date_start}</code> Дата початку Договору"
+
+#. module: account_vataga
+#: model:ir.model.fields,field_description:account_vataga.field_account_payment_register__percent_of_amount
+msgid "Amount %"
+msgstr "% суми"
+
+#. module: account_vataga
+#: model:ir.model.fields,field_description:account_vataga.field_account_bank_statement_line__budget_account_id
+#: model:ir.model.fields,field_description:account_vataga.field_account_move__budget_account_id
+#: model:ir.model.fields,field_description:account_vataga.field_account_payment__budget_account_id
+msgid "Budget Account"
+msgstr "Бюджет"
+
+#. module: account_vataga
+#: model:ir.model.fields,field_description:account_vataga.field_account_bank_statement_line__cash_flow_item_account_id
+#: model:ir.model.fields,field_description:account_vataga.field_account_move__cash_flow_item_account_id
+#: model:ir.model.fields,field_description:account_vataga.field_account_payment__cash_flow_item_account_id
+msgid "Cash Flow Item Account"
+msgstr "Стаття Cashflow"
+
+#. module: account_vataga
+#: model:ir.model,name:account_vataga.model_res_config_settings
+msgid "Config Settings"
+msgstr "Налаштування"
+
+#. module: account_vataga
+#: model:ir.model.fields,field_description:account_vataga.field_account_payment__exported_payment
+msgid "Exported Payment"
+msgstr "Платіж вивантажено"
+
+#. module: account_vataga
+#: model:ir.model,name:account_vataga.model_account_move
+msgid "Journal Entry"
+msgstr "Запис у журналі"
+
+#. module: account_vataga
+#: model:ir.model,name:account_vataga.model_account_move_line
+msgid "Journal Item"
+msgstr "Елемент журналу"
+
+#. module: account_vataga
+#: model:ir.actions.server,name:account_vataga.action_mark_payments_exported
+msgid "Mark as Exported"
+msgstr "Позначити як Платіж вивантажено"
+
+#. module: account_vataga
+#: model_terms:ir.ui.view,arch_db:account_vataga.res_config_settings_view_form_pumb
+msgid "DKU Template"
+msgstr "Шаблони призначень"
+
+#. module: account_vataga
+#: model:ir.model.fields,field_description:account_vataga.field_res_config_settings__template_purpose_dcu
+msgid "PUMB Purpose Template"
+msgstr "Шаблон поля Призначення ДКУ"
+
+#. module: account_vataga
+#. odoo-python
+#: code:addons/account_vataga/wizard/account_payment_register.py:0
+#, python-format
+msgid "Payment is reasonable. Ref №%s in %s, %s."
+msgstr "Оплата згідно рах. №%s від %s, %s."
+
+#. module: account_vataga
+#: model:ir.model,name:account_vataga.model_account_payment
+msgid "Payments"
+msgstr "Платежі"
+
+#. module: account_vataga
+#: model:ir.model.fields,field_description:account_vataga.field_res_config_settings__preview_text
+msgid "Preview"
+msgstr "Тестовий передперегляд"
+
+#. module: account_vataga
+#: model:ir.model.fields,field_description:account_vataga.field_account_bank_statement_line__project_account_id
+#: model:ir.model.fields,field_description:account_vataga.field_account_move__project_account_id
+#: model:ir.model.fields,field_description:account_vataga.field_account_payment__project_account_id
+msgid "Project Account"
+msgstr "Проект"
+
+#. module: account_vataga
+#: model:ir.model.fields,field_description:account_vataga.field_account_payment__purpose_dcu
+#: model:ir.model.fields,field_description:account_vataga.field_account_payment_register__purpose_dcu
+msgid "Purpose Dcu"
+msgstr "Призначення ДКУ "
+
+#. module: account_vataga
+#: model:ir.model.fields,field_description:account_vataga.field_account_payment__purpose_pumb
+#: model:ir.model.fields,field_description:account_vataga.field_account_payment_register__purpose_pumb
+msgid "Purpose Pumb"
+msgstr "Призначення ПУМБ"
+
+#. module: account_vataga
+#: model:ir.model,name:account_vataga.model_account_payment_register
+msgid "Register Payment"
+msgstr "Зареєструвати платіж"
+
+#. module: account_vataga
+#: model:ir.model.fields,field_description:account_vataga.field_account_bank_statement_line__seller_contract_id
+#: model:ir.model.fields,field_description:account_vataga.field_account_move__seller_contract_id
+#: model:ir.model.fields,field_description:account_vataga.field_account_payment__seller_contract_id
+msgid "Seller Contract"
+msgstr "Контракт продажу"
+
+#. module: account_vataga
+#: model_terms:ir.ui.view,arch_db:account_vataga.res_config_settings_view_form_pumb
+msgid ""
+"The variable should only be specified in this format: "
+"<code>$</code><code>{field_name}</code>"
+msgstr ""
+"Змінну слід вказувати лише в такому форматі: "
+"<code>$</code><code>{field_name}</code>"
+
+#. module: account_vataga
+#: model_terms:ir.ui.view,arch_db:account_vataga.res_config_settings_view_form_pumb
+msgid "You can only use variables from Bill like these:"
+msgstr "Ви можете використовувати лише такі змінні з Рахунку:"
+
+#. module: account_vataga
+#: model_terms:ir.ui.view,arch_db:account_vataga.res_config_settings_view_form_pumb
+msgid ""
+"e.g. Payment for invoice ${ref} from ${invoice_date} by "
+"${sale_ua_contract_id} from ${sc_date_start}, ${tax_info}"
+msgstr ""
+"Наприклад: Оплата за рахунком ${ref} від ${invoice_date} згідно "
+"${sale_ua_contract_id} від ${sc_date_start}, ${tax_info}"
+
+#. module: account_vataga
+#. odoo-python
+#: code:addons/account_vataga/models/res_config_settings.py:0
+#, python-format
+msgid "inc. VAT 20% 1815,00"
+msgstr "в т.ч. ПДВ 1815,00"
+
+#. module: account_vataga
+#. odoo-python
+#: code:addons/account_vataga/wizard/account_payment_register.py:0
+#, python-format
+msgid "incl. %s = %s"
+msgstr "в т.ч. %s = %s"
+
+#. module: account_vataga
+#. odoo-python
+#: code:addons/account_vataga/wizard/account_payment_register.py:0
+#, python-format
+msgid "without VAT"
+msgstr "без ПДВ"
+
+#. module: account_vataga
+#: model:ir.model.fields,field_description:account_vataga.field_account_payment__bank_payment_date
+msgid "Payment Date"
+msgstr "Дата оплати"
+
+#. module: account_vataga
+#: model:ir.model.fields,help:account_vataga.field_account_payment__bank_payment_date
+msgid "Date from the bank statement line that is reconciled with this payment"
+msgstr "Дата з рядка банківської виписки, узгодженого з цим платежем"
+
+#. module: account_vataga
+#. odoo-python
+#: code:addons/account_vataga/wizard/account_payment_register.py:0
+#, python-format
+msgid "uah"
+msgstr "грн"

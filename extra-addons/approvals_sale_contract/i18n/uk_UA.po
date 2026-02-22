@@ -1,0 +1,53 @@
+# Translation of Odoo Server.
+# This file contains the translation of the following modules:
+# 	* approvals_sale_contract
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: Odoo Server 17.0+e-20250318\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2025-07-04 15:25+0000\n"
+"PO-Revision-Date: 2025-07-04 15:25+0000\n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: \n"
+"Plural-Forms: \n"
+
+#. module: approvals_sale_contract
+#: model:ir.model,name:approvals_sale_contract.model_approval_category
+msgid "Approval Category"
+msgstr "Категорія схвалення"
+
+#. module: approvals_sale_contract
+#: model:ir.model,name:approvals_sale_contract.model_approval_request
+msgid "Approval Request"
+msgstr "Запит на затвердження"
+
+#. module: approvals_sale_contract
+#: model:ir.model.fields,field_description:approvals_sale_contract.field_approval_category__has_sale_contract
+#: model:ir.model.fields,field_description:approvals_sale_contract.field_approval_request__has_sale_contract
+msgid "Has Sale Contract"
+msgstr "Договір продажу"
+
+#. module: approvals_sale_contract
+#: model:ir.model.fields.selection,name:approvals_sale_contract.selection__approval_category__has_sale_contract__no
+msgid "None"
+msgstr "Немає"
+
+#. module: approvals_sale_contract
+#: model:ir.model.fields.selection,name:approvals_sale_contract.selection__approval_category__has_sale_contract__optional
+msgid "Optional"
+msgstr "Необов'язково"
+
+#. module: approvals_sale_contract
+#: model:ir.model.fields.selection,name:approvals_sale_contract.selection__approval_category__has_sale_contract__required
+msgid "Required"
+msgstr "Обов'язково"
+
+#. module: approvals_sale_contract
+#: model:ir.model.fields,field_description:approvals_sale_contract.field_approval_request__sale_contract_id
+#: model_terms:ir.ui.view,arch_db:approvals_sale_contract.approval_contract_category_view_form_sale_contract
+msgid "Sale contract"
+msgstr "Договір продажу"

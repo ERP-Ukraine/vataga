@@ -1,0 +1,316 @@
+# Translation of Odoo Server.
+# This file contains the translation of the following modules:
+# 	* sale_demand_vataga
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: Odoo Server 17.0+e-20250711\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2025-11-12 09:47+0000\n"
+"PO-Revision-Date: 2025-11-12 09:47+0000\n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: \n"
+"Plural-Forms: \n"
+
+#. module: sale_demand_vataga
+#: model_terms:ir.ui.view,arch_db:sale_demand_vataga.product_analytic_search
+msgid "Account Analytic"
+msgstr "Аналітика"
+
+#. module: sale_demand_vataga
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_product_analytic__account_move_ids
+msgid "Account Move"
+msgstr "Рахунок"
+
+#. module: sale_demand_vataga
+#: model_terms:ir.ui.view,arch_db:sale_demand_vataga.product_analytic_search
+msgid "Account Moves"
+msgstr "Рахунок"
+
+#. module: sale_demand_vataga
+#: model:ir.model,name:sale_demand_vataga.model_account_analytic_account
+msgid "Analytic Account"
+msgstr "Аналітичний рахунок"
+
+#. module: sale_demand_vataga
+#: model:ir.model,name:sale_demand_vataga.model_mrp_bom
+msgid "Bill of Material"
+msgstr "Специфікація"
+
+#. module: sale_demand_vataga
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_mrp_bom_purchase_line__bom_id
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_sale_order_line__bom_id
+msgid "Bom"
+msgstr "Специфікація"
+
+#. module: sale_demand_vataga
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_product_analytic__category_name
+#: model_terms:ir.ui.view,arch_db:sale_demand_vataga.product_analytic_search
+msgid "Category"
+msgstr "Категорія"
+
+#. module: sale_demand_vataga
+#. odoo-python
+#: code:addons/sale_demand_vataga/controllers/main.py:0
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_product_analytic__closed
+#, python-format
+msgid "Closed"
+msgstr "Закрито %"
+
+#. module: sale_demand_vataga
+#: model_terms:ir.ui.view,arch_db:sale_demand_vataga.product_analytic_search
+msgid "Comment"
+msgstr "Примітка"
+
+#. module: sale_demand_vataga
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_mrp_bom_purchase_line__create_uid
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_product_analytic__create_uid
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_sale_order_line_purchase__create_uid
+msgid "Created by"
+msgstr ""
+
+#. module: sale_demand_vataga
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_mrp_bom_purchase_line__create_date
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_product_analytic__create_date
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_sale_order_line_purchase__create_date
+msgid "Created on"
+msgstr ""
+
+#. module: sale_demand_vataga
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_sale_order__deal_closed
+msgid "Deal closed"
+msgstr "Угоду завершено"
+
+#. module: sale_demand_vataga
+#: model:ir.actions.act_window,name:sale_demand_vataga.action_product_analytic_report
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_product_analytic__demand
+#: model:ir.ui.menu,name:sale_demand_vataga.menu_product_analytic
+#: model_terms:ir.ui.view,arch_db:sale_demand_vataga.product_analytic_pivot
+msgid "Demand"
+msgstr "Попит"
+
+#. module: sale_demand_vataga
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_mrp_bom_purchase_line__display_name
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_product_analytic__display_name
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_sale_order_line_purchase__display_name
+msgid "Display Name"
+msgstr ""
+
+#. module: sale_demand_vataga
+#: model:ir.model.fields,help:sale_demand_vataga.field_sale_order__deal_closed
+msgid "Everything is signed, paid, shipped and documented."
+msgstr "Все підписано, оплачено, відвантажено та оформлено документально"
+
+#. module: sale_demand_vataga
+#. odoo-javascript
+#: code:addons/sale_demand_vataga/static/src/views/pivot/pivot_renderer.js:0
+#, python-format
+msgid ""
+"For Excel compatibility, data cannot be exported if there are more than 16384 columns.\n"
+"\n"
+"Tip: try to flip axis, filter further or reduce the number of measures."
+msgstr ""
+
+#. module: sale_demand_vataga
+#: model_terms:ir.ui.view,arch_db:sale_demand_vataga.product_analytic_search
+msgid "Full Name"
+msgstr "Повна назва"
+
+#. module: sale_demand_vataga
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_mrp_bom_purchase_line__id
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_product_analytic__id
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_sale_order_line_purchase__id
+msgid "ID"
+msgstr ""
+
+#. module: sale_demand_vataga
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_product_analytic__in_invoice
+msgid "In Invoice"
+msgstr "В рах"
+
+#. module: sale_demand_vataga
+#: model:ir.model,name:sale_demand_vataga.model_account_move_line
+msgid "Journal Item"
+msgstr "Елемент журналу"
+
+#. module: sale_demand_vataga
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_mrp_bom_purchase_line__write_uid
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_product_analytic__write_uid
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_sale_order_line_purchase__write_uid
+msgid "Last Updated by"
+msgstr ""
+
+#. module: sale_demand_vataga
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_mrp_bom_purchase_line__write_date
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_product_analytic__write_date
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_sale_order_line_purchase__write_date
+msgid "Last Updated on"
+msgstr ""
+
+#. module: sale_demand_vataga
+#: model:ir.model,name:sale_demand_vataga.model_mrp_bom_purchase_line
+msgid "MRP Bom Purchase"
+msgstr "список закупівлі для специфікації"
+
+#. module: sale_demand_vataga
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_product_analytic__manager_name
+#: model_terms:ir.ui.view,arch_db:sale_demand_vataga.product_analytic_search
+msgid "Manager"
+msgstr "Менеджер"
+
+#. module: sale_demand_vataga
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_product_analytic__name
+#: model_terms:ir.ui.view,arch_db:sale_demand_vataga.product_analytic_search
+msgid "Name"
+msgstr "Назва"
+
+#. module: sale_demand_vataga
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_mrp_bom__need_to_purchase_ids
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_product_analytic__need_to_purchase_ids
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_sale_order_line__need_to_purchase_ids
+msgid "Need To Purchase"
+msgstr "Треба купити"
+
+#. module: sale_demand_vataga
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_sale_order_line_purchase__order_line_id
+msgid "Order Line"
+msgstr ""
+
+#. module: sale_demand_vataga
+#. odoo-javascript
+#: code:addons/sale_demand_vataga/static/src/views/pivot/pivot_view.js:0
+#, python-format
+msgid "Pivot"
+msgstr ""
+
+#. module: sale_demand_vataga
+#. odoo-python
+#: code:addons/sale_demand_vataga/controllers/main.py:0
+#, python-format
+msgid "Pivot %(title)s (%(model_name)s)"
+msgstr ""
+
+#. module: sale_demand_vataga
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_mrp_bom_purchase_line__product_id
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_product_analytic__product_id
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_sale_order_line_purchase__product_id
+msgid "Product"
+msgstr "Товар"
+
+#. module: sale_demand_vataga
+#: model:ir.model,name:sale_demand_vataga.model_product_analytic
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_account_analytic_account__product_analytic_ids
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_product_product__product_analytic_ids
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_sale_order_line_purchase__product_analytic_id
+#: model_terms:ir.ui.view,arch_db:sale_demand_vataga.product_analytic_search
+msgid "Product Analytic"
+msgstr "Контракт Продажу"
+
+#. module: sale_demand_vataga
+#: model:ir.actions.server,name:sale_demand_vataga.cron_create_product_analytic_ir_actions_server
+msgid "Product Analytic: Auto Create Product Analytic"
+msgstr ""
+
+#. module: sale_demand_vataga
+#: model:ir.actions.server,name:sale_demand_vataga.cron_update_product_analytic_moves_ir_actions_server
+msgid "Product Analytic: Auto Update Account Moves"
+msgstr ""
+
+#. module: sale_demand_vataga
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_product_analytic__product_name
+msgid "Product Name"
+msgstr "Назва"
+
+#. module: sale_demand_vataga
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_mrp_bom_purchase_line__product_qty
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_sale_order_line_purchase__product_qty
+msgid "Product Qty"
+msgstr "Кількість"
+
+#. module: sale_demand_vataga
+#: model:ir.model,name:sale_demand_vataga.model_product_product
+msgid "Product Variant"
+msgstr "Варіант товару"
+
+#. module: sale_demand_vataga
+#: model_terms:ir.ui.view,arch_db:sale_demand_vataga.product_analytic_search
+msgid "Purchase Contract"
+msgstr "Договір Купівлі"
+
+#. module: sale_demand_vataga
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_product_analytic__sale_contract_id
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_sale_order_line_purchase__sale_contract_id
+msgid "Sale Contract"
+msgstr "Аналітичний рахунок"
+
+#. module: sale_demand_vataga
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_mrp_bom__sale_order_line_ids
+msgid "Sale Order Line"
+msgstr ""
+
+#. module: sale_demand_vataga
+#: model:ir.model,name:sale_demand_vataga.model_sale_order_line_purchase
+msgid "Sale Order Line Purchase"
+msgstr ""
+
+#. module: sale_demand_vataga
+#: model:ir.model,name:sale_demand_vataga.model_sale_order
+msgid "Sales Order"
+msgstr "Замовлення на продаж"
+
+#. module: sale_demand_vataga
+#: model:ir.model,name:sale_demand_vataga.model_sale_order_line
+msgid "Sales Order Line"
+msgstr "Рядок замовлення"
+
+#. module: sale_demand_vataga
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_account_analytic_account__seller_analytic_comment
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_product_analytic__comment
+msgid "Seller Analytic Comment"
+msgstr "Примітка"
+
+#. module: sale_demand_vataga
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_account_move_line__seller_contract_id
+msgid "Seller Contract"
+msgstr "Контракт Продажу"
+
+#. module: sale_demand_vataga
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_account_analytic_account__seller_move_line_ids
+msgid "Seller Move Line"
+msgstr ""
+
+#. module: sale_demand_vataga
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_account_analytic_account__seller_purchase_ids
+msgid "Seller Purchase"
+msgstr ""
+
+#. module: sale_demand_vataga
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_sale_order_line_purchase__state
+msgid "Status"
+msgstr "Статус"
+
+#. module: sale_demand_vataga
+#: model:ir.model.constraint,message:sale_demand_vataga.constraint_product_analytic_product_and_seller_uniq
+msgid "This product is already linked to the selected analytic account."
+msgstr "Товар вже існує у контракті продажу"
+
+#. module: sale_demand_vataga
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_product_analytic__ua_purchase_contract_ids
+msgid "Ua Purchase Contract"
+msgstr "Договір Купівлі"
+
+#. module: sale_demand_vataga
+#: model:ir.model.fields,field_description:sale_demand_vataga.field_product_analytic__ua_sale_contract_ids
+#: model_terms:ir.ui.view,arch_db:sale_demand_vataga.product_analytic_search
+msgid "Ua Sale Contract"
+msgstr "Договір Продажу"
+
+#. module: sale_demand_vataga
+#. odoo-javascript
+#: code:addons/sale_demand_vataga/static/src/views/pivot/pivot_view.js:0
+#, python-format
+msgid "Untitled"
+msgstr "Без назви"

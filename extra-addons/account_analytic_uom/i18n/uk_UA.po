@@ -1,0 +1,26 @@
+# Translation of Odoo Server.
+# This file contains the translation of the following modules:
+# 	* account_analytic_uom
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: Odoo Server 17.0+e-20250616\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2025-08-11 16:09+0000\n"
+"PO-Revision-Date: 2025-08-11 16:09+0000\n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: \n"
+"Plural-Forms: \n"
+
+#. module: account_analytic_uom
+#: model:ir.model,name:account_analytic_uom.model_account_analytic_line
+msgid "Analytic Line"
+msgstr "Рядок аналітики"
+
+#. module: account_analytic_uom
+#: model:ir.model.fields,field_description:account_analytic_uom.field_account_analytic_line__unit_quantity_amount
+msgid "Unit Quantity Amount"
+msgstr "Кількість в ОВ"

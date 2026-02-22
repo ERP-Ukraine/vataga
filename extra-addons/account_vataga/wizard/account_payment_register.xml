@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_account_payment_register_form_account" model="ir.ui.view">
+        <field name="name">view.account.payment.register.form.account</field>
+        <field name="model">account.payment.register</field>
+        <field name="inherit_id" ref="account.view_account_payment_register_form" />
+        <field name="arch" type="xml">
+            <xpath expr="//group[@name='group2']" position="inside">
+                <field name="percent_of_amount" />
+                <field name="purpose_pumb" />
+                <field name="purpose_dcu" />
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

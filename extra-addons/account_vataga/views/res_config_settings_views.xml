@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <record id="res_config_settings_view_form_pumb" model="ir.ui.view">
+            <field name="name">res.config.settings.view.form.pumb</field>
+            <field name="model">res.config.settings</field>
+            <field name="inherit_id" ref="account.res_config_settings_view_form"/>
+            <field name="arch" type="xml">
+                <xpath expr="//block[@id='account_digitalization']" position="after">
+                    <block title="DKU Template" name="pumb_dku_template_setting_container">
+                        <div class="row mt16">
+                            <label for="template_purpose_dcu" class="col-lg-3 o_light_label"/>
+                            <field name="template_purpose_dcu"
+                                placeholder="e.g. Payment for invoice ${ref} from ${invoice_date} by ${sale_ua_contract_id} from ${sc_date_start}, ${tax_info}"/>
+                        </div>
+                        <div class="text-muted mt-2">
+
+                            <p style="margin-bottom: 0">You can only use variables from Bill like these:</p>
+                            <p style="margin-bottom: 0"> - <code>$</code><code>{ref}</code> This is Bill Reference.</p>
+                            <p style="margin-bottom: 0"> - <code>$</code><code>{invoice_date}</code> This is Bill Date.</p>
+                            <p style="margin-bottom: 0"> - <code>$</code><code>{sale_ua_contract_id}</code> This is Sale contract.</p>
+                            <p style="margin-bottom: 0"> - <code>$</code><code>{sc_date_start}</code> This is Sale contract Start Date.</p>
+                            <p style="margin-bottom: 0"> - <code>$</code><code>{ua_contract_id}</code> This is Contract.</p>
+                            <p style="margin-bottom: 0"> - <code>$</code><code>{uc_date_start}</code> This is Contract Start Date.</p>
+                            <p style="margin-bottom: 0"> - <code>$</code><code>{tax_info}</code> Taxes information.</p>
+                            <p style="margin-bottom: 0">The variable should only be specified in this format: <code>$</code><code>{field_name}</code></p>
+
+                        </div>
+                        <div class="row mt16">
+                            <label for="preview_text" class="col-lg-3 o_light_label"/>
+                            <field name="preview_text"/>
+                        </div>
+                    </block>
+                </xpath>
+            </field>
+        </record>
+    </data>
+</odoo>

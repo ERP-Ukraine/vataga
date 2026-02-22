@@ -1,0 +1,36 @@
+<templates>
+    <t t-name="sale_demand_vataga.PivotRendererDemand" t-inherit="web.PivotRenderer" t-inherit-mode="primary">
+        <xpath expr="//td[hasclass('o_pivot_cell_value')]" position="attributes">
+            <attribute name="class" del="bg-100"/>
+            <attribute name="t-att-style">
+                'background-color: ' + get_color(cell)
+            </attribute>
+        </xpath>
+        <xpath expr="//tbody//t[@t-call='web.PivotHeader']" position="replace">
+            <t t-call="sale_demand_vataga.PivotHeader">
+                <t t-set="isXAxis" t-value="false"/>
+                <t t-set="cell" t-value="row"/>
+            </t>
+        </xpath>
+    </t>
+    <t t-name="sale_demand_vataga.PivotHeader" t-inherit="web.PivotHeader" t-inherit-mode="primary">
+        <xpath expr="//th" position="attributes">
+            <attribute name="class" add="position-relative opacity-trigger-hover" remove="text-nowrap" separator=" "/>
+        </xpath>
+        <xpath expr="//th" position="inside">
+            <span
+                style="cursor: col-resize;"
+                class="o_resize position-absolute top-0 end-0 bottom-0 ps-1 bg-black-25 opacity-0 opacity-50-hover z-index-1"
+                t-on-click.stop.prevent=""
+                t-on-pointerdown.stop.prevent="onStartResize"/>
+        </xpath>
+        <xpath expr="//PivotGroupByMenu" position="before">
+            <span class="d-inline-flex align-items-center me-2 text-muted opacity-50 opacity-100-hover"
+                style="cursor: pointer;" 
+                t-on-click.stop.prevent="copyText"
+                t-on-pointerdown.stop.prevent="">
+                <i class="fa fa-copy" t-att-data-tooltip="cell.title"/>
+            </span>
+        </xpath>
+    </t>
+</templates>

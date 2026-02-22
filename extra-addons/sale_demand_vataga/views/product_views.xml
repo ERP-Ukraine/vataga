@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <record id="product_analytic_pivot" model="ir.ui.view">
+            <field name="name">product.analytic.grid</field>
+            <field name="model">product.analytic</field>
+            <field name="arch" type="xml">
+                <pivot string="Demand" sample="1" js_class="pivot_demand">
+                     <field name="product_id" type="row"/>
+                    <field name="sale_contract_id" type="col"/>
+                    <field name="demand" type="measure"/>
+                    <field name="in_invoice" type="measure"/>
+                    <field name="closed" 
+                           type="measure" 
+                           widget="percentage"/>
+                    <field name="comment" type="measure"/>
+                </pivot>
+            </field>
+        </record>
+
+        <record model="ir.actions.act_window" id="action_product_analytic_report">
+            <field name="name">Demand</field>
+            <field name="res_model">product.analytic</field>
+            <field name="view_mode">pivot</field>
+            <field name="view_id" ref="sale_demand_vataga.product_analytic_pivot"/>
+        </record>
+
+        <menuitem id="menu_product_analytic" name="Demand" action="sale_demand_vataga.action_product_analytic_report"
+        parent="purchase.purchase_report_main" sequence="5"/>
+
+        <record model="ir.ui.view" id="product_analytic_search">
+            <field name="name">product.analytic.search.form</field>
+            <field name="model">product.analytic</field>
+            <field name="arch" type="xml">
+                <search string="Product Analytic">
+                    <field name="product_id"/>
+                    <field name="category_name"/>
+                    <field name="sale_contract_id"/>
+                    <field name="ua_sale_contract_ids"/>
+                    <field name="ua_purchase_contract_ids"/>
+                    <filter name="group_by_sale_contract_id" string="Account Analytic" context="{'group_by': 'sale_contract_id'}"/>
+                    <filter name="group_by_ua_purchase_contract_ids" string="Purchase Contract" context="{'group_by': 'ua_purchase_contract_ids'}"/>
+                    <filter name="group_by_ua_sale_contract_ids" string="Ua Sale Contract" context="{'group_by': 'ua_sale_contract_ids'}"/>
+                    <filter name="group_by_category_name" string="Category" context="{'group_by': 'category_name'}"/>
+                    <filter name="group_by_manager_name" string="Manager" context="{'group_by': 'manager_name'}"/>
+                    <filter name="group_by_product_name" string="Name" context="{'group_by': 'product_name'}"/>
+                    <filter name="group_by_name" string="Full Name" context="{'group_by': 'name'}"/>
+                    <filter name="group_by_comment" string="Comment" context="{'group_by': 'comment'}"/>
+                    <filter name="group_by_account_moves" string="Account Moves" context="{'group_by': 'account_move_ids'}"/>
+                </search>
+            </field>
+        </record>
+
+    </data>
+</odoo>

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="product_view_kanban_catalog_demand" model="ir.ui.view">
+        <field name="name">product.view.kanban.catalog.demand</field>
+        <field name="model">product.product</field>
+        <field name="inherit_id" ref="product.product_view_kanban_catalog"/>
+        <field name="arch" type="xml">
+            <xpath expr="//div[hasclass('o_kanban_record_top')]" position="inside">
+                <div t-attf-id="product-{{record.id.raw_value}}-demand"
+                     class="d-flex flex-column"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="product_view_search_catalog" model="ir.ui.view">
+        <field name="name">product.view.search.catalog.demand</field>
+        <field name="model">product.product</field>
+        <field name="inherit_id" ref="purchase.product_view_search_catalog"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='seller_ids']" position="after">
+                <field name="account_analytic_ids" string="Seller Contract"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="product_analytic_pivot" model="ir.ui.view">
+        <field name="name">product.analytic.grid</field>
+        <field name="model">product.analytic</field>
+        <field name="inherit_id" ref="sale_demand_vataga.product_analytic_pivot"/>
+        <field name="arch" type="xml">
+            <xpath expr="field[@name='in_invoice']" position="after">
+                <field name="qty_received" type="measure"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>

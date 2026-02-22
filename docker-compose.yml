@@ -1,0 +1,40 @@
+version: "3.2"
+
+volumes:
+  pg13-odoo:
+    driver: local
+
+  odoo-data:
+    driver: local
+  odoo-devc-data:
+    driver: local
+
+services:
+  pg13odoo:
+    image: postgres:16.4
+    environment:
+      - POSTGRES_PASSWORD=odoo
+      - POSTGRES_USER=odoo
+    ports:
+      - "5555:5432"
+    volumes:
+      - pg13-odoo:/var/lib/postgresql/data/
+
+  saas-odoo:
+    tty: true
+    image: erpukraine/odoo-ee-erpu-saas:${O_MAJOR:-17}.0-latest
+    env_file: .env
+    environment:
+      - PASSWORD=odoo
+      - USER=odoo
+      - HOST=pg13odoo
+    depends_on:
+      - pg13odoo
+    ports:
+      - "8069:8069"
+    volumes:
+      - odoo-data:/var/lib/odoo/
+      - odoo-devc-data:/home/vscode/.local/share/Odoo
+      - ./:/mnt/extra-addons
+      - ./odoo-devc.conf:/etc/odoo/odoo.conf
+    # command: odoo --db_host=pg13odoo --log-level=info --workers=0 -w odoo -r odoo

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="cron_create_product_analytic" model="ir.cron">
+        <field name="name">Product Analytic: Auto Create Product Analytic</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">months</field>
+        <field name="numbercall">-1</field>
+        <field name="model_id" ref="sale_demand_vataga.model_product_analytic"/>
+        <field name="code">model._cron_create_product_analytic()</field>
+        <field name="doall" eval="False"/>
+        <field name="state">code</field>
+    </record>
+
+    <record id="cron_update_product_analytic_moves" model="ir.cron">
+        <field name="name">Product Analytic: Auto Update Account Moves</field>
+        <field name="interval_number">10</field>
+        <field name="interval_type">minutes</field>
+        <field name="numbercall">-1</field>
+        <field name="model_id" ref="sale_demand_vataga.model_product_analytic"/>
+        <field name="code">model._cron_sync_account_move_ids()</field>
+        <field name="doall" eval="False"/>
+        <field name="state">code</field>
+    </record>
+
+    <record id="cron_update_need_to_purchase" model="ir.cron">
+        <field name="name">Product Analytic: MRP Bom update to purchase</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">months</field>
+        <field name="numbercall">-1</field>
+        <field name="model_id" ref="sale_demand_vataga.model_mrp_bom"/>
+        <field name="code">model._cron_create_total_product_line_ids()</field>
+        <field name="doall" eval="False"/>
+        <field name="state">code</field>
+    </record>
+</odoo>

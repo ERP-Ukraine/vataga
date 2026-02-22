@@ -1,0 +1,34 @@
+# Translation of Odoo Server.
+# This file contains the translation of the following modules:
+# 	* purchase_contract_vataga
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: Odoo Server 17.0+e-20250508\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2025-06-10 11:44+0000\n"
+"PO-Revision-Date: 2025-06-10 11:44+0000\n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: \n"
+"Plural-Forms: \n"
+
+#. module: purchase_contract_vataga
+#: model:ir.model,name:purchase_contract_vataga.model_account_move
+msgid "Journal Entry"
+msgstr "Запис у журналі"
+
+#. module: purchase_contract_vataga
+#: model:ir.model,name:purchase_contract_vataga.model_purchase_order
+msgid "Purchase Order"
+msgstr "Замовлення на купівлю"
+
+#. module: purchase_contract_vataga
+#: model:ir.model.fields,field_description:purchase_contract_vataga.field_account_bank_statement_line__sale_ua_contract_id
+#: model:ir.model.fields,field_description:purchase_contract_vataga.field_account_move__sale_ua_contract_id
+#: model:ir.model.fields,field_description:purchase_contract_vataga.field_account_payment__sale_ua_contract_id
+#: model:ir.model.fields,field_description:purchase_contract_vataga.field_purchase_order__sale_ua_contract_id
+msgid "Sale contract"
+msgstr "Договір продажу"

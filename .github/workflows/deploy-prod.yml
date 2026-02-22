@@ -1,0 +1,21 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    environment: deploy
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Deploy
+        run: ./deploy-erpu-saas.sh production
+        env:
+          ERPUSAAS_DEPLOY_SECRET: ${{ secrets.ERPUSAAS_DEPLOY_SECRET }}
+          ERPUSAAS_DEPLOY_PROJECT: ${{ vars.ERPUSAAS_DEPLOY_PROJECT }}
+          ERPUSAAS_API_URL: ${{ vars.ERPUSAAS_API_URL }}

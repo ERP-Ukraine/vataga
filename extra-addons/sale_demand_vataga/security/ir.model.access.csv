@@ -1,0 +1,7 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+product_analytic_user,product_analytic_user,model_product_analytic,base.group_user,1,0,0,0
+product_analytic_account_user,product_analytic_account_user,model_product_analytic,account.group_account_user,1,1,1,1
+sale_order_line_purchase_user,sale_order_line_purchase_user,model_sale_order_line_purchase,base.group_user,1,0,0,0
+sale_order_line_purchase_account_user,sale_order_line_purchase_account_user,model_sale_order_line_purchase,account.group_account_user,1,1,1,1
+mrp_bom_purchase_line_user,mrp_bom_purchase_line_user,model_mrp_bom_purchase_line,base.group_user,1,0,0,0
+mrp_bom_purchase_line_account_user,mrp_bom_purchase_line_account_user,model_mrp_bom_purchase_line,account.group_account_user,1,1,1,1

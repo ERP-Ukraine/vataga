@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="purchase_order_form_purchase" model="ir.ui.view">
+        <field name="name">purchase.order.form.purchase</field>
+        <field name="model">purchase.order</field>
+        <field name="inherit_id" ref="purchase_vataga.purchase_order_form_purchase" />
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='cash_flow_item_account_id']" position="after">
+                <field name="sale_ua_contract_id" context="{'default_contract_type': 'sale'}" readonly="state == 'done'" groups="l10n_ua_contract.group_l10n_ua_contract_manager"/>
+            </xpath>
+            <xpath expr="//field[@name='sale_ua_contract_id']" position="after">
+                <field name="sale_ua_contract_id" context="{'default_contract_type': 'sale'}" readonly="state == 'done'" options="{'no_create': True}" groups="!l10n_ua_contract.group_l10n_ua_contract_manager"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="approval_contract_category_view_form_sale_contract" model="ir.ui.view">
+        <field name="name">approval.purchase.category.view.form.sale_contract</field>
+        <field name="model">approval.category</field>
+        <field name="inherit_id" ref="approvals.approval_category_view_form"/>
+        <field name="arch" type="xml">
+            <field name="has_location" position="after">
+                <field name="has_sale_contract" string="Sale contract" widget="radio" options="{'horizontal': true}"/>
+            </field>
+        </field>
+    </record>
+</odoo>

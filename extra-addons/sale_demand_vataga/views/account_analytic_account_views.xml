@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="account_analytic_account_view_form_comment" model="ir.ui.view">
+        <field name="name">account.analytic.account.form.comment</field>
+        <field name="model">account.analytic.account</field>
+        <field name="inherit_id" ref="analytic.view_account_analytic_account_form"/>
+        <field eval="9" name="priority"/>
+        <field name="arch" type="xml">
+            <field name="code" position="after">
+                <field name="seller_analytic_comment"/>
+            </field>
+        </field>
+    </record>
+</odoo>

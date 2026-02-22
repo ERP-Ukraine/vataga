@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="sale_order_tree_deal" model="ir.ui.view">
+        <field name="name">sale.order.tree.deal</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.sale_order_tree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//tree" position="inside">
+                <field name="deal_closed" optional="hide"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_order_form_deal" model="ir.ui.view">
+        <field name="name">view.order.form.deal</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form" />
+        <field name="arch" type="xml">
+            <xpath expr="//group[@name='partner_details']" position="inside">
+                <field name="deal_closed"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>

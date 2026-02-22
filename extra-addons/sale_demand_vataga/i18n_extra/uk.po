@@ -1,0 +1,28 @@
+# Translation of Odoo Server.
+# This file contains the translation of the following modules:
+# 	* l10n_ua_contract_purchase
+# 	* purchase_vataga
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: Odoo Server 17.0+e-20250711\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2025-10-28 12:53+0000\n"
+"PO-Revision-Date: 2025-10-28 12:53+0000\n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: \n"
+"Plural-Forms: \n"
+
+
+#. module: l10n_ua_contract_purchase
+#: model:ir.model.fields,field_description:l10n_ua_contract_purchase.field_purchase_order__ua_contract_id
+msgid "Contract"
+msgstr "Договір Купівлі"
+
+#. module: purchase_vataga
+#: model:ir.model.fields,field_description:purchase_vataga.field_purchase_order__seller_contract_id
+msgid "Seller Contract"
+msgstr "Аналітичний рахунок"

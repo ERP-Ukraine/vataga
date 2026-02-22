@@ -1,0 +1,14 @@
+<odoo>
+    <data>
+        <record id="view_account_analytic_line_pivot_uom_unit" model="ir.ui.view">
+            <field name="name">account.analytic.line.pivot.uom_unit</field>
+            <field name="model">account.analytic.line</field>
+            <field name="inherit_id" ref="account.view_account_analytic_line_pivot"/>
+            <field name="arch" type="xml">
+                <pivot position="inside">
+                    <field name="unit_quantity_amount"/>
+                </pivot>
+            </field>
+        </record>
+    </data>
+</odoo>

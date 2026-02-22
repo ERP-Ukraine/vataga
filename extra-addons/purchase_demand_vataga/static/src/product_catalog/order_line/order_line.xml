@@ -1,0 +1,9 @@
+<templates>
+    <t t-inherit="purchase.ProductCatalogPurchaseOrderLine" t-inherit-mode="extension">
+        <xpath expr="//div[@t-if='props.readOnly and props.warning']" position="before">
+            <t t-portal="`#product-${props.productId}-demand`">
+                <span t-if="props.in_contract" class="o_product_catalog_demand">Demand: <t t-out="demand"/></span>
+            </t>
+        </xpath>
+    </t>
+</templates>

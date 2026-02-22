@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="approval_request_view_form_sale_contract" model="ir.ui.view">
+        <field name="name">approval.request.view.form.sale_contract</field>
+        <field name="model">approval.request</field>
+        <field name="inherit_id" ref="approvals.approval_request_view_form"/>
+        <field name="arch" type="xml">
+            <field name="partner_id" position="after">
+                <field name="has_sale_contract" invisible="1"/>
+                <field name="sale_contract_id" 
+                    invisible="has_sale_contract == 'no'"
+                    required="has_sale_contract == 'required'"
+                    context="{'order_display': 'date_end desc'}"/>
+            </field>
+        </field>
+    </record>
+</odoo>
