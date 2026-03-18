@@ -13,4 +13,5 @@
         'account',
     ],
     'data': ['views/account_analytic_line_views.xml'],
+    'assets': {},
 }

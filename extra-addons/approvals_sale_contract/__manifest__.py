@@ -17,4 +17,5 @@
         'views/approval_request_views.xml',
         'views/approval_category_views.xml',
     ],
+    'assets': {},
 }

@@ -15,4 +15,5 @@
     'data': [],
     'installable': True,
     'application': False,
+    'assets': {},
 }
