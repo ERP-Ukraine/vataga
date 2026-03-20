@@ -15,8 +15,6 @@ services:
     environment:
       - POSTGRES_PASSWORD=odoo
       - POSTGRES_USER=odoo
-    ports:
-      - "5555:5432"
     volumes:
       - pg13-odoo:/var/lib/postgresql/data/
 
