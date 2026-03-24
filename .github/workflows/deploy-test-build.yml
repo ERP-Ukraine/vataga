@@ -19,24 +19,25 @@ jobs:
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
-          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_SSH_KEY_B64: ${{ secrets.VPS_SSH_KEY_B64 }}
         run: |
           [ -n "$VPS_HOST" ] || { echo "VPS_HOST is empty"; exit 1; }
           [ -n "$VPS_USER" ] || { echo "VPS_USER is empty"; exit 1; }
-          [ -n "$VPS_SSH_KEY" ] || { echo "VPS_SSH_KEY is empty"; exit 1; }
+          [ -n "$VPS_SSH_KEY_B64" ] || { echo "VPS_SSH_KEY_B64 is empty"; exit 1; }
           echo "Secrets are present"
 
       - name: Prepare SSH
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_SSH_KEY_B64: ${{ secrets.VPS_SSH_KEY_B64 }}
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
+          echo "$VPS_SSH_KEY_B64" | base64 -d > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
+          ssh-keygen -y -f ~/.ssh/id_ed25519 > /dev/null
           echo "SSH files prepared"
 
       - name: Test SSH connection
