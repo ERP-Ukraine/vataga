@@ -15,14 +15,40 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy to VPS over SSH
+      - name: Check secrets
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
         run: |
+          [ -n "$VPS_HOST" ] || { echo "VPS_HOST is empty"; exit 1; }
+          [ -n "$VPS_USER" ] || { echo "VPS_USER is empty"; exit 1; }
+          [ -n "$VPS_SSH_KEY" ] || { echo "VPS_SSH_KEY is empty"; exit 1; }
+          echo "Secrets are present"
+
+      - name: Prepare SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
           mkdir -p ~/.ssh
-          echo "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
-          ssh -i ~/.ssh/id_ed25519 "$VPS_USER@$VPS_HOST" "cd /root/vataga && ./deploy.sh"
+          chmod 644 ~/.ssh/known_hosts
+          echo "SSH files prepared"
+
+      - name: Test SSH connection
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" "echo SSH_OK && whoami"
+
+      - name: Run deploy script
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes "$VPS_USER@$VPS_HOST" "cd /root/vataga && ./deploy.sh"
