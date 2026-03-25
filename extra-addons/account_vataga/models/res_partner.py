@@ -42,27 +42,39 @@ class ResPartner(models.Model):
         parent_id = values.get("parent_id")
         return company_type == "company" and not parent_id
 
-    def _get_partner_name_format_message(self):
-        activity_forms = ", ".join(self._ACTIVITY_FORMS)
-        return _(
-            "Назва контрагента зберігається у верхньому регістрі з одним пробілом між словами та без спецсимволів. "
-            "Дозволені лише літери, цифри, пробіл, '+' та '-'. "
-            "Якщо назва містить кирилицю, вона має завершуватися однією з форм діяльності: %s. "
-            "Приклади: 'ВАТАГА ТОВ', 'ІВАНЕНКО ІВАН ІВАНОВИЧ ФОП', 'VATAGA TRADE LLC'."
-        ) % activity_forms
-
     def _is_allowed_partner_name_character(self, char):
         return char.isalpha() or char.isdigit() or char in {" ", "+", "-"}
+
+    def _contains_lowercase_letters(self, name):
+        return any(char.isalpha() and char != char.upper() for char in name)
+
+    def _get_uppercase_message(self):
+        return _("Назву необхідно вводити ВЕЛИКИМИ ЛІТЕРАМИ (верхній регістр).")
+
+    def _get_activity_form_message(self):
+        return _(
+            "Для назв кирилицею обов’язково вкажіть форму власності (наприклад, ТОВ, ФОП)."
+        )
+
+    def _get_special_characters_message(self):
+        return _(
+            "Дозволені спецсимволи: «+», «-» або дефіс. Будь ласка, видаліть інші символи з назви."
+        )
 
     def _get_partner_name_validation_error(self, name):
         if not name:
             return False
-        if name != self._normalize_partner_name(name):
-            return self._get_partner_name_format_message()
+        if self._contains_lowercase_letters(name):
+            return self._get_uppercase_message()
         if any(not self._is_allowed_partner_name_character(char) for char in name):
-            return self._get_partner_name_format_message()
-        if self._CYRILLIC_RE.search(name) and not self._ACTIVITY_FORM_RE.search(name):
-            return self._get_partner_name_format_message()
+            return self._get_special_characters_message()
+
+        normalized_name = self._normalize_partner_name(name)
+        if (
+            self._CYRILLIC_RE.search(normalized_name)
+            and not self._ACTIVITY_FORM_RE.search(normalized_name)
+        ):
+            return self._get_activity_form_message()
         return False
 
     def _should_validate_counterparty_name(self):
@@ -122,9 +134,9 @@ class ResPartner(models.Model):
         if not self._should_validate_counterparty_name():
             return
 
-        self.name = self._normalize_partner_name(self.name)
-
-        error_message = self._get_partner_name_validation_error(self.name)
+        entered_name = self.name
+        error_message = self._get_partner_name_validation_error(entered_name)
+        self.name = self._normalize_partner_name(entered_name)
         if error_message:
             return {
                 "warning": {

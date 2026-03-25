@@ -14,7 +14,10 @@ class TestPartnerNameValidation(TransactionCase):
         self.assertEqual(partner.name, "VATAGA TRADE LLC")
 
     def test_cyrillic_name_requires_activity_form(self):
-        with self.assertRaises(ValidationError):
+        with self.assertRaisesRegex(
+            ValidationError,
+            "Для назв кирилицею обов’язково вкажіть форму власності",
+        ):
             self.env["res.partner"].create({
                 "name": "ВАТАГА",
                 "company_type": "company",
@@ -37,11 +40,17 @@ class TestPartnerNameValidation(TransactionCase):
         partner.write({"name": "  muller   logistik  "})
         self.assertEqual(partner.name, "MULLER LOGISTIK")
 
-        with self.assertRaises(ValidationError):
+        with self.assertRaisesRegex(
+            ValidationError,
+            "Для назв кирилицею обов’язково вкажіть форму власності",
+        ):
             partner.write({"name": "ВАТАГА"})
 
     def test_invalid_symbols_are_rejected(self):
-        with self.assertRaises(ValidationError):
+        with self.assertRaisesRegex(
+            ValidationError,
+            "Дозволені спецсимволи",
+        ):
             self.env["res.partner"].create({
                 "name": "VATAGA/TRADE LLC",
                 "company_type": "company",
@@ -81,7 +90,10 @@ class TestPartnerNameValidation(TransactionCase):
         )
 
     def test_name_ending_with_letters_at_is_not_activity_form(self):
-        with self.assertRaises(ValidationError):
+        with self.assertRaisesRegex(
+            ValidationError,
+            "Для назв кирилицею обов’язково вкажіть форму власності",
+        ):
             self.env["res.partner"].create({
                 "name": "КОМБІНАТ",
                 "company_type": "company",
@@ -106,6 +118,39 @@ class TestPartnerNameValidation(TransactionCase):
         self.assertEqual(partner.name, "ВАТАГА")
         self.assertTrue(result)
         self.assertIn("warning", result)
+        self.assertEqual(
+            result["warning"]["message"],
+            "Назву необхідно вводити ВЕЛИКИМИ ЛІТЕРАМИ (верхній регістр).",
+        )
+
+    def test_onchange_returns_warning_for_missing_activity_form(self):
+        partner = self.env["res.partner"].new({
+            "name": "ВАТАГА",
+            "company_type": "company",
+        })
+
+        result = partner._onchange_partner_name_format()
+
+        self.assertTrue(result)
+        self.assertEqual(
+            result["warning"]["message"],
+            "Для назв кирилицею обов’язково вкажіть форму власності (наприклад, ТОВ, ФОП).",
+        )
+
+    def test_onchange_returns_warning_for_special_characters(self):
+        partner = self.env["res.partner"].new({
+            "name": "VATAGA/TRADE LLC",
+            "company_type": "company",
+        })
+
+        result = partner._onchange_partner_name_format()
+
+        self.assertEqual(partner.name, "VATAGA/TRADE LLC")
+        self.assertTrue(result)
+        self.assertEqual(
+            result["warning"]["message"],
+            "Дозволені спецсимволи: «+», «-» або дефіс. Будь ласка, видаліть інші символи з назви.",
+        )
 
     def test_onchange_skips_warning_for_child_contact(self):
         company = self.env["res.partner"].create({
