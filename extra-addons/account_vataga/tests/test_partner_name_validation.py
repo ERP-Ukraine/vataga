@@ -115,12 +115,13 @@ class TestPartnerNameValidation(TransactionCase):
 
         result = partner._onchange_partner_name_format()
 
-        self.assertEqual(partner.name, "ВАТАГА")
+        self.assertEqual(partner.name, "ватага")
         self.assertTrue(result)
         self.assertIn("warning", result)
         self.assertEqual(
             result["warning"]["message"],
-            "Назву необхідно вводити ВЕЛИКИМИ ЛІТЕРАМИ (верхній регістр).",
+            "Назву необхідно вводити ВЕЛИКИМИ ЛІТЕРАМИ (верхній регістр).\n"
+            "Для назв кирилицею обов’язково вкажіть форму власності (наприклад, ТОВ, ФОП).",
         )
 
     def test_onchange_returns_warning_for_missing_activity_form(self):

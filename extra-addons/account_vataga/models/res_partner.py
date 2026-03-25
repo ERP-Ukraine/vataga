@@ -61,21 +61,27 @@ class ResPartner(models.Model):
             "Дозволені спецсимволи: «+», «-» або дефіс. Будь ласка, видаліть інші символи з назви."
         )
 
-    def _get_partner_name_validation_error(self, name):
+    def _get_partner_name_validation_messages(self, name):
         if not name:
-            return False
+            return []
+
+        messages = []
         if self._contains_lowercase_letters(name):
-            return self._get_uppercase_message()
+            messages.append(self._get_uppercase_message())
         if any(not self._is_allowed_partner_name_character(char) for char in name):
-            return self._get_special_characters_message()
+            messages.append(self._get_special_characters_message())
 
         normalized_name = self._normalize_partner_name(name)
         if (
             self._CYRILLIC_RE.search(normalized_name)
             and not self._ACTIVITY_FORM_RE.search(normalized_name)
         ):
-            return self._get_activity_form_message()
-        return False
+            messages.append(self._get_activity_form_message())
+        return messages
+
+    def _get_partner_name_validation_error(self, name):
+        messages = self._get_partner_name_validation_messages(name)
+        return "\n".join(messages) if messages else False
 
     def _should_validate_counterparty_name(self):
         self.ensure_one()
@@ -136,7 +142,8 @@ class ResPartner(models.Model):
 
         entered_name = self.name
         error_message = self._get_partner_name_validation_error(entered_name)
-        self.name = self._normalize_partner_name(entered_name)
+        if not error_message:
+            self.name = self._normalize_partner_name(entered_name)
         if error_message:
             return {
                 "warning": {
