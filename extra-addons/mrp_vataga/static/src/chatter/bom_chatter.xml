@@ -1,0 +1,21 @@
+<templates>
+    <t t-inherit="mail.Chatter" t-inherit-mode="extension">
+        <xpath expr="//div[hasclass('o-mail-Chatter-topbar')]//span[hasclass('o-mail-Chatter-topbarGrow')]" position="before">
+            <button
+                t-if="showBomAutologToggle"
+                type="button"
+                class="o-mail-Chatter-bomAutologToggle btn text-nowrap me-1"
+                t-att-class="{
+                    'btn-secondary': bomAutologsEnabled,
+                    'btn-outline-secondary': !bomAutologsEnabled,
+                    'my-2': !props.compactHeight,
+                }"
+                t-att-title="bomAutologButtonLabel"
+                t-on-click="toggleBomAutologs"
+            >
+                <i class="me-1" t-att-class="bomAutologButtonIconClass"/>
+                <span t-out="bomAutologButtonLabel"/>
+            </button>
+        </xpath>
+    </t>
+</templates>

@@ -1,21 +1,110 @@
 from odoo import _, api, fields, models
 
 
+AUTOLOG_SKIP_CONTEXT_KEY = 'mrp_vataga_skip_bom_autologs'
+
+
 class MrpBom(models.Model):
     _inherit = 'mrp.bom'
 
-    product_tmpl_id = fields.Many2one('product.template', tracking=True)
-    product_id = fields.Many2one('product.product', tracking=True)
-    product_qty = fields.Float(tracking=True)
-    product_uom_id = fields.Many2one('uom.uom', tracking=True)
-    type = fields.Selection(tracking=True)
-    company_id = fields.Many2one('res.company', tracking=True)
+    bom_autologs_enabled = fields.Boolean(default=True)
+
+    _autolog_tracked_fields = (
+        'product_tmpl_id',
+        'product_id',
+        'product_qty',
+        'product_uom_id',
+        'type',
+        'company_id',
+    )
+
+    def _should_skip_bom_autologs(self):
+        return self.env.context.get(AUTOLOG_SKIP_CONTEXT_KEY)
+
+    def _get_bom_autolog_fields(self, vals):
+        return [field_name for field_name in self._autolog_tracked_fields if field_name in vals]
+
+    def _format_bom_autolog_value(self, field_name):
+        self.ensure_one()
+        field = self._fields[field_name]
+        value = self[field_name]
+
+        if field.type == 'many2one':
+            return value.display_name or _("Empty")
+        if field.type == 'selection':
+            selection = field._description_selection(self.env)
+            return dict(selection).get(value, value or _("Empty"))
+        if field.type == 'boolean':
+            return _("Yes") if value else _("No")
+        if field.type == 'date':
+            return fields.Date.to_string(value) if value else _("Empty")
+        if field.type == 'datetime':
+            return fields.Datetime.to_string(value) if value else _("Empty")
+        if value in (False, None, ''):
+            return _("Empty")
+        return str(value)
+
+    def _post_bom_autolog(self, body):
+        self.ensure_one()
+        if self._should_skip_bom_autologs() or not self.bom_autologs_enabled:
+            return self.env['mail.message']
+        message = self.message_post(body=body, subtype_xmlid='mail.mt_note')
+        message.is_bom_autolog = True
+        return message
+
+    def write(self, vals):
+        tracked_fields = self._get_bom_autolog_fields(vals)
+        tracked_values = {
+            bom.id: {
+                field_name: bom._format_bom_autolog_value(field_name)
+                for field_name in tracked_fields
+            }
+            for bom in self
+        }
+        res = super().write(vals)
+        if self._should_skip_bom_autologs():
+            return res
+        for bom in self.filtered('bom_autologs_enabled'):
+            changes = []
+            for field_name in tracked_fields:
+                old_value = tracked_values[bom.id][field_name]
+                new_value = bom._format_bom_autolog_value(field_name)
+                if old_value == new_value:
+                    continue
+                field_label = bom._fields[field_name].string or field_name
+                changes.append(
+                    _("%(field)s: %(old)s -> %(new)s") % {
+                        'field': field_label,
+                        'old': old_value,
+                        'new': new_value,
+                    }
+                )
+            if changes:
+                bom._post_bom_autolog(
+                    _("Specification updated: %(changes)s") % {
+                        'changes': '; '.join(changes),
+                    }
+                )
+        return res
+
+    def copy(self, default=None):
+        return super(
+            MrpBom, self.with_context(**{AUTOLOG_SKIP_CONTEXT_KEY: True})
+        ).copy(default=default)
 
 
 class MrpBomLine(models.Model):
     _inherit = 'mrp.bom.line'
 
-    _tracking_ignored_fields = {'write_date', 'write_uid', '__last_update', 'display_name'}
+    _tracking_ignored_fields = {
+        'bom_id',
+        'company_id',
+        'display_name',
+        'sequence',
+        'write_date',
+        'write_uid',
+        '__last_update',
+    }
 
     def _tracked_component_fields(self, vals):
         fields_to_track = []
@@ -51,9 +140,11 @@ class MrpBomLine(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         lines = super().create(vals_list)
-        for line in lines.filtered('bom_id'):
-            line.bom_id.message_post(
-                body=_("Component added: %(product)s, quantity: %(qty)s %(uom)s") % {
+        if self.env.context.get(AUTOLOG_SKIP_CONTEXT_KEY):
+            return lines
+        for line in lines.filtered(lambda line: line.bom_id and line.bom_id.bom_autologs_enabled):
+            line.bom_id._post_bom_autolog(
+                _("Component added: %(product)s, quantity: %(qty)s %(uom)s") % {
                     'product': line.product_id.display_name or _("Empty"),
                     'qty': line.product_qty,
                     'uom': line.product_uom_id.display_name or _("Empty"),
@@ -71,7 +162,9 @@ class MrpBomLine(models.Model):
             for line in self
         }
         res = super().write(vals)
-        for line in self.filtered('bom_id'):
+        if self.env.context.get(AUTOLOG_SKIP_CONTEXT_KEY):
+            return res
+        for line in self.filtered(lambda line: line.bom_id and line.bom_id.bom_autologs_enabled):
             changes = []
             for field_name in tracked_fields:
                 old_value = tracked_values[line.id][field_name]
@@ -87,8 +180,8 @@ class MrpBomLine(models.Model):
                     }
                 )
             if changes:
-                line.bom_id.message_post(
-                    body=_("Component updated: %(component)s (%(changes)s)") % {
+                line.bom_id._post_bom_autolog(
+                    _("Component updated: %(component)s (%(changes)s)") % {
                         'component': line.product_id.display_name or _("Empty"),
                         'changes': '; '.join(changes),
                     }
@@ -96,6 +189,8 @@ class MrpBomLine(models.Model):
         return res
 
     def unlink(self):
+        if self.env.context.get(AUTOLOG_SKIP_CONTEXT_KEY):
+            return super().unlink()
         log_messages = [
             (
                 line.bom_id,
@@ -105,9 +200,9 @@ class MrpBomLine(models.Model):
                     'uom': line.product_uom_id.display_name or _("Empty"),
                 },
             )
-            for line in self.filtered('bom_id')
+            for line in self.filtered(lambda line: line.bom_id and line.bom_id.bom_autologs_enabled)
         ]
         res = super().unlink()
         for bom, message in log_messages:
-            bom.message_post(body=message)
+            bom._post_bom_autolog(body=message)
         return res

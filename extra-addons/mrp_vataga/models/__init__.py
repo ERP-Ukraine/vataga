@@ -1,1 +1,1 @@
-from . import mrp_bom, mrp_production
+from . import mail_message, mrp_bom, mrp_production

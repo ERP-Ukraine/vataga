@@ -12,8 +12,15 @@
     'license': 'LGPL-3',
     'auto_install': True,
     'demo': [],
-    'data': [],
+    'data': [
+        'views/mrp_bom_views.xml',
+    ],
     'installable': True,
     'application': False,
-    'assets': {},
+    'assets': {
+        'web.assets_backend': [
+            'mrp_vataga/static/src/chatter/bom_chatter.xml',
+            'mrp_vataga/static/src/chatter/bom_chatter.js',
+        ]
+    },
 }
