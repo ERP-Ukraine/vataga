@@ -5,7 +5,7 @@
         <field name="model">mrp.bom</field>
         <field name="inherit_id" ref="mrp.mrp_bom_form_view"/>
         <field name="arch" type="xml">
-            <xpath expr="//div[@class='oe_chatter']" position="inside">
+            <xpath expr="//div[hasclass('oe_chatter')]" position="inside">
                 <field name="bom_autologs_enabled" invisible="1"/>
             </xpath>
         </field>

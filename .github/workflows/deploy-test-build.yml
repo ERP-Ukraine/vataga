@@ -53,3 +53,17 @@ jobs:
           VPS_USER: ${{ secrets.VPS_USER }}
         run: |
           ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes "$VPS_USER@$VPS_HOST" "cd /root/vataga && ./deploy.sh"
+
+      - name: Upgrade mrp_vataga after deploy
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes "$VPS_USER@$VPS_HOST" "
+            set -e
+            cd /root/vataga
+            docker compose stop saas-odoo
+            docker compose run --rm saas-odoo odoo -c /etc/odoo/odoo.conf -d odoo-ui -u mrp_vataga --stop-after-init
+            docker compose exec -T pg13odoo psql -U odoo -d odoo-ui -Atc \"SELECT column_name FROM information_schema.columns WHERE table_name = 'mrp_bom' AND column_name = 'bom_autologs_enabled';\" | grep -qx 'bom_autologs_enabled'
+            docker compose up -d saas-odoo
+          "
