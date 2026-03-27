@@ -15,15 +15,9 @@ class MrpBomThreadController(http.Controller):
         if thread_model == "mrp.bom":
             bom = request.env[thread_model].with_context(active_test=False).browse(thread_id).exists()
             if bom and not bom.bom_autologs_enabled:
-                domain.extend(
-                    [
-                        ("tracking_value_ids", "=", False),
-                        ("is_bom_autolog", "=", False),
-                        ("body", "not ilike", "Component added:"),
-                        ("body", "not ilike", "Component updated:"),
-                        ("body", "not ilike", "Component removed:"),
-                    ]
-                )
+                autolog_subtype = request.env.ref('mrp_vataga.mt_bom_autolog', raise_if_not_found=False)
+                if autolog_subtype:
+                    domain.append(("subtype_id", "!=", autolog_subtype.id))
         res = request.env["mail.message"]._message_fetch(
             domain, search_term=search_term, before=before, after=after, around=around, limit=limit
         )

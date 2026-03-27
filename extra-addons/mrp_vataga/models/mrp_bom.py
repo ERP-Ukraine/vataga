@@ -48,9 +48,10 @@ class MrpBom(models.Model):
         self.ensure_one()
         if self._should_skip_bom_autologs() or not self.bom_autologs_enabled:
             return self.env['mail.message']
-        message = self.message_post(body=body, subtype_xmlid='mail.mt_note')
-        message.is_bom_autolog = True
-        return message
+        return self.message_post(
+            body=body,
+            subtype_xmlid='mrp_vataga.mt_bom_autolog',
+        )
 
     def write(self, vals):
         tracked_fields = self._get_bom_autolog_fields(vals)

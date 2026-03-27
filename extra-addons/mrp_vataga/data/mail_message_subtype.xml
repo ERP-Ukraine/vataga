@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="mt_bom_autolog" model="mail.message.subtype">
+        <field name="name">BoM Autolog</field>
+        <field name="description">Automatic BoM change log</field>
+        <field name="res_model">mrp.bom</field>
+        <field name="default" eval="False"/>
+        <field name="internal" eval="True"/>
+    </record>
+</odoo>
