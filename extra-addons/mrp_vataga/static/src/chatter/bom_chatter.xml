@@ -4,7 +4,7 @@
             <button
                 t-if="showBomAutologToggle"
                 type="button"
-                class="o-mail-Chatter-bomAutologToggle btn text-nowrap ms-2 me-1"
+                class="o-mail-Chatter-bomAutologToggle btn text-nowrap me-1"
                 t-att-class="{
                     'btn-secondary': bomAutologsEnabled,
                     'btn-outline-secondary': !bomAutologsEnabled,
