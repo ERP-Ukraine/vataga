@@ -63,7 +63,6 @@ jobs:
             set -e
             cd /root/vataga
             docker compose stop saas-odoo
-            docker compose run --rm saas-odoo odoo -c /etc/odoo/odoo.conf -d odoo-ui -u mrp_vataga --stop-after-init
-            docker compose exec -T pg13odoo psql -U odoo -d odoo-ui -Atc \"SELECT column_name FROM information_schema.columns WHERE table_name = 'mrp_bom' AND column_name = 'bom_autologs_enabled';\" | grep -qx 'bom_autologs_enabled'
+            docker compose run --rm --entrypoint bash saas-odoo -lc 'odoo -c /etc/odoo/odoo.conf -d odoo-ui -u mrp_vataga --stop-after-init'
             docker compose up -d saas-odoo
           "
