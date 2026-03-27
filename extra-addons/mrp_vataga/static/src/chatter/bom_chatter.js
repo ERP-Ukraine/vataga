@@ -4,7 +4,6 @@ import { Chatter } from "@mail/core/web/chatter";
 import { ThreadService } from "@mail/core/common/thread_service";
 
 import { browser } from "@web/core/browser/browser";
-import { _t } from "@web/core/l10n/translation";
 import { patch } from "@web/core/utils/patch";
 
 const BOM_AUTOLOGS_HIDDEN_KEY = "mrp_vataga.hide_bom_autologs";
@@ -14,29 +13,35 @@ function areBomAutologsHidden() {
 }
 
 patch(Chatter.prototype, {
+    setup() {
+        super.setup(...arguments);
+        this.state.hideBomAutologs = areBomAutologsHidden();
+    },
+
     get showBomAutologToggle() {
         return this.props.threadModel === "mrp.bom" && Boolean(this.props.threadId);
     },
 
     get bomAutologsEnabled() {
-        return this.showBomAutologToggle && !areBomAutologsHidden();
+        return this.showBomAutologToggle && !this.state.hideBomAutologs;
     },
 
     get bomAutologButtonLabel() {
-        return this.bomAutologsEnabled ? _t("Hide autologs") : _t("Show autologs");
+        return this.bomAutologsEnabled ? "Автологи: вкл." : "Автологи: выкл.";
     },
 
     get bomAutologButtonIconClass() {
-        return this.bomAutologsEnabled ? "fa fa-eye-slash" : "fa fa-eye";
+        return this.bomAutologsEnabled ? "fa fa-toggle-on" : "fa fa-toggle-off";
     },
 
     async toggleBomAutologs() {
         if (!this.showBomAutologToggle) {
             return;
         }
+        this.state.hideBomAutologs = !this.state.hideBomAutologs;
         browser.localStorage.setItem(
             BOM_AUTOLOGS_HIDDEN_KEY,
-            this.bomAutologsEnabled ? "1" : "0"
+            this.state.hideBomAutologs ? "1" : "0"
         );
         Object.assign(this.state.thread, {
             isLoaded: false,

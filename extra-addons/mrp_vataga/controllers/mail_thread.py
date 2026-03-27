@@ -3,6 +3,13 @@ from odoo.http import request
 
 
 class MrpBomThreadController(http.Controller):
+    _BOM_AUTOLOG_BODY_PREFIXES = (
+        "Specification updated:",
+        "Component added:",
+        "Component updated:",
+        "Component removed:",
+    )
+
     @http.route("/mrp_vataga/mail/thread/messages", methods=["POST"], type="json", auth="user")
     def mrp_bom_thread_messages(
         self,
@@ -24,6 +31,9 @@ class MrpBomThreadController(http.Controller):
             autolog_subtype = request.env.ref('mrp_vataga.mt_bom_autolog', raise_if_not_found=False)
             if autolog_subtype:
                 domain.append(("subtype_id", "!=", autolog_subtype.id))
+            domain.append(("tracking_value_ids", "=", False))
+            for prefix in self._BOM_AUTOLOG_BODY_PREFIXES:
+                domain.append(("body", "not ilike", prefix))
         res = request.env["mail.message"]._message_fetch(
             domain, search_term=search_term, before=before, after=after, around=around, limit=limit
         )
