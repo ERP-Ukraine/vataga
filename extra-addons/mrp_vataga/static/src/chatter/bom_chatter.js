@@ -27,7 +27,7 @@ patch(Chatter.prototype, {
     },
 
     get bomAutologButtonLabel() {
-        return this.bomAutologsEnabled ? "Автологи: вкл." : "Автологи: выкл.";
+        return this.bomAutologsEnabled ? "Автологи: увімк." : "Автологи: вимк.";
     },
 
     get bomAutologButtonIconClass() {
