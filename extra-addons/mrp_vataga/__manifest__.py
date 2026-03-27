@@ -14,7 +14,6 @@
     'demo': [],
     'data': [
         'data/mail_message_subtype.xml',
-        'views/mrp_bom_views.xml',
     ],
     'installable': True,
     'application': False,

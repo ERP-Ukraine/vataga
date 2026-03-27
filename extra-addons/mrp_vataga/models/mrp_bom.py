@@ -7,8 +7,6 @@ AUTOLOG_SKIP_CONTEXT_KEY = 'mrp_vataga_skip_bom_autologs'
 class MrpBom(models.Model):
     _inherit = 'mrp.bom'
 
-    bom_autologs_enabled = fields.Boolean(default=True)
-
     _autolog_tracked_fields = (
         'product_tmpl_id',
         'product_id',
@@ -46,7 +44,7 @@ class MrpBom(models.Model):
 
     def _post_bom_autolog(self, body):
         self.ensure_one()
-        if self._should_skip_bom_autologs() or not self.bom_autologs_enabled:
+        if self._should_skip_bom_autologs():
             return self.env['mail.message']
         return self.message_post(
             body=body,
@@ -65,7 +63,7 @@ class MrpBom(models.Model):
         res = super().write(vals)
         if self._should_skip_bom_autologs():
             return res
-        for bom in self.filtered('bom_autologs_enabled'):
+        for bom in self:
             changes = []
             for field_name in tracked_fields:
                 old_value = tracked_values[bom.id][field_name]
@@ -143,7 +141,7 @@ class MrpBomLine(models.Model):
         lines = super().create(vals_list)
         if self.env.context.get(AUTOLOG_SKIP_CONTEXT_KEY):
             return lines
-        for line in lines.filtered(lambda line: line.bom_id and line.bom_id.bom_autologs_enabled):
+        for line in lines.filtered('bom_id'):
             line.bom_id._post_bom_autolog(
                 _("Component added: %(product)s, quantity: %(qty)s %(uom)s") % {
                     'product': line.product_id.display_name or _("Empty"),
@@ -165,7 +163,7 @@ class MrpBomLine(models.Model):
         res = super().write(vals)
         if self.env.context.get(AUTOLOG_SKIP_CONTEXT_KEY):
             return res
-        for line in self.filtered(lambda line: line.bom_id and line.bom_id.bom_autologs_enabled):
+        for line in self.filtered('bom_id'):
             changes = []
             for field_name in tracked_fields:
                 old_value = tracked_values[line.id][field_name]
@@ -201,7 +199,7 @@ class MrpBomLine(models.Model):
                     'uom': line.product_uom_id.display_name or _("Empty"),
                 },
             )
-            for line in self.filtered(lambda line: line.bom_id and line.bom_id.bom_autologs_enabled)
+            for line in self.filtered('bom_id')
         ]
         res = super().unlink()
         for bom, message in log_messages:
