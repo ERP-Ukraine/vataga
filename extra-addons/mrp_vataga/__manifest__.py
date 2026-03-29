@@ -21,6 +21,7 @@
         'web.assets_backend': [
             'mrp_vataga/static/src/chatter/bom_chatter.xml',
             'mrp_vataga/static/src/chatter/bom_chatter.js',
+            'mrp_vataga/static/src/chatter/bom_chatter.scss',
         ]
     },
 }
