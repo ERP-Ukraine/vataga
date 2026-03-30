@@ -4,15 +4,18 @@
             <button
                 t-if="showBomAutologToggle"
                 type="button"
-                class="o-mail-Chatter-bomAutologToggle btn btn-link text-action px-1 d-flex align-items-center"
+                class="o-mail-Chatter-bomAutologToggle btn text-nowrap mx-1 px-2"
                 t-att-class="{
+                    'btn-secondary': bomAutologsEnabled,
+                    'btn-outline-secondary': !bomAutologsEnabled,
                     'my-2': !props.compactHeight,
                 }"
                 t-att-title="bomAutologButtonLabel"
                 t-att-aria-label="bomAutologButtonLabel"
                 t-on-click="toggleBomAutologs"
             >
-                <i t-att-class="bomAutologButtonIconClass"/>
+                <i class="me-1" t-att-class="bomAutologButtonIconClass"/>
+                <span t-out="bomAutologButtonLabel"/>
             </button>
         </xpath>
     </t>
