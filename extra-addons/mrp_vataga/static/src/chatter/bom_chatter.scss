@@ -1,5 +1,9 @@
 .o-mail-Chatter-topbar:has(.o-mail-Chatter-bomAutologToggle) {
-    container-type: inline-size;
+    padding-left: 0.5rem !important;
+    padding-right: 0.5rem !important;
+    overflow-x: hidden;
+    overflow-y: hidden;
+    flex-wrap: nowrap;
     scrollbar-width: none;
 }
 
@@ -9,19 +13,25 @@
 
 .o-mail-Chatter-topbar:has(.o-mail-Chatter-bomAutologToggle) > .flex-grow-1 {
     min-width: 0;
+    flex-wrap: nowrap;
 }
 
-@container (max-width: 900px) {
-    .o-mail-Chatter-bomAutologToggle {
-        padding-left: 0.625rem;
-        padding-right: 0.625rem;
-    }
+.o-mail-Chatter-topbar:has(.o-mail-Chatter-bomAutologToggle) .o-mail-Chatter-topbarGrow {
+    min-width: 0;
+}
 
-    .o-mail-Chatter-bomAutologToggle span {
-        display: none;
-    }
+.o-mail-Chatter-topbar:has(.o-mail-Chatter-bomAutologToggle) > .btn,
+.o-mail-Chatter-topbar:has(.o-mail-Chatter-bomAutologToggle) > .flex-grow-1 > .btn,
+.o-mail-Chatter-topbar:has(.o-mail-Chatter-bomAutologToggle) > .flex-grow-1 > .o-dropdown,
+.o-mail-Chatter-topbar:has(.o-mail-Chatter-bomAutologToggle) > .flex-grow-1 > span > .btn {
+    margin-left: 0.25rem !important;
+    margin-right: 0.25rem !important;
+}
 
-    .o-mail-Chatter-bomAutologToggle i {
-        margin-right: 0 !important;
-    }
+.o-mail-Chatter-bomAutologToggle {
+    min-width: auto;
+}
+
+.o-mail-Chatter-bomAutologToggle i {
+    margin-right: 0 !important;
 }

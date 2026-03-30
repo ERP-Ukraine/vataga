@@ -28,18 +28,18 @@ class MrpBom(models.Model):
         value = self[field_name]
 
         if field.type == 'many2one':
-            return value.display_name or _("Empty")
+            return value.display_name or _("Порожньо")
         if field.type == 'selection':
             selection = field._description_selection(self.env)
-            return dict(selection).get(value, value or _("Empty"))
+            return dict(selection).get(value, value or _("Порожньо"))
         if field.type == 'boolean':
-            return _("Yes") if value else _("No")
+            return _("Так") if value else _("Ні")
         if field.type == 'date':
-            return fields.Date.to_string(value) if value else _("Empty")
+            return fields.Date.to_string(value) if value else _("Порожньо")
         if field.type == 'datetime':
-            return fields.Datetime.to_string(value) if value else _("Empty")
+            return fields.Datetime.to_string(value) if value else _("Порожньо")
         if value in (False, None, ''):
-            return _("Empty")
+            return _("Порожньо")
         return str(value)
 
     def _post_bom_autolog(self, body):
@@ -80,7 +80,7 @@ class MrpBom(models.Model):
                 )
             if changes:
                 bom._post_bom_autolog(
-                    _("Specification updated: %(changes)s") % {
+                    _("Специфікацію змінено: %(changes)s") % {
                         'changes': '; '.join(changes),
                     }
                 )
@@ -122,18 +122,18 @@ class MrpBomLine(models.Model):
         value = self[field_name]
 
         if field.type == 'many2one':
-            return value.display_name or _("Empty")
+            return value.display_name or _("Порожньо")
         if field.type == 'selection':
             selection = field._description_selection(self.env)
-            return dict(selection).get(value, value or _("Empty"))
+            return dict(selection).get(value, value or _("Порожньо"))
         if field.type == 'boolean':
-            return _("Yes") if value else _("No")
+            return _("Так") if value else _("Ні")
         if field.type == 'date':
-            return fields.Date.to_string(value) if value else _("Empty")
+            return fields.Date.to_string(value) if value else _("Порожньо")
         if field.type == 'datetime':
-            return fields.Datetime.to_string(value) if value else _("Empty")
+            return fields.Datetime.to_string(value) if value else _("Порожньо")
         if value in (False, None, ''):
-            return _("Empty")
+            return _("Порожньо")
         return str(value)
 
     @api.model_create_multi
@@ -143,10 +143,10 @@ class MrpBomLine(models.Model):
             return lines
         for line in lines.filtered('bom_id'):
             line.bom_id._post_bom_autolog(
-                _("Component added: %(product)s, quantity: %(qty)s %(uom)s") % {
-                    'product': line.product_id.display_name or _("Empty"),
+                _("Додано компонент: %(product)s, кількість: %(qty)s %(uom)s") % {
+                    'product': line.product_id.display_name or _("Порожньо"),
                     'qty': line.product_qty,
-                    'uom': line.product_uom_id.display_name or _("Empty"),
+                    'uom': line.product_uom_id.display_name or _("Порожньо"),
                 }
             )
         return lines
@@ -180,8 +180,7 @@ class MrpBomLine(models.Model):
                 )
             if changes:
                 line.bom_id._post_bom_autolog(
-                    _("Component updated: %(component)s (%(changes)s)") % {
-                        'component': line.product_id.display_name or _("Empty"),
+                    _("Змінено компонент: %(changes)s") % {
                         'changes': '; '.join(changes),
                     }
                 )
@@ -193,10 +192,10 @@ class MrpBomLine(models.Model):
         log_messages = [
             (
                 line.bom_id,
-                _("Component removed: %(product)s, quantity: %(qty)s %(uom)s") % {
-                    'product': line.product_id.display_name or _("Empty"),
+                _("Видалено компонент: %(product)s, кількість: %(qty)s %(uom)s") % {
+                    'product': line.product_id.display_name or _("Порожньо"),
                     'qty': line.product_qty,
-                    'uom': line.product_uom_id.display_name or _("Empty"),
+                    'uom': line.product_uom_id.display_name or _("Порожньо"),
                 },
             )
             for line in self.filtered('bom_id')

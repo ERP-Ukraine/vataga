@@ -8,6 +8,10 @@ class MrpBomThreadController(http.Controller):
         "Component added:",
         "Component updated:",
         "Component removed:",
+        "Специфікацію змінено:",
+        "Додано компонент:",
+        "Змінено компонент:",
+        "Видалено компонент:",
     )
 
     @http.route("/mrp_vataga/mail/thread/messages", methods=["POST"], type="json", auth="user")
