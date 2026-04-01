@@ -22,6 +22,8 @@
             'mrp_vataga/static/src/chatter/bom_chatter.xml',
             'mrp_vataga/static/src/chatter/bom_chatter.js',
             'mrp_vataga/static/src/chatter/bom_chatter.scss',
+            'mrp_vataga/static/src/bom_overview/bom_overview_filter.xml',
+            'mrp_vataga/static/src/bom_overview/bom_overview_filter.js',
         ]
     },
 }

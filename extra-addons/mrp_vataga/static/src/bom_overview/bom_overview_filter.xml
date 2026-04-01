@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t
+        t-name="mrp_vataga.BomOverviewComponent"
+        t-inherit="mrp.BomOverviewComponent"
+        t-inherit-mode="extension"
+    >
+        <xpath expr="//BomOverviewControlPanel" position="attributes">
+            <attribute name="currentAvailabilityFilter">state.availabilityFilter</attribute>
+            <attribute name="changeAvailabilityFilter.bind">onChangeAvailabilityFilter</attribute>
+        </xpath>
+        <xpath expr="//BomOverviewTable" position="attributes">
+            <attribute name="data">filteredBomData</attribute>
+        </xpath>
+    </t>
+
+    <t
+        t-name="mrp_vataga.BomOverviewControlPanel"
+        t-inherit="mrp.BomOverviewControlPanel"
+        t-inherit-mode="extension"
+    >
+        <xpath
+            expr="//t[@t-set-slot='control-panel-navigation-additional']//BomOverviewDisplayFilter"
+            position="after"
+        >
+            <Dropdown
+                class="'btn-group flex-grow-1 flex-md-grow-0'"
+                togglerClass="'btn btn-secondary'"
+                showCaret="true"
+            >
+                <t t-set-slot="toggler">
+                    <span class="fa fa-filter"/>
+                    <t t-esc="availabilityFilterButtonLabel"/>
+                </t>
+                <DropdownItem
+                    parentClosingMode="'none'"
+                    class="{ o_menu_item: true, selected: props.currentAvailabilityFilter === 'available' }"
+                    onSelected="() => this.props.changeAvailabilityFilter('available')"
+                    t-esc="'В наявності'"
+                />
+                <DropdownItem
+                    parentClosingMode="'none'"
+                    class="{ o_menu_item: true, selected: props.currentAvailabilityFilter === 'unavailable' }"
+                    onSelected="() => this.props.changeAvailabilityFilter('unavailable')"
+                    t-esc="'Немає в наявності'"
+                />
+            </Dropdown>
+        </xpath>
+    </t>
+</templates>
