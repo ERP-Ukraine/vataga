@@ -29,7 +29,7 @@
                 showCaret="true"
             >
                 <t t-set-slot="toggler">
-                    <span class="fa fa-filter"/>
+                    <span class="fa fa-filter me-1"/>
                     <t t-esc="availabilityFilterButtonLabel"/>
                 </t>
                 <DropdownItem
