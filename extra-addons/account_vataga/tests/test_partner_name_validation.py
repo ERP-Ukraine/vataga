@@ -16,7 +16,7 @@ class TestPartnerNameValidation(TransactionCase):
     def test_cyrillic_name_requires_activity_form(self):
         with self.assertRaisesRegex(
             ValidationError,
-            "Для назв кирилицею обов’язково вкажіть форму власності",
+            "Для назв кирилицею обов’язково вкажіть форму власності після назви",
         ):
             self.env["res.partner"].create({
                 "name": "ВАТАГА",
@@ -42,7 +42,7 @@ class TestPartnerNameValidation(TransactionCase):
 
         with self.assertRaisesRegex(
             ValidationError,
-            "Для назв кирилицею обов’язково вкажіть форму власності",
+            "Для назв кирилицею обов’язково вкажіть форму власності після назви",
         ):
             partner.write({"name": "ВАТАГА"})
 
@@ -92,7 +92,7 @@ class TestPartnerNameValidation(TransactionCase):
     def test_name_ending_with_letters_at_is_not_activity_form(self):
         with self.assertRaisesRegex(
             ValidationError,
-            "Для назв кирилицею обов’язково вкажіть форму власності",
+            "Для назв кирилицею обов’язково вкажіть форму власності після назви",
         ):
             self.env["res.partner"].create({
                 "name": "КОМБІНАТ",
@@ -121,7 +121,7 @@ class TestPartnerNameValidation(TransactionCase):
         self.assertEqual(
             result["warning"]["message"],
             "Назву необхідно вводити ВЕЛИКИМИ ЛІТЕРАМИ (верхній регістр).\n"
-            "Для назв кирилицею обов’язково вкажіть форму власності (наприклад, ТОВ, ФОП).",
+            "Для назв кирилицею обов’язково вкажіть форму власності після назви (наприклад, ПРОМЕТЕЙ ТОВ, ІВАНЕНКО ФОП).",
         )
 
     def test_onchange_returns_warning_for_missing_activity_form(self):
@@ -135,7 +135,7 @@ class TestPartnerNameValidation(TransactionCase):
         self.assertTrue(result)
         self.assertEqual(
             result["warning"]["message"],
-            "Для назв кирилицею обов’язково вкажіть форму власності (наприклад, ТОВ, ФОП).",
+            "Для назв кирилицею обов’язково вкажіть форму власності після назви (наприклад, ПРОМЕТЕЙ ТОВ, ІВАНЕНКО ФОП).",
         )
 
     def test_onchange_returns_warning_for_special_characters(self):

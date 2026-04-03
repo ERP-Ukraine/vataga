@@ -6,7 +6,7 @@
         t-inherit-mode="extension"
     >
         <xpath expr="//BomOverviewControlPanel" position="attributes">
-            <attribute name="currentAvailabilityFilter">state.availabilityFilter</attribute>
+            <attribute name="currentAvailabilityFilter">state.availabilityFilters</attribute>
             <attribute name="changeAvailabilityFilter.bind">onChangeAvailabilityFilter</attribute>
         </xpath>
         <xpath expr="//BomOverviewTable" position="attributes">
@@ -34,13 +34,13 @@
                 </t>
                 <DropdownItem
                     parentClosingMode="'none'"
-                    class="{ o_menu_item: true, selected: props.currentAvailabilityFilter === 'available' }"
+                    class="{ o_menu_item: true, selected: props.currentAvailabilityFilter.available }"
                     onSelected="() => this.props.changeAvailabilityFilter('available')"
                     t-esc="'В наявності'"
                 />
                 <DropdownItem
                     parentClosingMode="'none'"
-                    class="{ o_menu_item: true, selected: props.currentAvailabilityFilter === 'unavailable' }"
+                    class="{ o_menu_item: true, selected: props.currentAvailabilityFilter.unavailable }"
                     onSelected="() => this.props.changeAvailabilityFilter('unavailable')"
                     t-esc="'Немає в наявності'"
                 />

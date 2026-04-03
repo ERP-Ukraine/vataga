@@ -53,7 +53,7 @@ class ResPartner(models.Model):
 
     def _get_activity_form_message(self):
         return _(
-            "Для назв кирилицею обов’язково вкажіть форму власності (наприклад, ТОВ, ФОП)."
+            "Для назв кирилицею обов’язково вкажіть форму власності після назви (наприклад, ПРОМЕТЕЙ ТОВ, ІВАНЕНКО ФОП)."
         )
 
     def _get_special_characters_message(self):

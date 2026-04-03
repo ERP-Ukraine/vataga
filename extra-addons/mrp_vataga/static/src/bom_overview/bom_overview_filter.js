@@ -1,16 +1,16 @@
 /** @odoo-module */
 
-import { _t } from "@web/core/l10n/translation";
 import { patch } from "@web/core/utils/patch";
 
 import { BomOverviewComponent } from "@mrp/components/bom_overview/mrp_bom_overview";
 import { BomOverviewControlPanel } from "@mrp/components/bom_overview_control_panel/mrp_bom_overview_control_panel";
 
-const AVAILABILITY_FILTER_LABELS = {
-    all: _t("Наявність"),
-    available: _t("В наявності"),
-    unavailable: _t("Немає в наявності"),
+const DEFAULT_AVAILABILITY_FILTERS = {
+    available: true,
+    unavailable: true,
 };
+
+const AVAILABILITY_FILTER_LABEL = "Наявність товарів";
 
 function isLineAvailable(line) {
     if (Object.prototype.hasOwnProperty.call(line, "components_available")) {
@@ -22,12 +22,11 @@ function isLineAvailable(line) {
 patch(BomOverviewComponent.prototype, {
     setup() {
         super.setup(...arguments);
-        this.state.availabilityFilter = "all";
+        this.state.availabilityFilters = { ...DEFAULT_AVAILABILITY_FILTERS };
     },
 
     onChangeAvailabilityFilter(filterKey) {
-        this.state.availabilityFilter =
-            this.state.availabilityFilter === filterKey ? "all" : filterKey;
+        this.state.availabilityFilters[filterKey] = !this.state.availabilityFilters[filterKey];
     },
 
     get filteredBomData() {
@@ -35,7 +34,7 @@ patch(BomOverviewComponent.prototype, {
     },
 
     filterBomData(line, isRoot = false) {
-        if (!line || this.state.availabilityFilter === "all") {
+        if (!line || this.hasAllAvailabilityFiltersSelected) {
             return line;
         }
 
@@ -69,27 +68,40 @@ patch(BomOverviewComponent.prototype, {
         }
 
         const isAvailable = isLineAvailable(line);
-        return this.state.availabilityFilter === "available" ? isAvailable : !isAvailable;
+        return isAvailable
+            ? this.state.availabilityFilters.available
+            : this.state.availabilityFilters.unavailable;
+    },
+
+    get hasAllAvailabilityFiltersSelected() {
+        return (
+            this.state.availabilityFilters.available &&
+            this.state.availabilityFilters.unavailable
+        );
     },
 });
 
 patch(BomOverviewControlPanel.prototype, {
     get availabilityFilterButtonLabel() {
-        return (
-            AVAILABILITY_FILTER_LABELS[this.props.currentAvailabilityFilter] ||
-            AVAILABILITY_FILTER_LABELS.all
-        );
+        return AVAILABILITY_FILTER_LABEL;
     },
 });
 
 BomOverviewControlPanel.props = {
     ...BomOverviewControlPanel.props,
-    currentAvailabilityFilter: { type: String, optional: true },
+    currentAvailabilityFilter: {
+        type: Object,
+        shape: {
+            available: Boolean,
+            unavailable: Boolean,
+        },
+        optional: true,
+    },
     changeAvailabilityFilter: { type: Function, optional: true },
 };
 
 BomOverviewControlPanel.defaultProps = {
     ...BomOverviewControlPanel.defaultProps,
-    currentAvailabilityFilter: "all",
+    currentAvailabilityFilter: { ...DEFAULT_AVAILABILITY_FILTERS },
     changeAvailabilityFilter: () => {},
 };
