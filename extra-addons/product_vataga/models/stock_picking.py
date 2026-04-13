@@ -35,7 +35,7 @@ class StockPicking(models.Model):
             raise UserError(_('There are no product lines to print labels for.'))
 
         return self.env.ref(
-            'product_vataga.action_report_stock_picking_transfer_labels'
+            'product_vataga.action_report_stock_picking_transfer_labels_v2'
         ).report_action(self, data={'labels': labels}, config=False)
 
     def action_open_label_layout(self):

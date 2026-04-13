@@ -3,7 +3,7 @@ from odoo.exceptions import UserError
 
 
 class ReportStockPickingTransferLabel(models.AbstractModel):
-    _name = 'report.product_vataga.report_stock_picking_transfer_label'
+    _name = 'report.product_vataga.report_stock_picking_transfer_label_v2'
     _description = 'Vataga Transfer Label Report'
 
     def _get_report_values(self, docids, data=None):
