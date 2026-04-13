@@ -8,7 +8,7 @@
     'license': 'LGPL-3',
     'auto_install': False,
     'installable': True,
-    'application': False,
+    'application': True,
     'depends': [
         'product',
     ],
