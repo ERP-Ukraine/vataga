@@ -3,7 +3,9 @@
     <data>
         <template
             id="report_simple_label_dymo"
+            name="Dymo label without price"
             inherit_id="product.report_simple_label_dymo"
+            priority="99"
         >
             <xpath expr="//div[contains(@class, 'o_label_full')]" position="replace">
                 <div class="o_label_full" t-att-style="table_style">
