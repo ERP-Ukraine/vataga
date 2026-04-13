@@ -30,23 +30,21 @@
                                         line-height: 1.05;
                                         margin: 0 0 5mm 0;
                                         word-break: break-word;">
-                                <span t-esc="label['picking_name']"/>
+                                <span t-out="label['picking_name_markup']"/>
                             </div>
 
                             <div style="font-size: 14px;
                                         line-height: 1.2;
                                         margin: 0 0 3.5mm 0;
                                         word-break: break-word;">
-                                <span>Джерело: </span>
-                                <span t-esc="label['source_name']"/>
+                                <span t-out="label['source_line_markup']"/>
                             </div>
 
                             <div style="font-size: 14px;
                                         line-height: 1.2;
                                         margin: 0;
                                         word-break: break-word;">
-                                <span>Призначення: </span>
-                                <span t-esc="label['destination_name']"/>
+                                <span t-out="label['destination_line_markup']"/>
                             </div>
 
                             <div style="position: absolute;

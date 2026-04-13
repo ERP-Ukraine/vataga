@@ -1,9 +1,22 @@
+import html
+
+from markupsafe import Markup
+
 from odoo import _, models
 from odoo.exceptions import UserError
 
 
 class StockPicking(models.Model):
     _inherit = 'stock.picking'
+
+    @staticmethod
+    def _to_ascii_markup(text):
+        return Markup(
+            ''.join(
+                html.escape(char) if ord(char) < 128 else f'&#{ord(char)};'
+                for char in (text or '')
+            )
+        )
 
     def _get_vataga_label_moves(self):
         self.ensure_one()
@@ -25,9 +38,13 @@ class StockPicking(models.Model):
 
             for index, move in enumerate(moves, start=1):
                 labels.append({
-                    'picking_name': picking.name or '',
-                    'source_name': source_name,
-                    'destination_name': destination_name,
+                    'picking_name_markup': self._to_ascii_markup(picking.name or ''),
+                    'source_line_markup': self._to_ascii_markup(
+                        f'Джерело: {source_name}'
+                    ),
+                    'destination_line_markup': self._to_ascii_markup(
+                        f'Призначення: {destination_name}'
+                    ),
                     'sequence_text': f'{index:02d} / {total:02d}',
                 })
 
