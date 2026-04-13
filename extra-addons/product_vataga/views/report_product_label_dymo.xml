@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <template
+            id="report_simple_label_dymo"
+            inherit_id="product.report_simple_label_dymo"
+        >
+            <xpath expr="//div[contains(@class, 'o_label_full')]" position="replace">
+                <div class="o_label_full" t-att-style="table_style">
+                    <div class="text-start o_label_small_barcode">
+                        <t t-if="barcode">
+                            <!-- `quiet=0` removes barcode side margins. -->
+                            <div
+                                t-out="barcode"
+                                style="padding:0"
+                                t-options="{'widget': 'barcode', 'quiet': 0, 'symbology': 'auto', 'img_style': barcode_size}"
+                            />
+                            <div
+                                class="o_label_name"
+                                style="height:1.7em;background-color: transparent;"
+                            >
+                                <span t-out="barcode"/>
+                            </div>
+                        </t>
+                    </div>
+                    <div
+                        class="o_label_name"
+                        style="line-height: 100%;background-color: transparent;padding-top: 1px;font-size: 10px;height: 50px;"
+                    >
+                        <span t-if="product.is_product_variant" t-field="product.display_name"/>
+                        <span t-else="" t-field="product.name"/>
+                    </div>
+                    <div class="o_label_left_column">
+                        <small class="text-nowrap" t-field="product.default_code"/>
+                    </div>
+                </div>
+            </xpath>
+        </template>
+    </data>
+</odoo>
