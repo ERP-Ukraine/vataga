@@ -1,22 +1,13 @@
-import html
-
-from markupsafe import Markup
-
 from odoo import _, models
 from odoo.exceptions import UserError
 
 
+SOURCE_LABEL = '\u0414\u0436\u0435\u0440\u0435\u043b\u043e'
+DESTINATION_LABEL = '\u041f\u0440\u0438\u0437\u043d\u0430\u0447\u0435\u043d\u043d\u044f'
+
+
 class StockPicking(models.Model):
     _inherit = 'stock.picking'
-
-    @staticmethod
-    def _to_ascii_markup(text):
-        return Markup(
-            ''.join(
-                html.escape(char) if ord(char) < 128 else f'&#{ord(char)};'
-                for char in (text or '')
-            )
-        )
 
     def _get_vataga_label_moves(self):
         self.ensure_one()
@@ -38,12 +29,10 @@ class StockPicking(models.Model):
 
             for index, move in enumerate(moves, start=1):
                 labels.append({
-                    'picking_name_markup': self._to_ascii_markup(picking.name or ''),
-                    'source_line_markup': self._to_ascii_markup(
-                        f'Джерело: {source_name}'
-                    ),
-                    'destination_line_markup': self._to_ascii_markup(
-                        f'Призначення: {destination_name}'
+                    'picking_name': picking.name or '',
+                    'source_line_text': f'{SOURCE_LABEL}: {source_name}',
+                    'destination_line_text': (
+                        f'{DESTINATION_LABEL}: {destination_name}'
                     ),
                     'sequence_text': f'{index:02d} / {total:02d}',
                 })
