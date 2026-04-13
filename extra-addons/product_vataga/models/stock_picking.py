@@ -2,10 +2,6 @@ from odoo import _, models
 from odoo.exceptions import UserError
 
 
-SOURCE_LABEL = '\u0414\u0436\u0435\u0440\u0435\u043b\u043e'
-DESTINATION_LABEL = '\u041f\u0440\u0438\u0437\u043d\u0430\u0447\u0435\u043d\u043d\u044f'
-
-
 class StockPicking(models.Model):
     _inherit = 'stock.picking'
 
@@ -30,10 +26,8 @@ class StockPicking(models.Model):
             for index, move in enumerate(moves, start=1):
                 labels.append({
                     'picking_name': picking.name or '',
-                    'source_line_text': f'{SOURCE_LABEL}: {source_name}',
-                    'destination_line_text': (
-                        f'{DESTINATION_LABEL}: {destination_name}'
-                    ),
+                    'source_line_text': f'Джерело: {source_name}',
+                    'destination_line_text': f'Призначення: {destination_name}',
                     'sequence_text': f'{index:02d} / {total:02d}',
                 })
 
