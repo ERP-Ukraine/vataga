@@ -1,5 +1,5 @@
 {
-    'name': 'Product Vataga',
+    'name': 'Vataga Labels',
     'version': '1.0',
     'category': 'Inventory',
     'author': 'Vataga',
@@ -9,8 +9,10 @@
     'application': True,
     'depends': [
         'product',
+        'stock',
     ],
     'data': [
         'views/report_product_label_dymo.xml',
+        'report/stock_picking_transfer_label.xml',
     ],
 }

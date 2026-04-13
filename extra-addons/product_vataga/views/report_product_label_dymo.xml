@@ -17,20 +17,25 @@
                             <div
                                 t-out="barcode"
                                 style="padding: 0; margin: 0;"
-                                t-options="{'widget': 'barcode', 'quiet': 0, 'symbology': 'auto', 'img_style': 'width:100%;height:30px;'}"
+                                t-options="{'widget': 'barcode', 'quiet': 0, 'symbology': 'auto', 'img_style': 'width:100%;height:28px;'}"
                             />
                         </div>
                         <div
-                            style="text-align: center; font-size: 8px; font-weight: 700; line-height: 1; margin: 0 0 2px 0;"
+                            style="text-align: center; font-size: 7px; font-weight: 700; line-height: 1; margin: 0 0 1px 0;"
                         >
                             <span t-out="barcode"/>
                         </div>
                     </t>
 
+                    <t t-set="label_name" t-value="product.name or ''"/>
+                    <t t-set="name_len" t-value="len(label_name)"/>
+                    <t t-set="name_font_size" t-value="'18px' if name_len &lt;= 12 else '16px' if name_len &lt;= 22 else '13px' if name_len &lt;= 40 else '10px'"/>
+                    <t t-set="name_line_height" t-value="'1.0' if name_len &lt;= 12 else '1.05' if name_len &lt;= 22 else '1.08' if name_len &lt;= 40 else '1.0'"/>
+
                     <div
-                        style="height: 42px; overflow: hidden; text-align: center; font-size: 10px; font-weight: 700; line-height: 1.05; margin: 0; padding: 0 1px; word-break: break-word;"
+                        t-att-style="'height: 42px; max-height: 42px; overflow: hidden; text-align: center; font-size: ' + name_font_size + '; font-weight: 700; line-height: ' + name_line_height + '; margin: 0; padding: 0 1px; word-break: break-word;'"
                     >
-                        <span t-field="product.name"/>
+                        <span t-esc="label_name"/>
                     </div>
 
                     <div

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <record id="paperformat_stock_picking_transfer_label" model="report.paperformat">
+            <field name="name">Vataga Transfer Label</field>
+            <field name="default" eval="False"/>
+            <field name="format">custom</field>
+            <field name="page_width">95</field>
+            <field name="page_height">80</field>
+            <field name="orientation">Portrait</field>
+            <field name="margin_top">0</field>
+            <field name="margin_bottom">0</field>
+            <field name="margin_left">0</field>
+            <field name="margin_right">0</field>
+            <field name="header_line" eval="False"/>
+            <field name="header_spacing">0</field>
+            <field name="dpi">90</field>
+        </record>
+
+        <record id="action_report_stock_picking_transfer_labels" model="ir.actions.report">
+            <field name="name">Transfer Labels</field>
+            <field name="model">stock.picking</field>
+            <field name="report_type">qweb-pdf</field>
+            <field name="report_name">product_vataga.report_stock_picking_transfer_label</field>
+            <field name="report_file">product_vataga.report_stock_picking_transfer_label</field>
+            <field name="paperformat_id" ref="product_vataga.paperformat_stock_picking_transfer_label"/>
+            <field name="print_report_name">'Transfer Labels - %s' % (object.name)</field>
+        </record>
+
+        <template id="report_stock_picking_transfer_label">
+            <t t-call="web.html_container">
+                <t t-foreach="labels" t-as="label">
+                    <div class="page" style="margin: 0; padding: 0;">
+                        <div style="position: relative; width: 100%; height: 100%; box-sizing: border-box; background-color: #fff; padding: 7mm 8mm 10mm;">
+                            <div style="font-size: 24px; font-weight: 700; line-height: 1.1; margin: 0 0 8mm; word-break: break-word;">
+                                <span t-esc="label['picking_name']"/>
+                            </div>
+
+                            <div style="font-size: 14px; line-height: 1.25; margin: 0 0 5mm; word-break: break-word;">
+                                <span style="font-weight: 700;">Джерело:</span>
+                                <span t-esc="label['source_name']"/>
+                            </div>
+
+                            <div style="font-size: 14px; line-height: 1.25; margin: 0; word-break: break-word;">
+                                <span style="font-weight: 700;">Призначення:</span>
+                                <span t-esc="label['destination_name']"/>
+                            </div>
+
+                            <div style="position: absolute; left: 0; right: 0; bottom: 9mm; text-align: center; font-size: 42px; font-weight: 700; line-height: 1;">
+                                <span t-esc="label['sequence_text']"/>
+                            </div>
+                        </div>
+                    </div>
+                </t>
+            </t>
+        </template>
+    </data>
+</odoo>
