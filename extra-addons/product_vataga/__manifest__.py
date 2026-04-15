@@ -1,5 +1,5 @@
 {
-    'name': 'Vataga Labels',
+    'name': 'Product and transaction labels',
     'version': '1.0',
     'category': 'Inventory',
     'author': 'Vataga',

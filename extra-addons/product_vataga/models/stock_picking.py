@@ -11,6 +11,21 @@ class StockPicking(models.Model):
             lambda move: move.product_id and move.state != 'cancel'
         ).sorted(lambda move: (move.sequence, move.id))
 
+    def _get_vataga_transfer_label_locations(self):
+        self.ensure_one()
+
+        source_name = self.location_id.complete_name or ''
+        destination_name = self.location_dest_id.complete_name or ''
+        partner_name = self.partner_id.commercial_partner_id.display_name or ''
+
+        if self.picking_type_code == 'incoming':
+            return partner_name or source_name, destination_name
+        if self.picking_type_code == 'outgoing':
+            return source_name, partner_name or destination_name
+        if self.picking_type_code in ('internal', 'mrp_operation'):
+            return source_name, destination_name
+        return source_name, destination_name
+
     def action_print_vataga_transfer_labels(self):
         printable_pickings = self.filtered(lambda picking: picking._get_vataga_label_moves())
         if not printable_pickings:

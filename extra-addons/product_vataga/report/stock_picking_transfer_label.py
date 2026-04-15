@@ -27,8 +27,7 @@ class ReportStockPickingTransferLabel(models.AbstractModel):
             if not total:
                 continue
 
-            source_name = picking.location_id.complete_name or ''
-            destination_name = picking.location_dest_id.complete_name or ''
+            source_name, destination_name = picking._get_vataga_transfer_label_locations()
 
             for index, move in enumerate(moves, start=1):
                 labels.append({
