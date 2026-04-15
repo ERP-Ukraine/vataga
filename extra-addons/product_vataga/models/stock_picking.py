@@ -26,6 +26,39 @@ class StockPicking(models.Model):
             return source_name, destination_name
         return source_name, destination_name
 
+    def _get_vataga_transfer_label_title(self):
+        self.ensure_one()
+        if self.picking_type_code != 'internal':
+            return self.name or ''
+
+        source_code = (self.location_id.display_name or self.location_id.complete_name or '').split('/')[-1].strip()
+        destination_code = (
+            self.location_dest_id.display_name or self.location_dest_id.complete_name or ''
+        ).split('/')[-1].strip()
+        sequence_code = (self.name or '').split('/')[-1].strip()
+        parts = [part for part in (source_code, destination_code, sequence_code) if part]
+        return '/'.join(parts) or self.name or ''
+
+    def _get_vataga_transfer_label_lines(self):
+        self.ensure_one()
+        source_name, destination_name = self._get_vataga_transfer_label_locations()
+        partner_name = self.partner_id.commercial_partner_id.display_name or ''
+
+        if self.picking_type_code == 'incoming':
+            return (
+                f'Постачальник: {partner_name or source_name}',
+                f'Призначення: {destination_name}',
+            )
+        if self.picking_type_code == 'outgoing':
+            return (
+                f'Джерело: {source_name}',
+                f'Клієнт: {partner_name or destination_name}',
+            )
+        return (
+            f'Джерело: {source_name}',
+            f'Призначення: {destination_name}',
+        )
+
     def action_print_vataga_transfer_labels(self):
         printable_pickings = self.filtered(lambda picking: picking._get_vataga_label_moves())
         if not printable_pickings:

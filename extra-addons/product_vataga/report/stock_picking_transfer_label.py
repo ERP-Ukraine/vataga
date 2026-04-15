@@ -27,17 +27,16 @@ class ReportStockPickingTransferLabel(models.AbstractModel):
             if not total:
                 continue
 
-            source_name, destination_name = picking._get_vataga_transfer_label_locations()
+            title_text = picking._get_vataga_transfer_label_title()
+            source_line_text, destination_line_text = (
+                picking._get_vataga_transfer_label_lines()
+            )
 
             for index, move in enumerate(moves, start=1):
                 labels.append({
-                    'picking_name': self._to_html_entities(picking.name or ''),
-                    'source_line_text': self._to_html_entities(
-                        f'Джерело: {source_name}'
-                    ),
-                    'destination_line_text': self._to_html_entities(
-                        f'Призначення: {destination_name}'
-                    ),
+                    'picking_name': self._to_html_entities(title_text),
+                    'source_line_text': self._to_html_entities(source_line_text),
+                    'destination_line_text': self._to_html_entities(destination_line_text),
                     'sequence_text': f'{index:02d} / {total:02d}',
                 })
 
