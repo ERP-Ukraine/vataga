@@ -22,12 +22,13 @@
                                     background-color: #fff;
                                     border-radius: 4mm;
                                     overflow: hidden;
-                                    padding: 2mm 3mm 8mm 3mm;
+                                    padding: 2mm 3mm 10mm 3mm;
                                     font-family: 'DejaVu Serif', serif;
                                     color: #000;">
-                            <div style="font-size: 12px;
+                            <div style="font-size: 16px;
                                         font-weight: 700;
                                         line-height: 1.0;
+                                        text-align: center;
                                         margin: 0 0 1.5mm 0;
                                         height: 7mm;
                                         overflow: hidden;
@@ -58,7 +59,7 @@
                                         right: 0;
                                         bottom: 2mm;
                                         text-align: center;
-                                        font-size: 18px;
+                                        font-size: 24px;
                                         font-weight: 700;
                                         line-height: 1;
                                         font-family: 'DejaVu Serif', serif;">

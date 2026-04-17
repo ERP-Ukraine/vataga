@@ -37,29 +37,9 @@ class StockPicking(models.Model):
             return source_name, destination_name
         return source_name, destination_name
 
-    @staticmethod
-    def _get_vataga_location_warehouse_code(location):
-        warehouse = location.warehouse_id
-        if warehouse and warehouse.code:
-            return warehouse.code
-        return (
-            location.display_name
-            or location.complete_name
-            or ''
-        ).split('/')[-1].strip()
-
     def _get_vataga_transfer_label_title(self):
         self.ensure_one()
-        if self.picking_type_code != 'internal':
-            return self.name or ''
-
-        source_code = self._get_vataga_location_warehouse_code(self.location_id)
-        destination_code = self._get_vataga_location_warehouse_code(
-            self.location_dest_id
-        )
-        sequence_code = (self.name or '').split('/')[-1].strip()
-        parts = [part for part in (source_code, destination_code, sequence_code) if part]
-        return '/'.join(parts) or self.name or ''
+        return self.name or ''
 
     def _get_vataga_transfer_label_lines(self):
         self.ensure_one()
