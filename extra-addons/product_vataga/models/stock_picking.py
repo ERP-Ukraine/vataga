@@ -1,15 +1,26 @@
-from odoo import _, models
-from odoo.exceptions import UserError
+from odoo import _, api, fields, models
+from odoo.exceptions import UserError, ValidationError
 
 
 class StockPicking(models.Model):
     _inherit = 'stock.picking'
 
-    def _get_vataga_label_moves(self):
+    box_count = fields.Integer(
+        string='Кількість коробок',
+        default=1,
+        required=True,
+        copy=False,
+    )
+
+    @api.constrains('box_count')
+    def _check_box_count(self):
+        for picking in self:
+            if picking.box_count < 1:
+                raise ValidationError(_('The number of boxes must be at least 1.'))
+
+    def _use_vataga_transfer_labels(self):
         self.ensure_one()
-        return self.move_ids_without_package.filtered(
-            lambda move: move.product_id and move.state != 'cancel'
-        ).sorted(lambda move: (move.sequence, move.id))
+        return self.picking_type_code in ('incoming', 'outgoing', 'internal')
 
     def _get_vataga_transfer_label_locations(self):
         self.ensure_one()
@@ -71,16 +82,20 @@ class StockPicking(models.Model):
         )
 
     def action_print_vataga_transfer_labels(self):
-        printable_pickings = self.filtered(lambda picking: picking._get_vataga_label_moves())
+        printable_pickings = self.filtered(lambda picking: picking._use_vataga_transfer_labels())
         if not printable_pickings:
-            raise UserError(_('There are no product lines to print labels for.'))
+            raise UserError(_('Transfer labels are available only for receipts, deliveries and internal transfers.'))
 
         return self.env.ref(
             'product_vataga.action_report_stock_picking_transfer_labels_v2'
         ).report_action(printable_pickings, config=False)
 
     def action_open_label_layout(self):
+        if not all(picking._use_vataga_transfer_labels() for picking in self):
+            return super().action_open_label_layout()
         return self.action_print_vataga_transfer_labels()
 
     def action_open_label_type(self):
+        if not all(picking._use_vataga_transfer_labels() for picking in self):
+            return super().action_open_label_type()
         return self.action_print_vataga_transfer_labels()

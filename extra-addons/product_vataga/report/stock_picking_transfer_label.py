@@ -20,19 +20,14 @@ class ReportStockPickingTransferLabel(models.AbstractModel):
         labels = []
 
         for picking in pickings:
-            moves = picking.move_ids_without_package.filtered(
-                lambda move: move.product_id and move.state != 'cancel'
-            ).sorted(lambda move: (move.sequence, move.id))
-            total = len(moves)
-            if not total:
-                continue
+            total = max(picking.box_count or 1, 1)
 
             title_text = picking._get_vataga_transfer_label_title()
             source_line_text, destination_line_text = (
                 picking._get_vataga_transfer_label_lines()
             )
 
-            for index, move in enumerate(moves, start=1):
+            for index in range(1, total + 1):
                 labels.append({
                     'picking_name': self._to_html_entities(title_text),
                     'source_line_text': self._to_html_entities(source_line_text),

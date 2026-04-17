@@ -6,13 +6,14 @@
     'license': 'LGPL-3',
     'auto_install': False,
     'installable': True,
-    'application': True,
+    'application': False,
     'depends': [
         'product',
         'stock',
     ],
     'data': [
         'views/report_product_label_dymo.xml',
+        'views/stock_picking_views.xml',
         'report/stock_picking_transfer_label.xml',
     ],
 }
