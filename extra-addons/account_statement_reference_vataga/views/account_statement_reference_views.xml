@@ -18,6 +18,10 @@
         <field name="model">account.bank.statement.line</field>
         <field name="inherit_id" ref="account_accountant.view_bank_statement_line_kanban_bank_rec_widget"/>
         <field name="arch" type="xml">
+            <xpath expr="//kanban/templates" position="before">
+                <field name="payment_reference"/>
+                <field name="invoice_reference"/>
+            </xpath>
             <xpath expr="//div[@id='row2_col1']/.." position="after">
                 <t t-if="record.payment_reference.raw_value || record.invoice_reference.raw_value">
                     <div class="flex_row">
