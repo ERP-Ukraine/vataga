@@ -1,6 +1,6 @@
 {
     'name': 'Account Statement Reference Vataga',
-    'version': '1.1',
+    'version': '1.2',
     'category': 'Accounting/Accounting',
     'author': 'ERP Ukraine LLC',
     'website': 'https://erp.co.ua',
