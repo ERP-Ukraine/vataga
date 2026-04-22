@@ -183,10 +183,10 @@ class TestStatementReferences(TransactionCase):
         stmt_line = self._reconcile_payment_with_statement(
             payment, date(2025, 11, 28), 1000.0
         )
-        stmt_line.invalidate_recordset(['linked_payment_ref', 'linked_invoice_ref'])
+        stmt_line.invalidate_recordset(['payment_reference', 'invoice_reference'])
 
-        self.assertEqual(stmt_line.linked_payment_ref, payment.name)
-        self.assertEqual(stmt_line.linked_invoice_ref, bill.name)
+        self.assertEqual(stmt_line.payment_reference, payment.name)
+        self.assertEqual(stmt_line.invoice_reference, bill.name)
 
     def test_statement_invoice_ref_cleared_when_payment_unlinked_from_bill(self):
         bill = self._create_vendor_bill(600.0)
@@ -201,10 +201,10 @@ class TestStatementReferences(TransactionCase):
         self.assertTrue(bill_payable_line, "Bill payable line not found")
 
         (payment_payable_line | bill_payable_line).remove_move_reconcile()
-        stmt_line.invalidate_recordset(['linked_payment_ref', 'linked_invoice_ref'])
+        stmt_line.invalidate_recordset(['payment_reference', 'invoice_reference'])
 
-        self.assertEqual(stmt_line.linked_payment_ref, payment.name)
-        self.assertFalse(stmt_line.linked_invoice_ref)
+        self.assertEqual(stmt_line.payment_reference, payment.name)
+        self.assertFalse(stmt_line.invoice_reference)
 
     def test_statement_refs_cleared_when_payment_unlinked_from_statement(self):
         bill = self._create_vendor_bill(800.0)
@@ -219,10 +219,10 @@ class TestStatementReferences(TransactionCase):
         self.assertTrue(stmt_aml, "Statement suspense line not found")
 
         (payment_outstanding_line | stmt_aml).remove_move_reconcile()
-        stmt_line.invalidate_recordset(['linked_payment_ref', 'linked_invoice_ref'])
+        stmt_line.invalidate_recordset(['payment_reference', 'invoice_reference'])
 
-        self.assertFalse(stmt_line.linked_payment_ref)
-        self.assertFalse(stmt_line.linked_invoice_ref)
+        self.assertFalse(stmt_line.payment_reference)
+        self.assertFalse(stmt_line.invoice_reference)
 
     def test_statement_invoice_ref_set_for_direct_bill_reconcile(self):
         bill = self._create_vendor_bill(700.0)
@@ -236,14 +236,31 @@ class TestStatementReferences(TransactionCase):
         self.assertTrue(bill_payable_line, "Bill payable line not found")
 
         self._reconcile_statement_with_move_line(bill_payable_line, stmt_line)
-        stmt_line.invalidate_recordset(['linked_payment_ref', 'linked_invoice_ref'])
+        stmt_line.invalidate_recordset(['payment_reference', 'invoice_reference'])
 
-        self.assertFalse(stmt_line.linked_payment_ref)
-        self.assertEqual(stmt_line.linked_invoice_ref, bill.name)
+        self.assertFalse(stmt_line.payment_reference)
+        self.assertEqual(stmt_line.invoice_reference, bill.name)
 
         stmt_aml = self._get_statement_suspense_line(stmt_line)
         (bill_payable_line | stmt_aml).remove_move_reconcile()
-        stmt_line.invalidate_recordset(['linked_payment_ref', 'linked_invoice_ref'])
+        stmt_line.invalidate_recordset(['payment_reference', 'invoice_reference'])
 
-        self.assertFalse(stmt_line.linked_payment_ref)
-        self.assertFalse(stmt_line.linked_invoice_ref)
+        self.assertFalse(stmt_line.payment_reference)
+        self.assertFalse(stmt_line.invoice_reference)
+
+    def test_standard_payment_ref_is_not_changed(self):
+        bill = self._create_vendor_bill(900.0)
+        payment = self._create_payment_from_bill(bill)
+        original_reference = f"TEST/{payment.id}"
+        stmt_line = self._reconcile_payment_with_statement(
+            payment, date(2025, 11, 28), 900.0
+        )
+        stmt_line.invalidate_recordset([
+            'payment_ref',
+            'payment_reference',
+            'invoice_reference',
+        ])
+
+        self.assertEqual(stmt_line.payment_ref, original_reference)
+        self.assertEqual(stmt_line.payment_reference, payment.name)
+        self.assertEqual(stmt_line.invoice_reference, bill.name)
