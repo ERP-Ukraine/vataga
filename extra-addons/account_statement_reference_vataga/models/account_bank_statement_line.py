@@ -1,4 +1,4 @@
-from odoo import fields, models
+from odoo import api, fields, models
 
 
 class AccountBankStatementLine(models.Model):
@@ -58,3 +58,18 @@ class AccountBankStatementLine(models.Model):
                 or st_line.invoice_reference != values['invoice_reference']
             ):
                 st_line.write(values)
+
+    @api.model
+    def _backfill_payment_invoice_references(self, domain=None, batch_size=1000):
+        base_domain = list(domain or [])
+        last_id = 0
+        while True:
+            lines = self.search(
+                base_domain + [('id', '>', last_id)],
+                order='id',
+                limit=batch_size,
+            )
+            if not lines:
+                break
+            lines._sync_payment_invoice_references()
+            last_id = lines[-1].id

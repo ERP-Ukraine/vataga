@@ -264,3 +264,29 @@ class TestStatementReferences(TransactionCase):
         self.assertEqual(stmt_line.payment_ref, original_reference)
         self.assertEqual(stmt_line.payment_reference, payment.name)
         self.assertEqual(stmt_line.invoice_reference, bill.name)
+
+    def test_backfill_payment_invoice_references(self):
+        bill = self._create_vendor_bill(1100.0)
+        payment = self._create_payment_from_bill(bill)
+        stmt_line = self._reconcile_payment_with_statement(
+            payment, date(2025, 11, 28), 1100.0
+        )
+        original_reference = stmt_line.payment_ref
+
+        stmt_line.write({
+            'payment_reference': False,
+            'invoice_reference': False,
+        })
+
+        self.env['account.bank.statement.line']._backfill_payment_invoice_references(
+            [('id', '=', stmt_line.id)]
+        )
+        stmt_line.invalidate_recordset([
+            'payment_ref',
+            'payment_reference',
+            'invoice_reference',
+        ])
+
+        self.assertEqual(stmt_line.payment_ref, original_reference)
+        self.assertEqual(stmt_line.payment_reference, payment.name)
+        self.assertEqual(stmt_line.invoice_reference, bill.name)

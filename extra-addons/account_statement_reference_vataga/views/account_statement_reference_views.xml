@@ -7,8 +7,8 @@
         <field name="inherit_id" ref="account_accountant.view_bank_statement_line_tree_bank_rec_widget"/>
         <field name="arch" type="xml">
             <field name="payment_ref" position="after">
-                <field name="payment_reference" optional="show"/>
-                <field name="invoice_reference" optional="show"/>
+                <field name="payment_reference" optional="show" invisible="not payment_reference"/>
+                <field name="invoice_reference" optional="show" invisible="not invoice_reference"/>
             </field>
         </field>
     </record>
@@ -19,20 +19,22 @@
         <field name="inherit_id" ref="account_accountant.view_bank_statement_line_kanban_bank_rec_widget"/>
         <field name="arch" type="xml">
             <xpath expr="//div[@id='row2_col1']/.." position="after">
-                <div class="flex_row">
-                    <div>
-                        <span class="text-muted">Референс платежу</span>
-                        <div>
-                            <field name="payment_reference"/>
+                <t t-if="record.payment_reference.raw_value || record.invoice_reference.raw_value">
+                    <div class="flex_row">
+                        <div t-if="record.payment_reference.raw_value">
+                            <span class="text-muted">Референс платежу</span>
+                            <div>
+                                <field name="payment_reference"/>
+                            </div>
+                        </div>
+                        <div t-if="record.invoice_reference.raw_value">
+                            <span class="text-muted">Референс рахунку</span>
+                            <div>
+                                <field name="invoice_reference"/>
+                            </div>
                         </div>
                     </div>
-                    <div>
-                        <span class="text-muted">Референс рахунку</span>
-                        <div>
-                            <field name="invoice_reference"/>
-                        </div>
-                    </div>
-                </div>
+                </t>
             </xpath>
         </field>
     </record>
