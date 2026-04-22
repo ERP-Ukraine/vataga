@@ -1,50 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
-    <record id="view_account_bank_statement_line_tree_vataga" model="ir.ui.view">
-        <field name="name">account.bank.statement.line.tree.vataga</field>
+    <record id="view_bank_statement_line_tree_bank_rec_widget_vataga" model="ir.ui.view">
+        <field name="name">account.bank.statement.line.tree.bank.rec.widget.vataga</field>
         <field name="model">account.bank.statement.line</field>
+        <field name="inherit_id" ref="account_accountant.view_bank_statement_line_tree_bank_rec_widget"/>
         <field name="arch" type="xml">
-            <tree string="Bank Transactions">
-                <field name="date"/>
-                <field name="journal_id"/>
-                <field name="partner_id"/>
-                <field name="payment_ref"/>
-                <field name="linked_payment_ref"/>
-                <field name="linked_invoice_ref"/>
-                <field name="amount"/>
-                <field name="is_reconciled"/>
-            </tree>
+            <field name="payment_ref" position="after">
+                <field name="linked_payment_ref" optional="show"/>
+                <field name="linked_invoice_ref" optional="show"/>
+            </field>
         </field>
     </record>
 
-    <record id="view_account_bank_statement_line_form_vataga" model="ir.ui.view">
-        <field name="name">account.bank.statement.line.form.vataga</field>
+    <record id="view_bank_statement_line_kanban_bank_rec_widget_vataga" model="ir.ui.view">
+        <field name="name">account.bank.statement.line.kanban.bank.rec.widget.vataga</field>
         <field name="model">account.bank.statement.line</field>
+        <field name="inherit_id" ref="account_accountant.view_bank_statement_line_kanban_bank_rec_widget"/>
         <field name="arch" type="xml">
-            <form string="Bank Transaction">
-                <field name="company_id" invisible="1"/>
-                <field name="suitable_journal_ids" invisible="1"/>
-                <sheet>
-                    <group>
-                        <group>
-                            <field name="date"/>
-                            <field name="journal_id"/>
-                            <field name="statement_id"/>
-                            <field name="partner_id"/>
-                        </group>
-                        <group>
-                            <field name="payment_ref"/>
-                            <field name="linked_payment_ref" readonly="1"/>
-                            <field name="linked_invoice_ref" readonly="1"/>
-                            <field name="amount"/>
-                        </group>
-                    </group>
-                    <group>
-                        <field name="move_id" readonly="1"/>
-                    </group>
-                </sheet>
-            </form>
+            <xpath expr="//div[@id='row2_col1']/.." position="after">
+                <div class="flex_row">
+                    <div id="row3_col1">
+                        <span class="text-muted">Референс платежу</span>
+                        <div>
+                            <field name="linked_payment_ref"/>
+                        </div>
+                    </div>
+                    <div id="row3_col2">
+                        <span class="text-muted">Референс рахунку</span>
+                        <div>
+                            <field name="linked_invoice_ref"/>
+                        </div>
+                    </div>
+                </div>
+            </xpath>
         </field>
     </record>
 

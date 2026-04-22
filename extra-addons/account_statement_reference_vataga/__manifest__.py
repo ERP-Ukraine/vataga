@@ -11,6 +11,7 @@
     'application': False,
     'depends': [
         'account',
+        'account_accountant',
     ],
     'data': [
         'views/account_statement_reference_views.xml',
