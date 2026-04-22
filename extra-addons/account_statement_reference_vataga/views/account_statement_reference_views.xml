@@ -23,6 +23,8 @@
         <field name="model">account.bank.statement.line</field>
         <field name="arch" type="xml">
             <form string="Bank Transaction">
+                <field name="company_id" invisible="1"/>
+                <field name="suitable_journal_ids" invisible="1"/>
                 <sheet>
                     <group>
                         <group>
