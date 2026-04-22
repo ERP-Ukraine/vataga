@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_account_bank_statement_line_tree_vataga" model="ir.ui.view">
+        <field name="name">account.bank.statement.line.tree.vataga</field>
+        <field name="model">account.bank.statement.line</field>
+        <field name="arch" type="xml">
+            <tree string="Bank Transactions">
+                <field name="date"/>
+                <field name="journal_id"/>
+                <field name="partner_id"/>
+                <field name="payment_ref"/>
+                <field name="linked_payment_ref"/>
+                <field name="linked_invoice_ref"/>
+                <field name="amount"/>
+                <field name="is_reconciled"/>
+            </tree>
+        </field>
+    </record>
+
+    <record id="view_account_bank_statement_line_form_vataga" model="ir.ui.view">
+        <field name="name">account.bank.statement.line.form.vataga</field>
+        <field name="model">account.bank.statement.line</field>
+        <field name="arch" type="xml">
+            <form string="Bank Transaction">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="date"/>
+                            <field name="journal_id"/>
+                            <field name="statement_id"/>
+                            <field name="partner_id"/>
+                        </group>
+                        <group>
+                            <field name="payment_ref"/>
+                            <field name="linked_payment_ref" readonly="1"/>
+                            <field name="linked_invoice_ref" readonly="1"/>
+                            <field name="amount"/>
+                        </group>
+                    </group>
+                    <group>
+                        <field name="move_id" readonly="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_move_line_form_statement_reference_vataga" model="ir.ui.view">
+        <field name="name">account.move.line.form.statement.reference.vataga</field>
+        <field name="model">account.move.line</field>
+        <field name="inherit_id" ref="account.view_move_line_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//page[@name='page_accounting_documents']//field[@name='statement_line_id']" position="after">
+                <field name="statement_payment_ref" readonly="1"/>
+                <field name="statement_invoice_ref" readonly="1"/>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

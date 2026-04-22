@@ -12,6 +12,8 @@
     'depends': [
         'account',
     ],
-    'data': [],
+    'data': [
+        'views/account_statement_reference_views.xml',
+    ],
     'assets': {},
 }
