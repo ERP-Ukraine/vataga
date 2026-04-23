@@ -24,21 +24,32 @@
             </xpath>
             <xpath expr="//div[@id='row2_col1']/.." position="after">
                 <t t-if="record.payment_reference.raw_value || record.invoice_reference.raw_value">
-                    <div class="flex_row">
-                        <div t-if="record.payment_reference.raw_value">
-                            <span class="text-muted">Референс платежу</span>
-                            <div>
-                                <field name="payment_reference"/>
-                            </div>
-                        </div>
-                        <div t-if="record.invoice_reference.raw_value">
-                            <span class="text-muted">Референс рахунку</span>
-                            <div>
-                                <field name="invoice_reference"/>
-                            </div>
-                        </div>
+                    <div class="text-muted small d-block text-truncate">
+                        <t t-if="record.payment_reference.raw_value">
+                            <span>Платіж: </span>
+                            <span t-esc="record.payment_reference.value"/>
+                        </t>
+                        <t t-if="record.payment_reference.raw_value and record.invoice_reference.raw_value">
+                            <span> | </span>
+                        </t>
+                        <t t-if="record.invoice_reference.raw_value">
+                            <span>Рахунок: </span>
+                            <span t-esc="record.invoice_reference.value"/>
+                        </t>
                     </div>
                 </t>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_bank_statement_line_form_bank_rec_widget_vataga" model="ir.ui.view">
+        <field name="name">account.bank.statement.line.form.bank.rec.widget.vataga</field>
+        <field name="model">account.bank.statement.line</field>
+        <field name="inherit_id" ref="account_accountant.view_bank_statement_line_form_bank_rec_widget"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='payment_ref']" position="after">
+                <field name="payment_reference" readonly="1" invisible="not payment_reference"/>
+                <field name="invoice_reference" readonly="1" invisible="not invoice_reference"/>
             </xpath>
         </field>
     </record>
