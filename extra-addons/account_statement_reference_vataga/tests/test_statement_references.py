@@ -151,6 +151,18 @@ class TestStatementReferences(TransactionCase):
         (move_line | stmt_aml).reconcile()
         return stmt_line
 
+    def _create_bank_rec_widget(self):
+        widget_model = self.env["bank.rec.widget"]
+        initial_data = widget_model.fetch_initial_data()
+        return widget_model.new(initial_data["initial_values"])
+
+    def _validate_statement_with_widget_aml(self, move_line, stmt_line):
+        widget = self._create_bank_rec_widget()
+        widget.mount_st_line(stmt_line.id)
+        widget.add_new_aml(move_line.id)
+        widget.validate()
+        return stmt_line
+
     def _reconcile_payment_with_statement(self, payment, stmt_date, amount):
         stmt_line = self._create_statement_line(
             self.bank_journal,
@@ -247,6 +259,41 @@ class TestStatementReferences(TransactionCase):
 
         self.assertFalse(stmt_line.payment_reference)
         self.assertFalse(stmt_line.invoice_reference)
+
+    def test_widget_validate_sets_statement_refs_from_payment_and_bill(self):
+        bill = self._create_vendor_bill(950.0)
+        payment = self._create_payment_from_bill(bill)
+        stmt_line = self._create_statement_line(
+            self.bank_journal,
+            date(2025, 11, 28),
+            -950.0,
+            f"TEST/WIDGET/{payment.id}",
+        )
+        payment_line = self._get_payment_outstanding_line(payment)
+        self.assertTrue(payment_line, "Payment outstanding line not found")
+
+        self._validate_statement_with_widget_aml(payment_line, stmt_line)
+        stmt_line.invalidate_recordset(['payment_reference', 'invoice_reference'])
+
+        self.assertEqual(stmt_line.payment_reference, payment.name)
+        self.assertEqual(stmt_line.invoice_reference, bill.name)
+
+    def test_widget_validate_sets_statement_invoice_ref_for_direct_bill(self):
+        bill = self._create_vendor_bill(750.0)
+        stmt_line = self._create_statement_line(
+            self.direct_bill_bank_journal,
+            date(2025, 11, 28),
+            -750.0,
+            bill.name,
+        )
+        bill_payable_line = self._get_bill_payable_line(bill)
+        self.assertTrue(bill_payable_line, "Bill payable line not found")
+
+        self._validate_statement_with_widget_aml(bill_payable_line, stmt_line)
+        stmt_line.invalidate_recordset(['payment_reference', 'invoice_reference'])
+
+        self.assertFalse(stmt_line.payment_reference)
+        self.assertEqual(stmt_line.invoice_reference, bill.name)
 
     def test_standard_payment_ref_is_not_changed(self):
         bill = self._create_vendor_bill(900.0)
