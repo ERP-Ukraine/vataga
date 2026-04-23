@@ -11,6 +11,8 @@ const DEFAULT_AVAILABILITY_FILTERS = {
 };
 
 const AVAILABILITY_FILTER_LABEL = "Наявність товарів";
+const WAREHOUSE_BUTTON_LABEL = "Склад";
+const WAREHOUSES_BUTTON_LABEL = "Склади";
 
 function isLineAvailable(line) {
     if (Object.prototype.hasOwnProperty.call(line, "components_available")) {
@@ -23,10 +25,72 @@ patch(BomOverviewComponent.prototype, {
     setup() {
         super.setup(...arguments);
         this.state.availabilityFilters = { ...DEFAULT_AVAILABILITY_FILTERS };
+        this.state.selectedWarehouseIds = [];
     },
 
     onChangeAvailabilityFilter(filterKey) {
         this.state.availabilityFilters[filterKey] = !this.state.availabilityFilters[filterKey];
+    },
+
+    async getBomData() {
+        const args = [
+            this.activeId,
+            this.state.bomQuantity,
+            this.state.currentVariantId,
+        ];
+        const context = { ...this.context };
+        if (this.state.currentWarehouse) {
+            context.warehouse = this.state.currentWarehouse.id;
+        }
+        if (this.state.selectedWarehouseIds.length) {
+            context.warehouse_ids = [...this.state.selectedWarehouseIds];
+        }
+        const bomData = await this.orm.call(
+            "report.mrp.report_bom_structure",
+            "get_html",
+            args,
+            { context }
+        );
+        this.state.bomData = bomData.lines;
+        this.state.showOptions.attachments = bomData.has_attachments;
+        return bomData;
+    },
+
+    async getWarehouses() {
+        const warehouses = await this.orm.call(
+            "report.mrp.report_bom_structure",
+            "get_warehouses"
+        );
+        this.warehouses = warehouses;
+        this.state.currentWarehouse = warehouses[0] || null;
+        this.state.selectedWarehouseIds = warehouses[0] ? [warehouses[0].id] : [];
+    },
+
+    async onChangeWarehouse(warehouseId) {
+        const isSelected = this.state.selectedWarehouseIds.includes(warehouseId);
+        const nextSelectedWarehouseIds = isSelected
+            ? this.state.selectedWarehouseIds.filter((id) => id !== warehouseId)
+            : [...this.state.selectedWarehouseIds, warehouseId];
+
+        if (!nextSelectedWarehouseIds.length) {
+            return;
+        }
+
+        const hasChanged =
+            nextSelectedWarehouseIds.length !== this.state.selectedWarehouseIds.length ||
+            nextSelectedWarehouseIds.some(
+                (selectedWarehouseId, index) =>
+                    selectedWarehouseId !== this.state.selectedWarehouseIds[index]
+            );
+        if (!hasChanged) {
+            return;
+        }
+
+        this.state.selectedWarehouseIds = nextSelectedWarehouseIds;
+        this.state.currentWarehouse =
+            this.warehouses.find((warehouse) => warehouse.id === nextSelectedWarehouseIds[0]) ||
+            null;
+        await this.getBomData();
     },
 
     get filteredBomData() {
@@ -85,6 +149,13 @@ patch(BomOverviewControlPanel.prototype, {
     get availabilityFilterButtonLabel() {
         return AVAILABILITY_FILTER_LABEL;
     },
+
+    get warehouseButtonLabel() {
+        const selectedCount = this.props.selectedWarehouseIds.length;
+        return selectedCount > 1
+            ? `${WAREHOUSES_BUTTON_LABEL} (${selectedCount})`
+            : WAREHOUSE_BUTTON_LABEL;
+    },
 });
 
 BomOverviewControlPanel.props = {
@@ -97,11 +168,13 @@ BomOverviewControlPanel.props = {
         },
         optional: true,
     },
+    selectedWarehouseIds: { type: Array, optional: true },
     changeAvailabilityFilter: { type: Function, optional: true },
 };
 
 BomOverviewControlPanel.defaultProps = {
     ...BomOverviewControlPanel.defaultProps,
     currentAvailabilityFilter: { ...DEFAULT_AVAILABILITY_FILTERS },
+    selectedWarehouseIds: [],
     changeAvailabilityFilter: () => {},
 };

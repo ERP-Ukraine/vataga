@@ -7,6 +7,7 @@
     >
         <xpath expr="//BomOverviewControlPanel" position="attributes">
             <attribute name="currentAvailabilityFilter">state.availabilityFilters</attribute>
+            <attribute name="selectedWarehouseIds">state.selectedWarehouseIds</attribute>
             <attribute name="changeAvailabilityFilter.bind">onChangeAvailabilityFilter</attribute>
         </xpath>
         <xpath expr="//BomOverviewTable" position="attributes">
@@ -19,6 +20,31 @@
         t-inherit="mrp.BomOverviewControlPanel"
         t-inherit-mode="extension"
     >
+        <xpath
+            expr="//t[@t-set-slot='control-panel-navigation-additional']//t[@t-if='props.warehouses.length &gt; 1']"
+            position="replace"
+        >
+            <t t-if="props.warehouses.length > 1">
+                <Dropdown
+                    class="'btn-group flex-grow-1 flex-md-grow-0'"
+                    togglerClass="'btn btn-secondary'"
+                    showCaret="true"
+                >
+                    <t t-set-slot="toggler">
+                        <span class="fa fa-home me-1"/>
+                        <t t-esc="warehouseButtonLabel"/>
+                    </t>
+                    <t t-foreach="props.warehouses" t-as="wh" t-key="wh.id">
+                        <DropdownItem
+                            parentClosingMode="'none'"
+                            onSelected="() => this.props.changeWarehouse(wh.id)"
+                            t-esc="wh.name"
+                            class="{ selected: props.selectedWarehouseIds.includes(wh.id) }"
+                        />
+                    </t>
+                </Dropdown>
+            </t>
+        </xpath>
         <xpath
             expr="//t[@t-set-slot='control-panel-navigation-additional']//BomOverviewDisplayFilter"
             position="after"
