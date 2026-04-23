@@ -5,16 +5,16 @@ class AccountBankStatementLine(models.Model):
     _inherit = 'account.bank.statement.line'
 
     payment_reference = fields.Char(
+        compute='_compute_payment_invoice_references',
         string='Референс платежу',
         readonly=True,
         copy=False,
-        oldname='linked_payment_ref',
     )
     invoice_reference = fields.Char(
+        compute='_compute_payment_invoice_references',
         string='Референс рахунку',
         readonly=True,
         copy=False,
-        oldname='linked_invoice_ref',
     )
 
     @staticmethod
@@ -55,26 +55,18 @@ class AccountBankStatementLine(models.Model):
             'invoice_reference': self._join_reference_names(bills),
         }
 
-    def _sync_payment_invoice_references(self):
+    def _compute_payment_invoice_references(self):
         for st_line in self:
             values = st_line._get_payment_invoice_reference_values()
-            if (
-                st_line.payment_reference != values['payment_reference']
-                or st_line.invoice_reference != values['invoice_reference']
-            ):
-                st_line.write(values)
+            st_line.payment_reference = values['payment_reference']
+            st_line.invoice_reference = values['invoice_reference']
+
+    def _sync_payment_invoice_references(self):
+        # Compatibility no-op: references are now derived on read.
+        self.invalidate_recordset(['payment_reference', 'invoice_reference'])
+        return True
 
     @api.model
     def _backfill_payment_invoice_references(self, domain=None, batch_size=1000):
-        base_domain = list(domain or [])
-        last_id = 0
-        while True:
-            lines = self.search(
-                base_domain + [('id', '>', last_id)],
-                order='id',
-                limit=batch_size,
-            )
-            if not lines:
-                break
-            lines._sync_payment_invoice_references()
-            last_id = lines[-1].id
+        # Compatibility no-op kept for older migrations/upgrades.
+        return True

@@ -1,7 +1,1 @@
 from . import models
-
-
-def post_init_hook(env):
-    env['account.bank.statement.line']._backfill_payment_invoice_references(
-        [('is_reconciled', '=', True)]
-    )
