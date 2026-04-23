@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t
+        t-name="account_statement_reference_vataga.bank_rec_form"
+        t-inherit="account_accountant.bank_rec_form"
+        t-inherit-mode="extension"
+    >
+        <xpath expr="//div[@name='name']" position="after">
+            <t t-set="paymentReference" t-value="props.stLine and props.stLine.data and props.stLine.data.payment_reference"/>
+            <t t-set="invoiceReference" t-value="props.stLine and props.stLine.data and props.stLine.data.invoice_reference"/>
+            <div t-if="paymentReference or invoiceReference" class="mt-2 small">
+                <div t-if="paymentReference" name="payment_reference" class="text-muted">
+                    <span>Референс платежу</span>
+                    <div class="text-body">
+                        <span t-esc="paymentReference"/>
+                    </div>
+                </div>
+                <div t-if="invoiceReference" name="invoice_reference" class="text-muted mt-1">
+                    <span>Референс рахунку</span>
+                    <div class="text-body">
+                        <span t-esc="invoiceReference"/>
+                    </div>
+                </div>
+            </div>
+        </xpath>
+    </t>
+</templates>
