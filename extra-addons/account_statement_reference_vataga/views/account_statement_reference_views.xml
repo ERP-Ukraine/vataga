@@ -42,6 +42,18 @@
         </field>
     </record>
 
+    <record id="view_bank_statement_line_form_bank_rec_widget_vataga" model="ir.ui.view">
+        <field name="name">account.bank.statement.line.form.bank.rec.widget.vataga</field>
+        <field name="model">account.bank.statement.line</field>
+        <field name="inherit_id" ref="account_accountant.view_bank_statement_line_form_bank_rec_widget"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='payment_ref']" position="after">
+                <field name="payment_reference" readonly="1" invisible="not payment_reference"/>
+                <field name="invoice_reference" readonly="1" invisible="not invoice_reference"/>
+            </xpath>
+        </field>
+    </record>
+
     <record id="view_move_line_form_statement_reference_vataga" model="ir.ui.view">
         <field name="name">account.move.line.form.statement.reference.vataga</field>
         <field name="model">account.move.line</field>
