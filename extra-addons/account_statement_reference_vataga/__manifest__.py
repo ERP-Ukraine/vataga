@@ -17,5 +17,9 @@
         'views/account_statement_reference_views.xml',
     ],
     'post_init_hook': 'post_init_hook',
-    'assets': {},
+    'assets': {
+        'web.assets_backend': [
+            'account_statement_reference_vataga/static/src/components/bank_reconciliation/bank_rec_form.xml',
+        ],
+    },
 }
