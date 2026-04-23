@@ -32,28 +32,93 @@ patch(BomOverviewComponent.prototype, {
         this.state.availabilityFilters[filterKey] = !this.state.availabilityFilters[filterKey];
     },
 
-    async getBomData() {
-        const args = [
-            this.activeId,
-            this.state.bomQuantity,
-            this.state.currentVariantId,
-        ];
-        const context = { ...this.context };
-        if (this.state.currentWarehouse) {
-            context.warehouse = this.state.currentWarehouse.id;
-        }
-        if (this.state.selectedWarehouseIds.length) {
-            context.warehouse_ids = [...this.state.selectedWarehouseIds];
-        }
-        const bomData = await this.orm.call(
+    async fetchBomDataForWarehouse(warehouseId) {
+        return this.orm.call(
             "report.mrp.report_bom_structure",
             "get_html",
-            args,
-            { context }
+            [this.activeId, this.state.bomQuantity, this.state.currentVariantId],
+            {
+                context: {
+                    ...this.context,
+                    warehouse: warehouseId,
+                },
+            }
         );
+    },
+
+    async getBomData() {
+        let bomData;
+        if (this.state.selectedWarehouseIds.length > 1) {
+            const reports = await Promise.all(
+                this.state.selectedWarehouseIds.map((warehouseId) =>
+                    this.fetchBomDataForWarehouse(warehouseId)
+                )
+            );
+            bomData = this.mergeWarehouseReports(reports);
+        } else {
+            const warehouseId = this.state.selectedWarehouseIds[0] || this.state.currentWarehouse?.id;
+            bomData = await this.fetchBomDataForWarehouse(warehouseId);
+        }
+
         this.state.bomData = bomData.lines;
         this.state.showOptions.attachments = bomData.has_attachments;
         return bomData;
+    },
+
+    mergeWarehouseReports(reports) {
+        const [firstReport, ...otherReports] = reports;
+        const mergedReport = JSON.parse(JSON.stringify(firstReport));
+        for (const report of otherReports) {
+            this.mergeReportLine(mergedReport.lines, report.lines);
+        }
+        this.refreshMergedLineStates(mergedReport.lines, true);
+        return mergedReport;
+    },
+
+    mergeReportLine(targetLine, sourceLine) {
+        for (const fieldName of [
+            "quantity_available",
+            "quantity_on_hand",
+            "free_to_manufacture_qty",
+            "producible_qty",
+            "earliest_capacity",
+            "leftover_capacity",
+        ]) {
+            if (
+                typeof targetLine[fieldName] === "number" &&
+                typeof sourceLine[fieldName] === "number"
+            ) {
+                targetLine[fieldName] += sourceLine[fieldName];
+            }
+        }
+
+        if (targetLine.components?.length && sourceLine.components?.length) {
+            for (let index = 0; index < targetLine.components.length; index++) {
+                this.mergeReportLine(targetLine.components[index], sourceLine.components[index]);
+            }
+        }
+    },
+
+    refreshMergedLineStates(line, isRoot = false) {
+        for (const component of line.components || []) {
+            this.refreshMergedLineStates(component);
+        }
+
+        if (typeof line.quantity_available === "number" && typeof line.quantity === "number") {
+            const isAvailable = line.quantity_available >= line.quantity;
+            line.stock_avail_state = isAvailable ? "available" : line.stock_avail_state;
+            if (isAvailable && (!line.components || !line.components.length || !isRoot)) {
+                line.availability_state = "available";
+                line.availability_delay = 0;
+                line.availability_display = "В наявності";
+            }
+        }
+
+        if (line.components?.length) {
+            line.components_available = line.components.every(
+                (component) => component.stock_avail_state === "available"
+            );
+        }
     },
 
     async getWarehouses() {
