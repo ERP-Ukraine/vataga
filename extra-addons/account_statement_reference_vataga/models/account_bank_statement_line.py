@@ -24,10 +24,15 @@ class AccountBankStatementLine(models.Model):
 
     def _get_reconciled_counterpart_lines(self):
         self.ensure_one()
-        _liquidity_lines, suspense_lines, _other_lines = self._seek_for_lines()
-        return (
-            suspense_lines.mapped('matched_debit_ids.debit_move_id')
-            + suspense_lines.mapped('matched_credit_ids.credit_move_id')
+        statement_lines = self.move_id.line_ids
+        counterpart_lines = (
+            statement_lines.mapped('matched_debit_ids.debit_move_id')
+            | statement_lines.mapped('matched_debit_ids.credit_move_id')
+            | statement_lines.mapped('matched_credit_ids.debit_move_id')
+            | statement_lines.mapped('matched_credit_ids.credit_move_id')
+        )
+        return (counterpart_lines - statement_lines).filtered(
+            lambda line: line.move_id != self.move_id
         )
 
     def _get_payment_invoice_sources(self):
