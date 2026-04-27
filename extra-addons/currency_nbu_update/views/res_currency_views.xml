@@ -10,7 +10,7 @@
                 <header>
                     <button
                         name="action_update_nbu_currency_rates"
-                        string="Update NBU Rates"
+                        string="Оновити курси НБУ"
                         type="object"
                         class="oe_highlight"
                         groups="account.group_account_manager,base.group_system"

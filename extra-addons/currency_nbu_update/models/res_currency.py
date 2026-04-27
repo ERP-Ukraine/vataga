@@ -19,9 +19,9 @@ class ResCurrency(models.Model):
     def _cron_update_nbu_currency_rates(self):
         return self._update_nbu_currency_rates(raise_on_error=False)
 
-    @api.model
     def action_update_nbu_currency_rates(self):
-        result = self._update_nbu_currency_rates(raise_on_error=True)
+        self.ensure_one()
+        result = self.env['res.currency']._update_nbu_currency_rates(raise_on_error=True)
         message = _('NBU currency rates updated: %(updated)s. Skipped: %(skipped)s. Errors: %(errors)s.') % {
             'updated': result['updated_count'],
             'skipped': result['skipped_count'],
