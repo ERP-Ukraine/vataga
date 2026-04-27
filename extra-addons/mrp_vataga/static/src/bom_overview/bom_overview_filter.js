@@ -1,6 +1,7 @@
 /** @odoo-module */
 
 import { patch } from "@web/core/utils/patch";
+import { onWillUnmount } from "@odoo/owl";
 
 import { BomOverviewComponent } from "@mrp/components/bom_overview/mrp_bom_overview";
 import { BomOverviewControlPanel } from "@mrp/components/bom_overview_control_panel/mrp_bom_overview_control_panel";
@@ -26,6 +27,11 @@ patch(BomOverviewComponent.prototype, {
         super.setup(...arguments);
         this.state.availabilityFilters = { ...DEFAULT_AVAILABILITY_FILTERS };
         this.state.selectedWarehouseIds = [];
+        this.warehouseReloadTimeout = null;
+        this.lastBomDataRequestId = 0;
+        onWillUnmount(() => {
+            clearTimeout(this.warehouseReloadTimeout);
+        });
     },
 
     onChangeAvailabilityFilter(filterKey) {
@@ -33,6 +39,8 @@ patch(BomOverviewComponent.prototype, {
     },
 
     async getBomData() {
+        clearTimeout(this.warehouseReloadTimeout);
+        const requestId = ++this.lastBomDataRequestId;
         const selectedWarehouseIds = this.state.selectedWarehouseIds.length
             ? this.state.selectedWarehouseIds
             : this.state.currentWarehouse?.id
@@ -50,6 +58,10 @@ patch(BomOverviewComponent.prototype, {
                 },
             }
         );
+
+        if (requestId !== this.lastBomDataRequestId) {
+            return bomData;
+        }
 
         this.state.bomData = bomData.lines;
         this.state.showOptions.attachments = bomData.has_attachments;
@@ -90,7 +102,11 @@ patch(BomOverviewComponent.prototype, {
         this.state.currentWarehouse =
             this.warehouses.find((warehouse) => warehouse.id === nextSelectedWarehouseIds[0]) ||
             null;
-        await this.getBomData();
+
+        clearTimeout(this.warehouseReloadTimeout);
+        this.warehouseReloadTimeout = setTimeout(() => {
+            this.getBomData();
+        }, 500);
     },
 
     get filteredBomData() {
