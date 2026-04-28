@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t
+        t-name="account_statement_reference_vataga.BankRecRecordNotebookManualOperations"
+        t-inherit="account_accountant.BankRecRecordNotebookManualOperations"
+        t-inherit-mode="extension"
+        owl="1"
+    >
+        <xpath expr="//t[@t-set='data']" position="after">
+            <t
+                t-set="stLineRecord"
+                t-value="this.model.root.records.find((record) => record.resId === data.st_line_id[0])"
+            />
+        </xpath>
+        <xpath expr="//div[@name='reference']" position="after">
+            <div
+                name="payment_reference"
+                t-if="stLineRecord and stLineRecord.data.payment_reference"
+                class="o_wrap_field d-flex d-sm-contents flex-column mb-3 mb-sm-0"
+            >
+                <div class="o_cell o_wrap_label flex-grow-1 flex-sm-grow-0 w-100 text-break text-900">
+                    <label class="o_form_label o_form_label_readonly">Референс платежу</label>
+                </div>
+                <div class="o_cell o_wrap_input flex-grow-1 flex-sm-grow-0" style="width: 100%; margin-bottom: 5px">
+                    <div class="o_field_widget o_field_char">
+                        <span t-esc="stLineRecord.data.payment_reference"/>
+                    </div>
+                </div>
+            </div>
+            <div
+                name="invoice_reference"
+                t-if="stLineRecord and stLineRecord.data.invoice_reference"
+                class="o_wrap_field d-flex d-sm-contents flex-column mb-3 mb-sm-0"
+            >
+                <div class="o_cell o_wrap_label flex-grow-1 flex-sm-grow-0 w-100 text-break text-900">
+                    <label class="o_form_label o_form_label_readonly">Референс рахунку</label>
+                </div>
+                <div class="o_cell o_wrap_input flex-grow-1 flex-sm-grow-0" style="width: 100%; margin-bottom: 5px">
+                    <div class="o_field_widget o_field_char">
+                        <span t-esc="stLineRecord.data.invoice_reference"/>
+                    </div>
+                </div>
+            </div>
+        </xpath>
+    </t>
+</templates>
