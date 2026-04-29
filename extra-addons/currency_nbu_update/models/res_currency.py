@@ -21,8 +21,11 @@ class ResCurrency(models.Model):
 
     def action_update_nbu_currency_rates(self):
         self.ensure_one()
-        result = self.env['res.currency']._update_nbu_currency_rates(raise_on_error=True)
-        message = _('NBU currency rates updated: %(updated)s. Skipped: %(skipped)s. Errors: %(errors)s.') % {
+        result = self.env['res.currency']._update_nbu_currency_rates(
+            raise_on_error=True,
+            currencies=self,
+        )
+        message = _('Оновлено: %(updated)s. Пропущено: %(skipped)s. Помилок: %(errors)s.') % {
             'updated': result['updated_count'],
             'skipped': result['skipped_count'],
             'errors': result['error_count'],
@@ -31,7 +34,7 @@ class ResCurrency(models.Model):
             'type': 'ir.actions.client',
             'tag': 'display_notification',
             'params': {
-                'title': _('NBU Currency Rates'),
+                'title': _('Оновлення курсів НБУ'),
                 'message': message,
                 'type': 'warning' if result['error_count'] or result['skipped_count'] else 'success',
                 'sticky': False,
@@ -39,7 +42,7 @@ class ResCurrency(models.Model):
         }
 
     @api.model
-    def _update_nbu_currency_rates(self, raise_on_error=False):
+    def _update_nbu_currency_rates(self, raise_on_error=False, currencies=None):
         company = self.env.company
         company_currency = company.currency_id
         if company_currency.name != 'UAH':
@@ -62,8 +65,12 @@ class ResCurrency(models.Model):
                 'error_count': 1,
             }
 
-        currencies = self.search([('active', '=', True)])
-        currencies = currencies - company_currency
+        if currencies is None:
+            currencies = self.search([('active', '=', True)])
+            currencies = currencies - company_currency
+        else:
+            currencies = currencies.filtered(lambda currency: currency.active)
+            currencies = currencies - company_currency
 
         _logger.info(
             'Starting NBU currency rate update for company %s (%s). Found %s active currencies.',
