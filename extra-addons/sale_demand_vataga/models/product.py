@@ -1,5 +1,4 @@
 from odoo import api, fields, models
-from datetime import timedelta
 
 
 class ProductProduct(models.Model):
@@ -57,7 +56,9 @@ class ProductAnalytic(models.Model):
         compute='_compute_ua_purchase_contract_ids',
         store=True,
     )
-    account_move_ids = fields.Many2many(comodel_name='account.move')
+    account_move_ids = fields.Many2many(
+        comodel_name='account.move', compute='_compute_account_move_ids', store=True
+    )
     
     kit_bom_ids = fields.Many2many(comodel_name='mrp.bom', compute='_compute_kit_bom_ids', store=True)
 
@@ -66,9 +67,50 @@ class ProductAnalytic(models.Model):
         for product_analytic in self:
             product_analytic.kit_bom_ids = self.env['mrp.bom'].search(
                 [
+                    '|',
+                    '|',
                     ('bom_line_ids.product_id', '=', product_analytic.product_id.id),
+                    ('product_id', '=', product_analytic.product_id.id),
+                    '&',
+                    ('product_id', '=', False),
+                    ('product_tmpl_id', '=', product_analytic.product_id.product_tmpl_id.id),
                     ('type', '=', 'phantom'),
                 ]
+            )
+
+    def _get_parent_kit_boms(self):
+        self.ensure_one()
+        return self.kit_bom_ids.filtered(
+            lambda bom: self.product_id in bom.bom_line_ids.product_id
+        )
+
+    def _get_related_invoice_move_lines(self):
+        self.ensure_one()
+        parent_kit_boms = self._get_parent_kit_boms()
+        kit_products = (
+            parent_kit_boms.product_id
+            + parent_kit_boms.product_tmpl_id.product_variant_ids
+        )
+        return self.sale_contract_id.seller_move_line_ids.filtered(
+            lambda line: line.product_id == self.product_id
+            or line.product_id in kit_products
+        )
+
+    def _get_related_invoice_moves(self):
+        self.ensure_one()
+        return self._get_related_invoice_move_lines().mapped('move_id')
+
+    @api.depends(
+        'product_id',
+        'sale_contract_id.seller_move_line_ids',
+        'sale_contract_id.seller_move_line_ids.product_id',
+        'sale_contract_id.seller_move_line_ids.move_id',
+        'kit_bom_ids',
+    )
+    def _compute_account_move_ids(self):
+        for product_analytic in self:
+            product_analytic.account_move_ids = (
+                product_analytic._get_related_invoice_moves()
             )
 
     @api.depends('need_to_purchase_ids.order_line_id.order_id.ua_contract_id')
@@ -126,7 +168,7 @@ class ProductAnalytic(models.Model):
                     line.quantity, line.product_id.uom_id
                 )
 
-            for bom in product_analytic.kit_bom_ids:
+            for bom in product_analytic._get_parent_kit_boms():
                 for product in bom.product_id + bom.product_tmpl_id.product_variant_ids:
                     seller_line_ids = product_analytic.sale_contract_id.seller_move_line_ids.filtered(
                         lambda line: line.product_id == product and line.move_id.state == 'posted' and line.move_type == 'in_invoice'
@@ -231,26 +273,7 @@ class ProductAnalytic(models.Model):
 
     @api.model
     def _cron_sync_account_move_ids(self):
-        min_time = fields.Datetime.now() - timedelta(hours=3)
-        domain = [('write_date', '>', min_time), ('seller_contract_id', '!=', False)]
-        if self.env.context.get('by_all_time'):
-            domain = [('seller_contract_id', '!=', False)]
-        move_lines = self.env['account.move.line'].search(
-            domain
-        )
-        if move_lines:
-            seller_contracts = move_lines.mapped('seller_contract_id')
-            product_analytics = self.env['product.analytic'].search(
-                [('sale_contract_id', 'in', seller_contracts.ids)]
-            )
-            for product_analytic in product_analytics:
-                kit_ids = set(product_analytic.kit_bom_ids.product_id.ids + product_analytic.kit_bom_ids.product_tmpl_id.product_variant_ids.ids)
-                moves = move_lines.filtered(
-                    lambda line: line.seller_contract_id
-                    == product_analytic.sale_contract_id
-                    and (line.product_id == product_analytic.product_id or line.product_id.id in kit_ids)
-                ).mapped('move_id')
-                product_analytic.account_move_ids = moves
+        self.search([])._compute_account_move_ids()
 
     def _update_translations(self, other_model, source_field_name, field_name):
         if other_model:
