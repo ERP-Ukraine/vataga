@@ -226,6 +226,87 @@ class ProductAnalytic(models.Model):
                 product_analytic._get_related_invoice_moves()
             )
 
+    def _get_related_purchase_contract_lines(self):
+        self.ensure_one()
+        parent_kit_boms = self._get_invoice_kit_parent_boms()
+        kit_products = (
+            parent_kit_boms.product_id
+            + parent_kit_boms.product_tmpl_id.product_variant_ids
+        )
+        purchase_line_model = self.env['purchase.order.line']
+        domain = [
+            ('product_id', 'in', (self.product_id + kit_products).ids),
+            ('order_id.state', 'in', ['purchase', 'done']),
+            ('order_id.ua_contract_id', '!=', False),
+        ]
+        if 'seller_contract_id' in purchase_line_model._fields:
+            domain.append(('seller_contract_id', '=', self.sale_contract_id.id))
+        else:
+            domain.append(('order_id.seller_contract_id', '=', self.sale_contract_id.id))
+        return purchase_line_model.search(domain)
+
+    @api.model
+    def _count_stale_ua_purchase_contract_ids(self, domain=None, batch_size=500):
+        domain = domain or [('sale_contract_id', '!=', False)]
+        last_id = 0
+        mismatch_count = 0
+        while True:
+            product_analytics = self.sudo().search(
+                domain + [('id', '>', last_id)],
+                order='id',
+                limit=batch_size,
+            )
+            if not product_analytics:
+                break
+            for product_analytic in product_analytics:
+                expected_contracts = (
+                    product_analytic._get_related_purchase_contract_lines()
+                    .mapped('order_id.ua_contract_id')
+                )
+                if set(product_analytic.ua_purchase_contract_ids.ids) != set(expected_contracts.ids):
+                    mismatch_count += 1
+            last_id = product_analytics[-1].id
+        return mismatch_count
+
+    @api.model
+    def _recompute_stale_ua_purchase_contract_ids(self, batch_size=500):
+        domain = [('sale_contract_id', '!=', False)]
+        last_id = 0
+        checked = 0
+        mismatch_count = 0
+        updated_count = 0
+        while True:
+            product_analytics = self.sudo().search(
+                domain + [('id', '>', last_id)],
+                order='id',
+                limit=batch_size,
+            )
+            if not product_analytics:
+                break
+            stale_product_analytics = product_analytics.browse()
+            for product_analytic in product_analytics:
+                checked += 1
+                expected_contracts = (
+                    product_analytic._get_related_purchase_contract_lines()
+                    .mapped('order_id.ua_contract_id')
+                )
+                if set(product_analytic.ua_purchase_contract_ids.ids) != set(expected_contracts.ids):
+                    mismatch_count += 1
+                    stale_product_analytics |= product_analytic
+            if stale_product_analytics:
+                stale_product_analytics._compute_ua_purchase_contract_ids()
+                updated_count += len(stale_product_analytics)
+            last_id = product_analytics[-1].id
+        remaining_mismatch_count = self._count_stale_ua_purchase_contract_ids(
+            domain=domain, batch_size=batch_size
+        )
+        return {
+            'checked': checked,
+            'mismatch_count': mismatch_count,
+            'updated_count': updated_count,
+            'remaining_mismatch_count': remaining_mismatch_count,
+        }
+
     @api.depends('need_to_purchase_ids.order_line_id.order_id.ua_contract_id')
     def _compute_ua_sale_contract_ids(self):
         for product_analytic in self:
@@ -235,13 +316,19 @@ class ProductAnalytic(models.Model):
                 )
             )
 
-    @api.depends('sale_contract_id.seller_purchase_ids.ua_contract_id')
+    @api.depends(
+        'product_id',
+        'sale_contract_id',
+        'sale_contract_id.seller_purchase_ids.state',
+        'sale_contract_id.seller_purchase_ids.ua_contract_id',
+        'sale_contract_id.seller_purchase_ids.order_line.product_id',
+        'kit_bom_ids',
+    )
     def _compute_ua_purchase_contract_ids(self):
         for product_analytic in self:
             product_analytic.ua_purchase_contract_ids = (
-                product_analytic.sale_contract_id.seller_purchase_ids.mapped(
-                    'ua_contract_id'
-                )
+                product_analytic._get_related_purchase_contract_lines()
+                .mapped('order_id.ua_contract_id')
             )
 
     @api.depends(
