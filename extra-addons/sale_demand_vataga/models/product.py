@@ -67,33 +67,56 @@ class ProductAnalytic(models.Model):
         for product_analytic in self:
             product_analytic.kit_bom_ids = self.env['mrp.bom'].search(
                 [
-                    '|',
-                    '|',
                     ('bom_line_ids.product_id', '=', product_analytic.product_id.id),
-                    ('product_id', '=', product_analytic.product_id.id),
-                    '&',
-                    ('product_id', '=', False),
-                    ('product_tmpl_id', '=', product_analytic.product_id.product_tmpl_id.id),
                     ('type', '=', 'phantom'),
                 ]
             )
 
-    def _get_parent_kit_boms(self):
+    def _get_invoice_kit_parent_boms(self):
         self.ensure_one()
-        return self.kit_bom_ids.filtered(
-            lambda bom: self.product_id in bom.bom_line_ids.product_id
+        return self.env['mrp.bom'].search(
+            [
+                ('bom_line_ids.product_id', '=', self.product_id.id),
+                ('type', '=', 'phantom'),
+            ]
         )
+
+    def _has_sale_contract_in_distribution(self, record):
+        self.ensure_one()
+        if 'analytic_distribution' not in record._fields:
+            return False
+        analytic_distribution = record.analytic_distribution or {}
+        sale_contract_id = str(self.sale_contract_id.id)
+        for key in analytic_distribution:
+            if sale_contract_id in str(key).split(','):
+                return True
+        return False
+
+    def _has_related_sale_contract(self, line):
+        self.ensure_one()
+        move = line.move_id
+        if line.seller_contract_id == self.sale_contract_id:
+            return True
+        if 'seller_contract_id' in move._fields and move.seller_contract_id == self.sale_contract_id:
+            return True
+        return self._has_sale_contract_in_distribution(line)
 
     def _get_related_invoice_move_lines(self):
         self.ensure_one()
-        parent_kit_boms = self._get_parent_kit_boms()
+        parent_kit_boms = self._get_invoice_kit_parent_boms()
         kit_products = (
             parent_kit_boms.product_id
             + parent_kit_boms.product_tmpl_id.product_variant_ids
         )
-        return self.sale_contract_id.seller_move_line_ids.filtered(
-            lambda line: line.product_id == self.product_id
-            or line.product_id in kit_products
+        invoice_lines = self.env['account.move.line'].search(
+            [
+                ('product_id', 'in', (self.product_id + kit_products).ids),
+                ('move_id.state', '=', 'posted'),
+                ('move_id.move_type', 'in', ['in_invoice', 'in_refund']),
+            ]
+        )
+        return invoice_lines.filtered(
+            lambda line: self._has_related_sale_contract(line)
         )
 
     def _get_related_invoice_moves(self):
@@ -103,8 +126,13 @@ class ProductAnalytic(models.Model):
     @api.depends(
         'product_id',
         'sale_contract_id.seller_move_line_ids',
+        'sale_contract_id.seller_move_line_ids.analytic_distribution',
         'sale_contract_id.seller_move_line_ids.product_id',
+        'sale_contract_id.seller_move_line_ids.move_type',
         'sale_contract_id.seller_move_line_ids.move_id',
+        'sale_contract_id.seller_move_line_ids.move_id.state',
+        'sale_contract_id.seller_move_line_ids.move_id.move_type',
+        'sale_contract_id.seller_move_line_ids.move_id.seller_contract_id',
         'kit_bom_ids',
     )
     def _compute_account_move_ids(self):
@@ -168,7 +196,7 @@ class ProductAnalytic(models.Model):
                     line.quantity, line.product_id.uom_id
                 )
 
-            for bom in product_analytic._get_parent_kit_boms():
+            for bom in product_analytic.kit_bom_ids:
                 for product in bom.product_id + bom.product_tmpl_id.product_variant_ids:
                     seller_line_ids = product_analytic.sale_contract_id.seller_move_line_ids.filtered(
                         lambda line: line.product_id == product and line.move_id.state == 'posted' and line.move_type == 'in_invoice'
