@@ -1,6 +1,6 @@
 {
     'name': 'Sale Demand Vataga',
-    'version': '2.0',
+    'version': '2.1',
     'category': 'Sales/Sales',
     'author': 'ERP Ukraine LLC',
     'website': 'https://erp.co.ua',

@@ -301,7 +301,23 @@ class ProductAnalytic(models.Model):
 
     @api.model
     def _cron_sync_account_move_ids(self):
-        self.search([])._compute_account_move_ids()
+        return self._recompute_account_move_ids()
+
+    @api.model
+    def _recompute_account_move_ids(self, domain=None, batch_size=500):
+        domain = domain or [('demand', '>', 0), ('in_invoice', '>', 0)]
+        last_id = 0
+        while True:
+            product_analytics = self.search(
+                domain + [('id', '>', last_id)],
+                order='id',
+                limit=batch_size,
+            )
+            if not product_analytics:
+                break
+            product_analytics._compute_account_move_ids()
+            last_id = product_analytics[-1].id
+        return True
 
     def _update_translations(self, other_model, source_field_name, field_name):
         if other_model:
