@@ -78,6 +78,85 @@ class ProductAnalytic(models.Model):
             self.sudo().search([('product_id', 'in', products.ids)])._compute_kit_bom_ids()
         return True
 
+    @api.model
+    def _get_kit_bom_backfill_domain(self):
+        component_products = self.env['mrp.bom'].sudo().search(
+            [('type', '=', 'phantom')]
+        ).bom_line_ids.product_id
+        return [
+            '|',
+            ('product_id', 'in', component_products.ids),
+            ('kit_bom_ids', '!=', False),
+        ]
+
+    @api.model
+    def _count_stale_kit_bom_ids(self, domain=None, batch_size=500):
+        domain = domain or self._get_kit_bom_backfill_domain()
+        bom_model = self.env['mrp.bom'].sudo()
+        last_id = 0
+        mismatch_count = 0
+        while True:
+            product_analytics = self.sudo().search(
+                domain + [('id', '>', last_id)],
+                order='id',
+                limit=batch_size,
+            )
+            if not product_analytics:
+                break
+            for product_analytic in product_analytics:
+                expected_boms = bom_model.search(
+                    [
+                        ('type', '=', 'phantom'),
+                        ('bom_line_ids.product_id', '=', product_analytic.product_id.id),
+                    ]
+                )
+                if set(product_analytic.kit_bom_ids.ids) != set(expected_boms.ids):
+                    mismatch_count += 1
+            last_id = product_analytics[-1].id
+        return mismatch_count
+
+    @api.model
+    def _recompute_stale_kit_bom_ids(self, batch_size=500):
+        domain = self._get_kit_bom_backfill_domain()
+        bom_model = self.env['mrp.bom'].sudo()
+        last_id = 0
+        checked = 0
+        mismatch_count = 0
+        updated_count = 0
+        while True:
+            product_analytics = self.sudo().search(
+                domain + [('id', '>', last_id)],
+                order='id',
+                limit=batch_size,
+            )
+            if not product_analytics:
+                break
+            stale_product_analytics = product_analytics.browse()
+            for product_analytic in product_analytics:
+                checked += 1
+                expected_boms = bom_model.search(
+                    [
+                        ('type', '=', 'phantom'),
+                        ('bom_line_ids.product_id', '=', product_analytic.product_id.id),
+                    ]
+                )
+                if set(product_analytic.kit_bom_ids.ids) != set(expected_boms.ids):
+                    mismatch_count += 1
+                    stale_product_analytics |= product_analytic
+            if stale_product_analytics:
+                stale_product_analytics._compute_kit_bom_ids()
+                updated_count += len(stale_product_analytics)
+            last_id = product_analytics[-1].id
+        remaining_mismatch_count = self._count_stale_kit_bom_ids(
+            domain=domain, batch_size=batch_size
+        )
+        return {
+            'checked': checked,
+            'mismatch_count': mismatch_count,
+            'updated_count': updated_count,
+            'remaining_mismatch_count': remaining_mismatch_count,
+        }
+
     def _get_invoice_kit_parent_boms(self):
         self.ensure_one()
         return self.env['mrp.bom'].search(
