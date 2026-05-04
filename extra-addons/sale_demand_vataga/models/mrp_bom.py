@@ -8,17 +8,22 @@ class MrpBom(models.Model):
     sale_order_line_ids = fields.One2many('sale.order.line', 'bom_id')
     need_update_to_purchase = fields.Boolean(default=True)
 
+    def _recompute_product_analytic_kit_boms(self, products):
+        self.env['product.analytic']._recompute_kit_bom_ids_for_products(products)
+
     @api.model_create_multi
     def create(self, vals_list):
         for vals in vals_list:
             vals['need_update_to_purchase'] = True
         res = super().create(vals_list)
+        res._recompute_product_analytic_kit_boms(res.bom_line_ids.product_id)
         sols = res._update_all_upper_boms()
         sols.set_bom_id()
         self.env.ref('sale_demand_vataga.cron_update_need_to_purchase')._trigger()
         return res
 
     def write(self, vals):
+        old_component_products = self.bom_line_ids.product_id
         res = super().write(vals)
         if (
             'product_id' in vals
@@ -32,6 +37,10 @@ class MrpBom(models.Model):
             self.filtered(lambda bom: bom.need_update_to_purchase == False).need_update_to_purchase = True
             sols.set_bom_id()
         self.env.ref('sale_demand_vataga.cron_update_need_to_purchase')._trigger()
+        if 'bom_line_ids' in vals or 'type' in vals:
+            self._recompute_product_analytic_kit_boms(
+                old_component_products | self.bom_line_ids.product_id
+            )
         return res
 
     @api.model
@@ -86,7 +95,9 @@ class MrpBom(models.Model):
 
     def unlink(self):
         sale_order_lines = self.mapped('sale_order_line_ids')
+        component_products = self.bom_line_ids.product_id
         res = super().unlink()
+        self._recompute_product_analytic_kit_boms(component_products)
         sale_order_lines.set_bom_id()
         sale_order_lines.create_need_to_purchase_ids()
         return res
@@ -134,6 +145,7 @@ class MrpBomLine(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         res = super().create(vals_list)
+        res.bom_id._recompute_product_analytic_kit_boms(res.product_id)
         res.bom_id.need_update_to_purchase = True
         sols = res.bom_id._update_all_upper_boms()
         sols.set_bom_id()
@@ -141,9 +153,21 @@ class MrpBomLine(models.Model):
         return res
 
     def write(self, vals):
+        old_products = self.product_id
         res = super().write(vals)
+        if 'product_id' in vals:
+            self.bom_id._recompute_product_analytic_kit_boms(
+                old_products | self.product_id
+            )
         self.bom_id.need_update_to_purchase = True
         sols = self.bom_id._update_all_upper_boms()
         sols.set_bom_id()
         self.env.ref('sale_demand_vataga.cron_update_need_to_purchase')._trigger()
+        return res
+
+    def unlink(self):
+        boms = self.bom_id
+        products = self.product_id
+        res = super().unlink()
+        boms._recompute_product_analytic_kit_boms(products)
         return res

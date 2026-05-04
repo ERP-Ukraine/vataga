@@ -72,6 +72,12 @@ class ProductAnalytic(models.Model):
                 ]
             )
 
+    @api.model
+    def _recompute_kit_bom_ids_for_products(self, products):
+        if products:
+            self.sudo().search([('product_id', 'in', products.ids)])._compute_kit_bom_ids()
+        return True
+
     def _get_invoice_kit_parent_boms(self):
         self.ensure_one()
         return self.env['mrp.bom'].search(
