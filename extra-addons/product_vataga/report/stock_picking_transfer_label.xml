@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- Transfer/package labels are disabled. -->
+        <record id="action_report_stock_picking_transfer_labels_v2" model="ir.actions.report" forcecreate="False">
+            <field name="binding_model_id" eval="False"/>
+        </record>
+
+        <!--
+        <record id="action_report_stock_picking_transfer_labels_v2" model="ir.actions.report">
+            <field name="name">Transfer Labels</field>
+            <field name="model">stock.picking</field>
+            <field name="report_type">qweb-pdf</field>
+            <field name="report_name">product_vataga.report_stock_picking_transfer_label_v2</field>
+            <field name="report_file">product_vataga.report_stock_picking_transfer_label_v2</field>
+            <field name="paperformat_id" ref="product.paperformat_label_sheet_dymo"/>
+            <field name="print_report_name">'Transfer Labels - %s' % (object.name)</field>
+        </record>
+
+        <template id="report_stock_picking_transfer_label_v2">
+            <t t-call="web.basic_layout">
+                <t t-foreach="labels" t-as="label">
+                    <div class="page" style="margin: 0; padding: 0;">
+                        <div style="position: relative;
+                                    box-sizing: border-box;
+                                    width: 100%;
+                                    height: 100%;
+                                    background-color: #fff;
+                                    border-radius: 4mm;
+                                    overflow: hidden;
+                                    padding: 2mm 3mm 10mm 3mm;
+                                    font-family: 'DejaVu Serif', serif;
+                                    color: #000;">
+                            <div style="font-size: 16px;
+                                        font-weight: 700;
+                                        line-height: 1.0;
+                                        text-align: center;
+                                        margin: 0 0 1.5mm 0;
+                                        height: 7mm;
+                                        overflow: hidden;
+                                        word-break: break-word;">
+                                <span t-out="label['picking_name']"/>
+                            </div>
+
+                            <div style="font-size: 8px;
+                                        line-height: 1.05;
+                                        margin: 0 0 1mm 0;
+                                        height: 4.5mm;
+                                        overflow: hidden;
+                                        word-break: break-word;">
+                                <span t-out="label['source_line_text']"/>
+                            </div>
+
+                            <div style="font-size: 8px;
+                                        line-height: 1.05;
+                                        margin: 0;
+                                        height: 4.5mm;
+                                        overflow: hidden;
+                                        word-break: break-word;">
+                                <span t-out="label['destination_line_text']"/>
+                            </div>
+
+                            <div style="position: absolute;
+                                        left: 0;
+                                        right: 0;
+                                        bottom: 2mm;
+                                        text-align: center;
+                                        font-size: 24px;
+                                        font-weight: 700;
+                                        line-height: 1;
+                                        font-family: 'DejaVu Serif', serif;">
+                                <span t-esc="label['sequence_text']"/>
+                            </div>
+                        </div>
+                    </div>
+                </t>
+            </t>
+        </template>
+        -->
+    </data>
+</odoo>
