@@ -1,5 +1,4 @@
 from odoo import api, fields, models
-from datetime import timedelta
 
 
 class ProductProduct(models.Model):
@@ -57,7 +56,9 @@ class ProductAnalytic(models.Model):
         compute='_compute_ua_purchase_contract_ids',
         store=True,
     )
-    account_move_ids = fields.Many2many(comodel_name='account.move')
+    account_move_ids = fields.Many2many(
+        comodel_name='account.move', compute='_compute_account_move_ids', store=True
+    )
     
     kit_bom_ids = fields.Many2many(comodel_name='mrp.bom', compute='_compute_kit_bom_ids', store=True)
 
@@ -71,6 +72,241 @@ class ProductAnalytic(models.Model):
                 ]
             )
 
+    @api.model
+    def _recompute_kit_bom_ids_for_products(self, products):
+        if products:
+            self.sudo().search([('product_id', 'in', products.ids)])._compute_kit_bom_ids()
+        return True
+
+    @api.model
+    def _get_kit_bom_backfill_domain(self):
+        component_products = self.env['mrp.bom'].sudo().search(
+            [('type', '=', 'phantom')]
+        ).bom_line_ids.product_id
+        return [
+            '|',
+            ('product_id', 'in', component_products.ids),
+            ('kit_bom_ids', '!=', False),
+        ]
+
+    @api.model
+    def _count_stale_kit_bom_ids(self, domain=None, batch_size=500):
+        domain = domain or self._get_kit_bom_backfill_domain()
+        bom_model = self.env['mrp.bom'].sudo()
+        last_id = 0
+        mismatch_count = 0
+        while True:
+            product_analytics = self.sudo().search(
+                domain + [('id', '>', last_id)],
+                order='id',
+                limit=batch_size,
+            )
+            if not product_analytics:
+                break
+            for product_analytic in product_analytics:
+                expected_boms = bom_model.search(
+                    [
+                        ('type', '=', 'phantom'),
+                        ('bom_line_ids.product_id', '=', product_analytic.product_id.id),
+                    ]
+                )
+                if set(product_analytic.kit_bom_ids.ids) != set(expected_boms.ids):
+                    mismatch_count += 1
+            last_id = product_analytics[-1].id
+        return mismatch_count
+
+    @api.model
+    def _recompute_stale_kit_bom_ids(self, batch_size=500):
+        domain = self._get_kit_bom_backfill_domain()
+        bom_model = self.env['mrp.bom'].sudo()
+        last_id = 0
+        checked = 0
+        mismatch_count = 0
+        updated_count = 0
+        while True:
+            product_analytics = self.sudo().search(
+                domain + [('id', '>', last_id)],
+                order='id',
+                limit=batch_size,
+            )
+            if not product_analytics:
+                break
+            stale_product_analytics = product_analytics.browse()
+            for product_analytic in product_analytics:
+                checked += 1
+                expected_boms = bom_model.search(
+                    [
+                        ('type', '=', 'phantom'),
+                        ('bom_line_ids.product_id', '=', product_analytic.product_id.id),
+                    ]
+                )
+                if set(product_analytic.kit_bom_ids.ids) != set(expected_boms.ids):
+                    mismatch_count += 1
+                    stale_product_analytics |= product_analytic
+            if stale_product_analytics:
+                stale_product_analytics._compute_kit_bom_ids()
+                updated_count += len(stale_product_analytics)
+            last_id = product_analytics[-1].id
+        remaining_mismatch_count = self._count_stale_kit_bom_ids(
+            domain=domain, batch_size=batch_size
+        )
+        return {
+            'checked': checked,
+            'mismatch_count': mismatch_count,
+            'updated_count': updated_count,
+            'remaining_mismatch_count': remaining_mismatch_count,
+        }
+
+    def _get_invoice_kit_parent_boms(self):
+        self.ensure_one()
+        return self.env['mrp.bom'].search(
+            [
+                ('bom_line_ids.product_id', '=', self.product_id.id),
+                ('type', '=', 'phantom'),
+            ]
+        )
+
+    def _has_sale_contract_in_distribution(self, record):
+        self.ensure_one()
+        if 'analytic_distribution' not in record._fields:
+            return False
+        analytic_distribution = record.analytic_distribution or {}
+        sale_contract_id = str(self.sale_contract_id.id)
+        for key in analytic_distribution:
+            if sale_contract_id in str(key).split(','):
+                return True
+        return False
+
+    def _has_related_sale_contract(self, line):
+        self.ensure_one()
+        move = line.move_id
+        if line.seller_contract_id == self.sale_contract_id:
+            return True
+        if 'seller_contract_id' in move._fields and move.seller_contract_id == self.sale_contract_id:
+            return True
+        return self._has_sale_contract_in_distribution(line)
+
+    def _get_related_invoice_move_lines(self):
+        self.ensure_one()
+        parent_kit_boms = self._get_invoice_kit_parent_boms()
+        kit_products = (
+            parent_kit_boms.product_id
+            + parent_kit_boms.product_tmpl_id.product_variant_ids
+        )
+        invoice_lines = self.env['account.move.line'].search(
+            [
+                ('product_id', 'in', (self.product_id + kit_products).ids),
+                ('move_id.state', '=', 'posted'),
+                ('move_id.move_type', 'in', ['in_invoice', 'in_refund']),
+            ]
+        )
+        return invoice_lines.filtered(
+            lambda line: self._has_related_sale_contract(line)
+        )
+
+    def _get_related_invoice_moves(self):
+        self.ensure_one()
+        return self._get_related_invoice_move_lines().mapped('move_id')
+
+    @api.depends(
+        'product_id',
+        'sale_contract_id.seller_move_line_ids',
+        'sale_contract_id.seller_move_line_ids.analytic_distribution',
+        'sale_contract_id.seller_move_line_ids.product_id',
+        'sale_contract_id.seller_move_line_ids.move_type',
+        'sale_contract_id.seller_move_line_ids.move_id',
+        'sale_contract_id.seller_move_line_ids.move_id.state',
+        'sale_contract_id.seller_move_line_ids.move_id.move_type',
+        'sale_contract_id.seller_move_line_ids.move_id.seller_contract_id',
+        'kit_bom_ids',
+    )
+    def _compute_account_move_ids(self):
+        for product_analytic in self:
+            product_analytic.account_move_ids = (
+                product_analytic._get_related_invoice_moves()
+            )
+
+    def _get_related_purchase_contract_lines(self):
+        self.ensure_one()
+        parent_kit_boms = self._get_invoice_kit_parent_boms()
+        kit_products = (
+            parent_kit_boms.product_id
+            + parent_kit_boms.product_tmpl_id.product_variant_ids
+        )
+        purchase_line_model = self.env['purchase.order.line']
+        domain = [
+            ('product_id', 'in', (self.product_id + kit_products).ids),
+            ('order_id.state', 'in', ['purchase', 'done']),
+            ('order_id.ua_contract_id', '!=', False),
+        ]
+        if 'seller_contract_id' in purchase_line_model._fields:
+            domain.append(('seller_contract_id', '=', self.sale_contract_id.id))
+        else:
+            domain.append(('order_id.seller_contract_id', '=', self.sale_contract_id.id))
+        return purchase_line_model.search(domain)
+
+    @api.model
+    def _count_stale_ua_purchase_contract_ids(self, domain=None, batch_size=500):
+        domain = domain or [('sale_contract_id', '!=', False)]
+        last_id = 0
+        mismatch_count = 0
+        while True:
+            product_analytics = self.sudo().search(
+                domain + [('id', '>', last_id)],
+                order='id',
+                limit=batch_size,
+            )
+            if not product_analytics:
+                break
+            for product_analytic in product_analytics:
+                expected_contracts = (
+                    product_analytic._get_related_purchase_contract_lines()
+                    .mapped('order_id.ua_contract_id')
+                )
+                if set(product_analytic.ua_purchase_contract_ids.ids) != set(expected_contracts.ids):
+                    mismatch_count += 1
+            last_id = product_analytics[-1].id
+        return mismatch_count
+
+    @api.model
+    def _recompute_stale_ua_purchase_contract_ids(self, batch_size=500):
+        domain = [('sale_contract_id', '!=', False)]
+        last_id = 0
+        checked = 0
+        mismatch_count = 0
+        updated_count = 0
+        while True:
+            product_analytics = self.sudo().search(
+                domain + [('id', '>', last_id)],
+                order='id',
+                limit=batch_size,
+            )
+            if not product_analytics:
+                break
+            stale_product_analytics = product_analytics.browse()
+            for product_analytic in product_analytics:
+                checked += 1
+                expected_contracts = (
+                    product_analytic._get_related_purchase_contract_lines()
+                    .mapped('order_id.ua_contract_id')
+                )
+                if set(product_analytic.ua_purchase_contract_ids.ids) != set(expected_contracts.ids):
+                    mismatch_count += 1
+                    stale_product_analytics |= product_analytic
+            if stale_product_analytics:
+                stale_product_analytics._compute_ua_purchase_contract_ids()
+                updated_count += len(stale_product_analytics)
+            last_id = product_analytics[-1].id
+        remaining_mismatch_count = self._count_stale_ua_purchase_contract_ids(
+            domain=domain, batch_size=batch_size
+        )
+        return {
+            'checked': checked,
+            'mismatch_count': mismatch_count,
+            'updated_count': updated_count,
+            'remaining_mismatch_count': remaining_mismatch_count,
+        }
+
     @api.depends('need_to_purchase_ids.order_line_id.order_id.ua_contract_id')
     def _compute_ua_sale_contract_ids(self):
         for product_analytic in self:
@@ -80,13 +316,19 @@ class ProductAnalytic(models.Model):
                 )
             )
 
-    @api.depends('sale_contract_id.seller_purchase_ids.ua_contract_id')
+    @api.depends(
+        'product_id',
+        'sale_contract_id',
+        'sale_contract_id.seller_purchase_ids.state',
+        'sale_contract_id.seller_purchase_ids.ua_contract_id',
+        'sale_contract_id.seller_purchase_ids.order_line.product_id',
+        'kit_bom_ids',
+    )
     def _compute_ua_purchase_contract_ids(self):
         for product_analytic in self:
             product_analytic.ua_purchase_contract_ids = (
-                product_analytic.sale_contract_id.seller_purchase_ids.mapped(
-                    'ua_contract_id'
-                )
+                product_analytic._get_related_purchase_contract_lines()
+                .mapped('order_id.ua_contract_id')
             )
 
     @api.depends(
@@ -231,26 +473,23 @@ class ProductAnalytic(models.Model):
 
     @api.model
     def _cron_sync_account_move_ids(self):
-        min_time = fields.Datetime.now() - timedelta(hours=3)
-        domain = [('write_date', '>', min_time), ('seller_contract_id', '!=', False)]
-        if self.env.context.get('by_all_time'):
-            domain = [('seller_contract_id', '!=', False)]
-        move_lines = self.env['account.move.line'].search(
-            domain
-        )
-        if move_lines:
-            seller_contracts = move_lines.mapped('seller_contract_id')
-            product_analytics = self.env['product.analytic'].search(
-                [('sale_contract_id', 'in', seller_contracts.ids)]
+        return self._recompute_account_move_ids()
+
+    @api.model
+    def _recompute_account_move_ids(self, domain=None, batch_size=500):
+        domain = domain or [('demand', '>', 0), ('in_invoice', '>', 0)]
+        last_id = 0
+        while True:
+            product_analytics = self.search(
+                domain + [('id', '>', last_id)],
+                order='id',
+                limit=batch_size,
             )
-            for product_analytic in product_analytics:
-                kit_ids = set(product_analytic.kit_bom_ids.product_id.ids + product_analytic.kit_bom_ids.product_tmpl_id.product_variant_ids.ids)
-                moves = move_lines.filtered(
-                    lambda line: line.seller_contract_id
-                    == product_analytic.sale_contract_id
-                    and (line.product_id == product_analytic.product_id or line.product_id.id in kit_ids)
-                ).mapped('move_id')
-                product_analytic.account_move_ids = moves
+            if not product_analytics:
+                break
+            product_analytics._compute_account_move_ids()
+            last_id = product_analytics[-1].id
+        return True
 
     def _update_translations(self, other_model, source_field_name, field_name):
         if other_model:
