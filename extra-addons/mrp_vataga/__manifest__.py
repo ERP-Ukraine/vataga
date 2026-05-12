@@ -13,6 +13,7 @@
     'auto_install': True,
     'demo': [],
     'data': [
+        'views/mrp_bom_views.xml',
         'data/mail_message_subtype.xml',
     ],
     'installable': True,

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="mrp_bom_tree_mass_edit_fix" model="ir.ui.view">
+        <field name="name">mrp.bom.tree.mass.edit.fix</field>
+        <field name="model">mrp.bom</field>
+        <field name="inherit_id" ref="mrp.mrp_bom_tree_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//tree" position="attributes">
+                <attribute name="multi_edit">true</attribute>
+            </xpath>
+
+            <xpath expr="//tree/field[@name='sequence']" position="before">
+                <field name="company_id" column_invisible="1"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>
