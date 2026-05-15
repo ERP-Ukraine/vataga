@@ -13,15 +13,13 @@ class TestPartnerNameValidation(TransactionCase):
 
         self.assertEqual(partner.name, "VATAGA TRADE LLC")
 
-    def test_cyrillic_name_requires_activity_form(self):
-        with self.assertRaisesRegex(
-            ValidationError,
-            "Для назв кирилицею обов’язково вкажіть форму власності після назви",
-        ):
-            self.env["res.partner"].create({
-                "name": "ВАТАГА",
-                "company_type": "company",
-            })
+    def test_cyrillic_name_without_activity_form_is_allowed(self):
+        partner = self.env["res.partner"].create({
+            "name": "ватага",
+            "company_type": "company",
+        })
+
+        self.assertEqual(partner.name, "ВАТАГА")
 
     def test_cyrillic_name_with_activity_form_is_allowed(self):
         partner = self.env["res.partner"].create({
@@ -40,11 +38,8 @@ class TestPartnerNameValidation(TransactionCase):
         partner.write({"name": "  muller   logistik  "})
         self.assertEqual(partner.name, "MULLER LOGISTIK")
 
-        with self.assertRaisesRegex(
-            ValidationError,
-            "Для назв кирилицею обов’язково вкажіть форму власності після назви",
-        ):
-            partner.write({"name": "ВАТАГА"})
+        partner.write({"name": "ВАТАГА"})
+        self.assertEqual(partner.name, "ВАТАГА")
 
     def test_invalid_symbols_are_rejected(self):
         with self.assertRaisesRegex(
@@ -89,17 +84,15 @@ class TestPartnerNameValidation(TransactionCase):
             self.env["res.partner"]._get_partner_name_validation_error("")
         )
 
-    def test_name_ending_with_letters_at_is_not_activity_form(self):
-        with self.assertRaisesRegex(
-            ValidationError,
-            "Для назв кирилицею обов’язково вкажіть форму власності після назви",
-        ):
-            self.env["res.partner"].create({
-                "name": "КОМБІНАТ",
-                "company_type": "company",
-            })
+    def test_cyrillic_name_ending_with_activity_form_like_letters_is_allowed(self):
+        partner = self.env["res.partner"].create({
+            "name": "КОМБІНАТ",
+            "company_type": "company",
+        })
 
-    def test_long_activity_form_has_priority_over_shorter_suffix(self):
+        self.assertEqual(partner.name, "КОМБІНАТ")
+
+    def test_cyrillic_name_with_former_activity_form_is_allowed(self):
         partner = self.env["res.partner"].create({
             "name": "ВАТАГА ПРАТ",
             "company_type": "company",
@@ -120,11 +113,10 @@ class TestPartnerNameValidation(TransactionCase):
         self.assertIn("warning", result)
         self.assertEqual(
             result["warning"]["message"],
-            "Назву необхідно вводити ВЕЛИКИМИ ЛІТЕРАМИ (верхній регістр).\n"
-            "Для назв кирилицею обов’язково вкажіть форму власності після назви (наприклад, ПРОМЕТЕЙ ТОВ, ІВАНЕНКО ФОП).",
+            "Назву необхідно вводити ВЕЛИКИМИ ЛІТЕРАМИ (верхній регістр).",
         )
 
-    def test_onchange_returns_warning_for_missing_activity_form(self):
+    def test_onchange_allows_missing_activity_form(self):
         partner = self.env["res.partner"].new({
             "name": "ВАТАГА",
             "company_type": "company",
@@ -132,11 +124,8 @@ class TestPartnerNameValidation(TransactionCase):
 
         result = partner._onchange_partner_name_format()
 
-        self.assertTrue(result)
-        self.assertEqual(
-            result["warning"]["message"],
-            "Для назв кирилицею обов’язково вкажіть форму власності після назви (наприклад, ПРОМЕТЕЙ ТОВ, ІВАНЕНКО ФОП).",
-        )
+        self.assertEqual(partner.name, "ВАТАГА")
+        self.assertFalse(result)
 
     def test_onchange_returns_warning_for_special_characters(self):
         partner = self.env["res.partner"].new({

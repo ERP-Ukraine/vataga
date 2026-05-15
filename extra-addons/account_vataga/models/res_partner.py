@@ -1,30 +1,9 @@
-import re
-
 from odoo import _, api, models
 from odoo.exceptions import ValidationError
 
 
 class ResPartner(models.Model):
     _inherit = "res.partner"
-
-    _ACTIVITY_FORMS = (
-        "ОСББ",
-        "ПРАТ",
-        "ФОП",
-        "ТОВ",
-        "ТДВ",
-        "ПП",
-        "ДП",
-        "КП",
-        "ГО",
-        "БФ",
-        "АТ",
-    )
-    _CYRILLIC_RE = re.compile(r"[\u0400-\u04FF]")
-    _ACTIVITY_FORM_RE = re.compile(
-        r"(?:^| )(?:%s)$"
-        % "|".join(map(re.escape, sorted(_ACTIVITY_FORMS, key=len, reverse=True)))
-    )
 
     def _normalize_partner_name(self, name):
         if not isinstance(name, str):
@@ -51,11 +30,6 @@ class ResPartner(models.Model):
     def _get_uppercase_message(self):
         return _("Назву необхідно вводити ВЕЛИКИМИ ЛІТЕРАМИ (верхній регістр).")
 
-    def _get_activity_form_message(self):
-        return _(
-            "Для назв кирилицею обов’язково вкажіть форму власності після назви (наприклад, ПРОМЕТЕЙ ТОВ, ІВАНЕНКО ФОП)."
-        )
-
     def _get_special_characters_message(self):
         return _(
             "Дозволені спецсимволи: «+», «-» або дефіс. Будь ласка, видаліть інші символи з назви."
@@ -71,12 +45,6 @@ class ResPartner(models.Model):
         if any(not self._is_allowed_partner_name_character(char) for char in name):
             messages.append(self._get_special_characters_message())
 
-        normalized_name = self._normalize_partner_name(name)
-        if (
-            self._CYRILLIC_RE.search(normalized_name)
-            and not self._ACTIVITY_FORM_RE.search(normalized_name)
-        ):
-            messages.append(self._get_activity_form_message())
         return messages
 
     def _get_partner_name_validation_error(self, name):
