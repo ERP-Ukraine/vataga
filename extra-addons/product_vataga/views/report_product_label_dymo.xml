@@ -4,6 +4,7 @@
         <record id="product.paperformat_label_sheet_dymo" model="report.paperformat">
             <field name="page_width">60</field>
             <field name="page_height">40</field>
+            <field name="orientation">Portrait</field>
             <field name="dpi">203</field>
         </record>
 
@@ -16,10 +17,10 @@
             <xpath expr="//div[contains(@class, 'o_label_full')]" position="replace">
                 <div
                     class="o_label_full"
-                    t-att-style="(table_style or '') + '; position: relative; overflow: hidden; box-sizing: border-box; background-color: #fff; padding: 2px 1px 16px 1px; padding-left: 1mm; height: 100%; min-height: 100%; border-radius: 0;'"
+                    t-att-style="(table_style or '') + '; width: 60mm; max-width: 60mm; height: 40mm; max-height: 40mm; position: relative; overflow: hidden; box-sizing: border-box; background-color: #fff; padding: 2px 1px 16px 1mm; border-radius: 0;'"
                 >
                     <t t-if="barcode">
-                        <div style="text-align: center; margin: 0; padding: 0;">
+                        <div style="width: 100%; text-align: center; margin: 0; padding: 0;">
                             <div
                                 t-out="barcode"
                                 style="padding: 0; margin: 0;"
@@ -39,7 +40,7 @@
                     <t t-set="name_line_height" t-value="'1.0' if name_len &lt;= 12 else '1.05' if name_len &lt;= 22 else '1.08' if name_len &lt;= 40 else '1.0'"/>
 
                     <div
-                        t-att-style="'height: 42px; max-height: 42px; overflow: hidden; text-align: center; font-size: ' + name_font_size + '; font-weight: 700; line-height: ' + name_line_height + '; margin: 0; padding: 0 1px; word-break: break-word;'"
+                        t-att-style="'width: 100%; height: 42px; max-height: 42px; overflow: hidden; text-align: center; font-size: ' + name_font_size + '; font-weight: 700; line-height: ' + name_line_height + '; margin: 0; padding: 0 1px; box-sizing: border-box; word-break: break-word;'"
                     >
                         <span t-esc="label_name"/>
                     </div>
