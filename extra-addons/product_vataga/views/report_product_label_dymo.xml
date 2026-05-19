@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <data>
+        <record id="product.paperformat_label_sheet_dymo" model="report.paperformat">
+            <field name="page_width">60</field>
+            <field name="page_height">40</field>
+            <field name="dpi">203</field>
+        </record>
+
         <template
             id="report_simple_label_dymo"
             name="Dymo label without price"
@@ -10,7 +16,7 @@
             <xpath expr="//div[contains(@class, 'o_label_full')]" position="replace">
                 <div
                     class="o_label_full"
-                    t-att-style="(table_style or '') + '; position: relative; overflow: hidden; box-sizing: border-box; background-color: #fff; padding: 2px 1px 16px 1px; height: 100%; min-height: 100%; border-radius: 0;'"
+                    t-att-style="(table_style or '') + '; position: relative; overflow: hidden; box-sizing: border-box; background-color: #fff; padding: 2px 1px 16px 1px; padding-left: 1mm; height: 100%; min-height: 100%; border-radius: 0;'"
                 >
                     <t t-if="barcode">
                         <div style="text-align: center; margin: 0; padding: 0;">
