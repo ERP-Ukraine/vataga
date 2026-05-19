@@ -14,6 +14,13 @@ const AVAILABILITY_FILTER_LABEL = "Наявність товарів";
 const WAREHOUSE_BUTTON_LABEL = "Склад";
 const WAREHOUSES_BUTTON_LABEL = "Склади";
 
+function areArraysEqual(firstArray, secondArray) {
+    return (
+        firstArray.length === secondArray.length &&
+        firstArray.every((value, index) => value === secondArray[index])
+    );
+}
+
 function isLineAvailable(line) {
     if (Object.prototype.hasOwnProperty.call(line, "components_available")) {
         return Boolean(line.components_available) && line.availability_state !== "unavailable";
@@ -73,6 +80,13 @@ patch(BomOverviewComponent.prototype, {
         this.state.selectedWarehouseIds = warehouses[0] ? [warehouses[0].id] : [];
     },
 
+    getOrderedWarehouseIds(warehouseIds) {
+        const selectedWarehouseIds = new Set(warehouseIds);
+        return this.warehouses
+            .map((warehouse) => warehouse.id)
+            .filter((warehouseId) => selectedWarehouseIds.has(warehouseId));
+    },
+
     async onChangeWarehouse(warehouseId) {
         const isSelected = this.state.selectedWarehouseIds.includes(warehouseId);
         const nextSelectedWarehouseIds = isSelected
@@ -83,21 +97,16 @@ patch(BomOverviewComponent.prototype, {
             return;
         }
 
-        const hasChanged =
-            nextSelectedWarehouseIds.length !== this.state.selectedWarehouseIds.length ||
-            nextSelectedWarehouseIds.some(
-                (selectedWarehouseId, index) =>
-                    selectedWarehouseId !== this.state.selectedWarehouseIds[index]
-            );
-        if (!hasChanged) {
+        const orderedWarehouseIds = this.getOrderedWarehouseIds(nextSelectedWarehouseIds);
+        if (areArraysEqual(orderedWarehouseIds, this.state.selectedWarehouseIds)) {
             return;
         }
 
         this.lastBomDataRequestId++;
         this.hasPendingWarehouseReload = true;
-        this.state.selectedWarehouseIds = nextSelectedWarehouseIds;
+        this.state.selectedWarehouseIds = orderedWarehouseIds;
         this.state.currentWarehouse =
-            this.warehouses.find((warehouse) => warehouse.id === nextSelectedWarehouseIds[0]) ||
+            this.warehouses.find((warehouse) => warehouse.id === orderedWarehouseIds[0]) ||
             null;
     },
 
