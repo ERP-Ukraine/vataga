@@ -26,6 +26,7 @@ patch(BomOverviewComponent.prototype, {
         super.setup(...arguments);
         this.state.availabilityFilters = { ...DEFAULT_AVAILABILITY_FILTERS };
         this.state.selectedWarehouseIds = [];
+        this.hasPendingWarehouseReload = false;
         this.lastBomDataRequestId = 0;
     },
 
@@ -92,11 +93,19 @@ patch(BomOverviewComponent.prototype, {
             return;
         }
 
+        this.lastBomDataRequestId++;
+        this.hasPendingWarehouseReload = true;
         this.state.selectedWarehouseIds = nextSelectedWarehouseIds;
         this.state.currentWarehouse =
             this.warehouses.find((warehouse) => warehouse.id === nextSelectedWarehouseIds[0]) ||
             null;
+    },
 
+    async onWarehouseDropdownStateChanged(dropdownState) {
+        if (dropdownState.open || !this.hasPendingWarehouseReload) {
+            return;
+        }
+        this.hasPendingWarehouseReload = false;
         await this.getBomData();
     },
 
@@ -177,6 +186,7 @@ BomOverviewControlPanel.props = {
     },
     selectedWarehouseIds: { type: Array, optional: true },
     changeAvailabilityFilter: { type: Function, optional: true },
+    changeWarehouseDropdownState: { type: Function, optional: true },
 };
 
 BomOverviewControlPanel.defaultProps = {
@@ -184,4 +194,5 @@ BomOverviewControlPanel.defaultProps = {
     currentAvailabilityFilter: { ...DEFAULT_AVAILABILITY_FILTERS },
     selectedWarehouseIds: [],
     changeAvailabilityFilter: () => {},
+    changeWarehouseDropdownState: () => {},
 };

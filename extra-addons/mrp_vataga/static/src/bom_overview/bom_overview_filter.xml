@@ -9,6 +9,7 @@
             <attribute name="currentAvailabilityFilter">state.availabilityFilters</attribute>
             <attribute name="selectedWarehouseIds">state.selectedWarehouseIds</attribute>
             <attribute name="changeAvailabilityFilter.bind">onChangeAvailabilityFilter</attribute>
+            <attribute name="changeWarehouseDropdownState.bind">onWarehouseDropdownStateChanged</attribute>
         </xpath>
         <xpath expr="//BomOverviewTable" position="attributes">
             <attribute name="data">filteredBomData</attribute>
@@ -29,6 +30,7 @@
                     class="'btn-group flex-grow-1 flex-md-grow-0'"
                     togglerClass="'btn btn-secondary'"
                     showCaret="true"
+                    onStateChanged="(state) => this.props.changeWarehouseDropdownState(state)"
                 >
                     <t t-set-slot="toggler">
                         <span class="fa fa-home me-1"/>
