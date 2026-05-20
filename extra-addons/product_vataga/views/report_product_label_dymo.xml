@@ -6,6 +6,10 @@
             <field name="page_height">40</field>
             <field name="orientation">Portrait</field>
             <field name="dpi">203</field>
+            <field name="margin_top">0</field>
+            <field name="margin_bottom">0</field>
+            <field name="margin_left">0</field>
+            <field name="margin_right">0</field>
         </record>
 
         <template
@@ -17,18 +21,18 @@
             <xpath expr="//div[contains(@class, 'o_label_full')]" position="replace">
                 <div
                     class="o_label_full"
-                    t-att-style="(table_style or '') + '; width: 480px; max-width: 480px; height: 320px; max-height: 320px; position: relative; overflow: hidden; box-sizing: border-box; background-color: #fff; padding: 0; border-radius: 0;'"
+                    style="width: 60mm; height: 40mm; max-width: 60mm; max-height: 40mm; position: relative; overflow: hidden; box-sizing: border-box; background-color: #fff; padding: 0; margin: 0; border-radius: 0; font-family: Lato, DejaVu Sans, Arial, sans-serif;"
                 >
                     <t t-if="barcode">
-                        <div style="position: absolute; left: 20px; right: 12px; top: 18px; height: 60px; text-align: center; margin: 0; padding: 0;">
+                        <div style="position: absolute; left: 3mm; right: 1.5mm; top: 2.5mm; height: 9mm; text-align: center; margin: 0; padding: 0; overflow: hidden;">
                             <div
                                 t-out="barcode"
-                                style="padding: 0; margin: 0;"
-                                t-options="{'widget': 'barcode', 'quiet': 0, 'symbology': 'auto', 'img_style': 'width:100%;height:60px;'}"
+                                style="padding: 0; margin: 0; line-height: 0;"
+                                t-options="{'widget': 'barcode', 'quiet': 0, 'symbology': 'auto', 'img_style': 'width:55.5mm;height:9mm;'}"
                             />
                         </div>
                         <div
-                            style="position: absolute; left: 20px; right: 12px; top: 82px; height: 18px; text-align: center; font-size: 11px; font-weight: 700; line-height: 14px; margin: 0; padding: 0;"
+                            style="position: absolute; left: 3mm; right: 1.5mm; top: 12mm; height: 3mm; text-align: center; font-size: 6pt; font-weight: 700; line-height: 3mm; margin: 0; padding: 0;"
                         >
                             <span t-out="barcode"/>
                         </div>
@@ -36,26 +40,26 @@
 
                     <t t-set="label_name" t-value="product.name or ''"/>
                     <t t-set="name_len" t-value="len(label_name)"/>
-                    <t t-set="name_font_size" t-value="'40px' if name_len &lt;= 12 else '34px' if name_len &lt;= 22 else '28px' if name_len &lt;= 40 else '24px'"/>
-                    <t t-set="name_line_height" t-value="'42px' if name_len &lt;= 12 else '36px' if name_len &lt;= 22 else '31px' if name_len &lt;= 40 else '28px'"/>
+                    <t t-set="name_font_size" t-value="'15pt' if name_len &lt;= 12 else '13pt' if name_len &lt;= 22 else '11.5pt' if name_len &lt;= 45 else '10.5pt' if name_len &lt;= 85 else '9pt'"/>
+                    <t t-set="name_line_height" t-value="'16pt' if name_len &lt;= 12 else '14pt' if name_len &lt;= 22 else '13pt' if name_len &lt;= 45 else '12pt' if name_len &lt;= 85 else '10.5pt'"/>
 
                     <div
-                        t-att-style="'position: absolute; left: 20px; right: 12px; top: 108px; height: 150px; max-height: 150px; overflow: hidden; text-align: center; font-size: ' + name_font_size + '; font-weight: 700; line-height: ' + name_line_height + '; margin: 0; padding: 0; box-sizing: border-box; word-break: break-word;'"
+                        t-att-style="'position: absolute; left: 3mm; right: 1.5mm; top: 16mm; height: 16.5mm; max-height: 16.5mm; overflow: hidden; text-align: center; font-size: ' + name_font_size + '; font-weight: 700; line-height: ' + name_line_height + '; margin: 0; padding: 0; box-sizing: border-box; word-break: normal; overflow-wrap: break-word;'"
                     >
                         <span t-esc="label_name"/>
                     </div>
 
                     <div
-                        style="position: absolute; left: 20px; bottom: 12px; font-size: 22px; font-weight: 500; line-height: 24px; white-space: nowrap;"
+                        style="position: absolute; left: 3mm; bottom: 2.3mm; font-size: 11pt; font-weight: 500; line-height: 12pt; white-space: nowrap;"
                     >
                         <span t-field="product.default_code"/>
                     </div>
 
                     <div
-                        style="position: absolute; right: 12px; bottom: 12px; font-size: 22px; font-weight: 700; line-height: 24px; white-space: nowrap;"
+                        style="position: absolute; right: 2mm; bottom: 2.3mm; font-size: 11pt; font-weight: 700; line-height: 12pt; white-space: nowrap;"
                     >
                         <span
-                            style="display: inline-block; width: 72px; border-bottom: 4px solid #000; margin-right: 8px; vertical-align: middle; position: relative; top: 4px;"
+                            style="display: inline-block; width: 12mm; border-bottom: 0.7mm solid #000; margin-right: 1.5mm; vertical-align: middle; position: relative; top: 0.7mm;"
                         />
                         <span style="vertical-align: middle;">шт</span>
                     </div>
