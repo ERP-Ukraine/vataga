@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_partner_tree_supplier_reliability_rating" model="ir.ui.view">
+        <field name="name">res.partner.tree.supplier.reliability.rating</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="base.view_partner_tree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='email']" position="after">
+                <field name="supplier_reliability_badge" string="Рейтинг надійності" widget="html" optional="show"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_partner_form_supplier_reliability_rating" model="ir.ui.view">
+        <field name="name">res.partner.form.supplier.reliability.rating</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="base.view_partner_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='category_id']" position="after">
+                <field name="supplier_reliability_rating" widget="selection"/>
+                <field name="supplier_reliability_badge" widget="html" readonly="1"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="res_partner_kanban_supplier_reliability_rating" model="ir.ui.view">
+        <field name="name">res.partner.kanban.supplier.reliability.rating</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="base.res_partner_kanban_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//kanban" position="inside">
+                <field name="supplier_reliability_rating"/>
+            </xpath>
+            <xpath expr="//div[hasclass('oe_kanban_global_click')]" position="inside">
+                <span t-attf-class="o_supplier_reliability_kanban_flag o_supplier_reliability_#{record.supplier_reliability_rating.raw_value || 'trial'}"
+                      title="Рейтинг надійності">
+                    <i class="fa fa-flag"/>
+                </span>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>
