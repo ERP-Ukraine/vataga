@@ -55,9 +55,11 @@ class ResPartner(models.Model):
 
     def _show_supplier_reliability_marker(self):
         self.ensure_one()
+        if "supplier_rank" not in self._fields:
+            return True
         return self.supplier_rank > 0
 
-    @api.depends("supplier_reliability_rating", "supplier_rank")
+    @api.depends("supplier_reliability_rating")
     @api.depends_context(
         "show_address",
         "show_vat",
