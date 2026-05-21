@@ -23,10 +23,12 @@ class ResPartner(models.Model):
     )
 
     def init(self):
-        partners_without_rating = self.search([
+        partners = self.with_context(active_test=False).search([])
+        partners_without_rating = partners.filtered_domain([
             ("supplier_reliability_rating", "=", False),
         ])
         partners_without_rating.write({"supplier_reliability_rating": "trial"})
+        partners._compute_display_name()
 
     def _get_supplier_reliability_rating_data(self):
         self.ensure_one()
