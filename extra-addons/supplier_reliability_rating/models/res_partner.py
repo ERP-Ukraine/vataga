@@ -22,6 +22,12 @@ class ResPartner(models.Model):
         sanitize=False,
     )
 
+    def init(self):
+        partners_without_rating = self.search([
+            ("supplier_reliability_rating", "=", False),
+        ])
+        partners_without_rating.write({"supplier_reliability_rating": "trial"})
+
     def _get_supplier_reliability_rating_data(self):
         self.ensure_one()
         return {
