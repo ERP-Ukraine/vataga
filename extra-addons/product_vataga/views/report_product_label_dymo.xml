@@ -40,11 +40,11 @@
 
                     <t t-set="label_name" t-value="product.name or ''"/>
                     <t t-set="name_len" t-value="len(label_name)"/>
-                    <t t-set="name_font_size" t-value="'18px' if name_len &lt;= 12 else '16px' if name_len &lt;= 22 else '13px' if name_len &lt;= 45 else '10.2px'"/>
-                    <t t-set="name_line_height" t-value="'20px' if name_len &lt;= 12 else '18px' if name_len &lt;= 22 else '15px' if name_len &lt;= 45 else '14px'"/>
+                    <t t-set="name_font_size" t-value="'18px' if name_len &lt;= 12 else '16px' if name_len &lt;= 22 else '13px' if name_len &lt;= 45 else '10.2px' if name_len &lt;= 70 else '8.4px' if name_len &lt;= 110 else '7.4px'"/>
+                    <t t-set="name_line_height" t-value="'20px' if name_len &lt;= 12 else '18px' if name_len &lt;= 22 else '15px' if name_len &lt;= 45 else '12px' if name_len &lt;= 70 else '9.6px' if name_len &lt;= 110 else '8.6px'"/>
 
                     <div
-                        t-att-style="'height: 48px; max-height: 48px; overflow: hidden; text-align: center; font-size: ' + name_font_size + '; font-weight: 700; line-height: ' + name_line_height + '; margin: 0; padding: 0 6px; word-break: break-word;'"
+                        t-att-style="'height: 50px; max-height: 50px; overflow: hidden; text-align: center; font-size: ' + name_font_size + '; font-weight: 700; line-height: ' + name_line_height + '; margin: 0; padding: 0 5px; word-break: normal; overflow-wrap: break-word;'"
                     >
                         <span t-esc="label_name"/>
                     </div>
