@@ -10,7 +10,7 @@
     "installable": True,
     "application": False,
     "depends": [
-        "contacts",
+        "base",
     ],
     "data": [
         "views/res_partner_views.xml",

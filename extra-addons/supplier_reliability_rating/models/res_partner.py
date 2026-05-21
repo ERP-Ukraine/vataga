@@ -28,17 +28,17 @@ class ResPartner(models.Model):
             "trial": {
                 "label": "Випробування",
                 "class": "o_supplier_reliability_trial",
-                "marker": "🟧",
+                "marker": "🟠",
             },
             "approved": {
                 "label": "Затверджено",
                 "class": "o_supplier_reliability_approved",
-                "marker": "🟩",
+                "marker": "🟢",
             },
             "blocked": {
                 "label": "Заблоковано",
                 "class": "o_supplier_reliability_blocked",
-                "marker": "🟥",
+                "marker": "🔴",
             },
         }[self.supplier_reliability_rating or "trial"]
 
@@ -48,7 +48,7 @@ class ResPartner(models.Model):
             rating_data = partner._get_supplier_reliability_rating_data()
             partner.supplier_reliability_badge = Markup(
                 '<span class="o_supplier_reliability_badge %(class)s">'
-                '<i class="fa fa-flag" aria-label="%(label)s"></i>'
+                '<i class="fa fa-circle" aria-label="%(label)s"></i>'
                 '<span>%(label)s</span>'
                 "</span>"
             ) % rating_data

@@ -24,5 +24,5 @@ class TestSupplierReliabilityRating(TransactionCase):
             "supplier_rank": 1,
         })
 
-        self.assertFalse(customer.display_name.startswith("🟧 "))
-        self.assertTrue(supplier.display_name.startswith("🟧 "))
+        self.assertFalse(customer.display_name.startswith("🟠 "))
+        self.assertTrue(supplier.display_name.startswith("🟠 "))
