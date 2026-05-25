@@ -43,18 +43,7 @@ class AccountMove(models.Model):
         ]
 
     def write(self, vals):
-        posted_invoice_lines = self.env['account.move.line']
-        if set(vals) & self.ANALYTIC_HEADER_FIELDS:
-            posted_invoice_lines = self.filtered(
-                lambda move: move.state == 'posted' and move.is_invoice(include_receipts=True)
-            ).invoice_line_ids
-
-        res = super().write(vals)
-
-        if posted_invoice_lines:
-            posted_invoice_lines._inverse_analytic_distribution()
-
-        return res
+        return super().write(vals)
 
     def button_draft(self):
         posted_invoice_moves = self.filtered(
