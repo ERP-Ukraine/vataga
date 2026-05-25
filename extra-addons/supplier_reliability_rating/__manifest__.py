@@ -13,6 +13,8 @@
         "base",
     ],
     "data": [
+        "security/ir.model.access.csv",
+        "data/supplier_reliability_rating_data.xml",
         "views/res_partner_views.xml",
     ],
     "assets": {
@@ -20,4 +22,5 @@
             "supplier_reliability_rating/static/src/scss/supplier_reliability_rating.scss",
         ],
     },
+    "post_init_hook": "post_init_hook",
 }

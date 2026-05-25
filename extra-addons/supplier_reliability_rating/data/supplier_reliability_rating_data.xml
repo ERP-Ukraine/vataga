@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+
+    <record id="supplier_reliability_rating_trial" model="supplier.reliability.rating">
+        <field name="name">Випробування</field>
+        <field name="code">trial</field>
+        <field name="sequence">10</field>
+        <field name="css_class">o_supplier_reliability_trial</field>
+        <field name="marker">🟠</field>
+    </record>
+
+    <record id="supplier_reliability_rating_approved" model="supplier.reliability.rating">
+        <field name="name">Затверджено</field>
+        <field name="code">approved</field>
+        <field name="sequence">20</field>
+        <field name="css_class">o_supplier_reliability_approved</field>
+        <field name="marker">🟢</field>
+    </record>
+
+    <record id="supplier_reliability_rating_blocked" model="supplier.reliability.rating">
+        <field name="name">Заблоковано</field>
+        <field name="code">blocked</field>
+        <field name="sequence">30</field>
+        <field name="css_class">o_supplier_reliability_blocked</field>
+        <field name="marker">🔴</field>
+    </record>
+
+</odoo>
