@@ -1,7 +1,10 @@
 from . import models
 
+from odoo import SUPERUSER_ID, api
 
-def post_init_hook(env):
+
+def post_init_hook(cr, registry):
+    env = api.Environment(cr, SUPERUSER_ID, {})
     trial_rating = env.ref(
         "supplier_reliability_rating.supplier_reliability_rating_trial",
         raise_if_not_found=False,
