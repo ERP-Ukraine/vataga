@@ -6,15 +6,11 @@ from odoo import api, fields, models
 class ResPartner(models.Model):
     _inherit = "res.partner"
 
-    supplier_reliability_rating = fields.Selection(
-        selection=[
-            ("trial", "Випробування"),
-            ("approved", "Затверджено"),
-            ("blocked", "Заблоковано"),
-        ],
+    supplier_reliability_rating_id = fields.Many2one(
+        comodel_name="supplier.reliability.rating",
         string="Рейтинг надійності",
-        default="trial",
-        required=True,
+        default=lambda self: self._default_supplier_reliability_rating_id(),
+        ondelete="restrict",
     )
     supplier_reliability_badge = fields.Html(
         string="Рейтинг надійності",
@@ -22,35 +18,31 @@ class ResPartner(models.Model):
         sanitize=False,
     )
 
-    def init(self):
-        partners = self.with_context(active_test=False).search([])
-        partners_without_rating = partners.filtered_domain([
-            ("supplier_reliability_rating", "=", False),
-        ])
-        partners_without_rating.write({"supplier_reliability_rating": "trial"})
-        partners._compute_display_name()
+    def _default_supplier_reliability_rating_id(self):
+        return self.env.ref(
+            "supplier_reliability_rating.supplier_reliability_rating_trial",
+            raise_if_not_found=False,
+        )
 
     def _get_supplier_reliability_rating_data(self):
         self.ensure_one()
-        return {
-            "trial": {
+        rating = (
+            self.supplier_reliability_rating_id
+            or self._default_supplier_reliability_rating_id()
+        )
+        if not rating:
+            return {
                 "label": "Випробування",
                 "class": "o_supplier_reliability_trial",
                 "marker": "🟠",
-            },
-            "approved": {
-                "label": "Затверджено",
-                "class": "o_supplier_reliability_approved",
-                "marker": "🟢",
-            },
-            "blocked": {
-                "label": "Заблоковано",
-                "class": "o_supplier_reliability_blocked",
-                "marker": "🔴",
-            },
-        }[self.supplier_reliability_rating or "trial"]
+            }
+        return {
+            "label": rating.name or "",
+            "class": rating.css_class or "o_supplier_reliability_trial",
+            "marker": rating.marker or "🟠",
+        }
 
-    @api.depends("supplier_reliability_rating")
+    @api.depends("supplier_reliability_rating_id")
     def _compute_supplier_reliability_badge(self):
         for partner in self:
             rating_data = partner._get_supplier_reliability_rating_data()
@@ -67,7 +59,7 @@ class ResPartner(models.Model):
             return True
         return self.supplier_rank > 0
 
-    @api.depends("supplier_reliability_rating")
+    @api.depends("supplier_reliability_rating_id")
     @api.depends_context(
         "show_address",
         "show_vat",
