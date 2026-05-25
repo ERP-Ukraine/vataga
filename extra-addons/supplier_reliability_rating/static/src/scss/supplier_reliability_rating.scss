@@ -1,0 +1,33 @@
+.o_supplier_reliability_badge {
+    align-items: center;
+    display: inline-flex;
+    gap: 4px;
+    white-space: nowrap;
+
+    .fa {
+        font-size: 1rem;
+    }
+}
+
+.o_supplier_reliability_trial,
+.o_supplier_reliability_trial .fa {
+    color: #f59f00;
+}
+
+.o_supplier_reliability_approved,
+.o_supplier_reliability_approved .fa {
+    color: #2f9e44;
+}
+
+.o_supplier_reliability_blocked,
+.o_supplier_reliability_blocked .fa {
+    color: #e03131;
+}
+
+.o_supplier_reliability_kanban_flag {
+    position: absolute;
+    right: 16px;
+    top: 16px;
+    font-size: 1.35rem;
+    line-height: 1;
+}
