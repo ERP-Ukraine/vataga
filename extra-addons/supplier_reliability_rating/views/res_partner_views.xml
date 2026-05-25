@@ -23,14 +23,4 @@
         </field>
     </record>
 
-    <record id="res_partner_kanban_supplier_reliability_rating" model="ir.ui.view">
-        <field name="name">res.partner.kanban.supplier.reliability.rating.disabled</field>
-        <field name="model">res.partner</field>
-        <field name="inherit_id" ref="base.res_partner_kanban_view"/>
-        <field name="active" eval="False"/>
-        <field name="arch" type="xml">
-            <data/>
-        </field>
-    </record>
-
 </odoo>
