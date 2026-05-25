@@ -7,6 +7,7 @@
         <field name="arch" type="xml">
             <xpath expr="//notebook" position="inside">
                 <page string="Аналоги" name="analogs">
+                    <field name="analog_uom_id" invisible="1"/>
                     <field name="analog_line_ids" nolabel="1">
                         <tree editable="bottom" string="Аналоги">
                             <control>
@@ -16,7 +17,7 @@
                             <field
                                 name="product_id"
                                 string="Товар"
-                                domain="[('uom_id', '=', parent.uom_id), ('product_tmpl_id', '!=', parent.id)]"
+                                domain="[('analog_uom_id', '=', parent.analog_uom_id), ('product_tmpl_id', '!=', parent.id)]"
                             />
                             <field name="description" string="Опис"/>
                             <field name="uom_id" string="Одиниці вимірювання"/>

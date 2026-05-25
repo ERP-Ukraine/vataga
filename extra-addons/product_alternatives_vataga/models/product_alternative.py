@@ -5,11 +5,38 @@ from odoo.exceptions import ValidationError
 class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
+    analog_uom_id = fields.Many2one(
+        comodel_name='uom.uom',
+        compute='_compute_analog_uom_id',
+        store=True,
+        string='Analog Unit of Measure',
+    )
     analog_line_ids = fields.One2many(
         comodel_name='product.analog',
         inverse_name='product_tmpl_id',
         string='Analogs',
     )
+
+    @api.depends('uom_id')
+    def _compute_analog_uom_id(self):
+        for product in self:
+            product.analog_uom_id = product.uom_id
+
+
+class ProductProduct(models.Model):
+    _inherit = 'product.product'
+
+    analog_uom_id = fields.Many2one(
+        comodel_name='uom.uom',
+        compute='_compute_analog_uom_id',
+        store=True,
+        string='Analog Unit of Measure',
+    )
+
+    @api.depends('uom_id')
+    def _compute_analog_uom_id(self):
+        for product in self:
+            product.analog_uom_id = product.uom_id
 
 
 class ProductAnalog(models.Model):
