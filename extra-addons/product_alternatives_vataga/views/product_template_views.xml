@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="product_template_form_view_analogs" model="ir.ui.view">
+        <field name="name">product.template.form.analogs</field>
+        <field name="model">product.template</field>
+        <field name="inherit_id" ref="product.product_template_form_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook" position="inside">
+                <page string="Аналоги" name="analogs">
+                    <field name="analog_line_ids" nolabel="1">
+                        <tree editable="bottom" string="Аналоги">
+                            <control>
+                                <create string="Додати товар"/>
+                            </control>
+                            <field name="sequence" widget="handle"/>
+                            <field
+                                name="product_id"
+                                string="Товар"
+                                domain="[('uom_id', '=', parent.uom_id), ('product_tmpl_id', '!=', parent.id)]"
+                            />
+                            <field name="description" string="Опис"/>
+                            <field name="uom_id" string="Одиниці вимірювання"/>
+                        </tree>
+                    </field>
+                </page>
+            </xpath>
+        </field>
+    </record>
+</odoo>
