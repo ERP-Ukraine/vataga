@@ -26,6 +26,11 @@ class ProductTemplate(models.Model):
 class ProductProduct(models.Model):
     _inherit = 'product.product'
 
+    analog_source_line_ids = fields.One2many(
+        comodel_name='product.analog',
+        inverse_name='product_id',
+        string='Used as Analog For',
+    )
     analog_uom_id = fields.Many2one(
         comodel_name='uom.uom',
         compute='_compute_analog_uom_id',
@@ -95,3 +100,55 @@ class ProductAnalog(models.Model):
                         'main_product': line.product_tmpl_id.display_name,
                     }
                 )
+
+    def _recompute_product_analytic_demand_comments(self, products):
+        if products:
+            self.env['product.analytic'].search(
+                [('product_id', 'in', products.ids)]
+            )._compute_demand_comment()
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        records = super().create(vals_list)
+        records._recompute_product_analytic_demand_comments(records.product_id)
+        return records
+
+    def write(self, vals):
+        products = self.product_id
+        res = super().write(vals)
+        if 'product_id' in vals:
+            products |= self.product_id
+        self._recompute_product_analytic_demand_comments(products)
+        return res
+
+    def unlink(self):
+        products = self.product_id
+        res = super().unlink()
+        self._recompute_product_analytic_demand_comments(products)
+        return res
+
+
+class ProductAnalytic(models.Model):
+    _inherit = 'product.analytic'
+
+    demand_comment = fields.Char(
+        compute='_compute_demand_comment',
+        store=True,
+        group_operator='max',
+        string='Seller Analytic Comment',
+    )
+
+    @api.depends(
+        'comment',
+        'product_id',
+        'product_id.analog_source_line_ids',
+    )
+    def _compute_demand_comment(self):
+        for product_analytic in self:
+            comment = product_analytic.comment or ''
+            if product_analytic.product_id.analog_source_line_ids:
+                product_analytic.demand_comment = (
+                    f'{comment} (A)' if comment else '(A)'
+                )
+            else:
+                product_analytic.demand_comment = comment

@@ -8,8 +8,19 @@ class TestProductAnalog(TransactionCase):
         super().setUpClass()
         cls.Product = cls.env['product.product']
         cls.ProductAnalog = cls.env['product.analog']
+        cls.ProductAnalytic = cls.env['product.analytic']
         cls.unit_uom = cls.env.ref('uom.product_uom_unit')
         cls.meter_uom = cls.env.ref('uom.product_uom_meter')
+        cls.analytic_plan = cls.env['account.analytic.plan'].create(
+            {'name': 'Product Analog Test Plan'}
+        )
+        cls.sale_contract = cls.env['account.analytic.account'].create(
+            {
+                'name': 'Product Analog Test Contract',
+                'plan_id': cls.analytic_plan.id,
+                'seller_analytic_comment': 'Need substitute',
+            }
+        )
         cls.main_product = cls.Product.create(
             {
                 'name': 'Main product',
@@ -52,3 +63,28 @@ class TestProductAnalog(TransactionCase):
                     'product_id': analog_product.id,
                 }
             )
+
+    def test_demand_comment_marks_analog_product(self):
+        analog_product = self.Product.create(
+            {
+                'name': 'Demand analog product',
+                'uom_id': self.unit_uom.id,
+                'uom_po_id': self.unit_uom.id,
+            }
+        )
+        product_analytic = self.ProductAnalytic.create(
+            {
+                'product_id': analog_product.id,
+                'sale_contract_id': self.sale_contract.id,
+            }
+        )
+        self.assertEqual(product_analytic.demand_comment, 'Need substitute')
+
+        self.ProductAnalog.create(
+            {
+                'product_tmpl_id': self.main_product.product_tmpl_id.id,
+                'product_id': analog_product.id,
+            }
+        )
+
+        self.assertEqual(product_analytic.demand_comment, 'Need substitute (A)')

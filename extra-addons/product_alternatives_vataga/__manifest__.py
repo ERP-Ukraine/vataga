@@ -9,10 +9,12 @@
     'application': False,
     'depends': [
         'product',
+        'purchase_demand_vataga',
         'stock',
     ],
     'data': [
         'security/ir.model.access.csv',
         'views/product_template_views.xml',
+        'views/product_analytic_views.xml',
     ],
 }
