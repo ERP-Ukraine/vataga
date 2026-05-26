@@ -135,7 +135,7 @@ class ProductAnalytic(models.Model):
         compute='_compute_demand_comment',
         store=True,
         group_operator='max',
-        string='Seller Analytic Comment',
+        string='Comment',
     )
 
     @api.depends(
@@ -152,3 +152,45 @@ class ProductAnalytic(models.Model):
                 )
             else:
                 product_analytic.demand_comment = comment
+
+    def _get_analog_demand_comment(self, product_id, comment=None):
+        comment = comment or ''
+        if self.env['product.analog'].search_count([('product_id', '=', product_id)]):
+            if comment and '(A)' not in comment:
+                return f'{comment} (A)'
+            return comment or '(A)'
+        return comment
+
+    @api.model
+    def read_group(
+        self,
+        domain,
+        fields,
+        groupby,
+        offset=0,
+        limit=None,
+        orderby=False,
+        lazy=True,
+    ):
+        result = super().read_group(
+            domain,
+            fields,
+            groupby,
+            offset=offset,
+            limit=limit,
+            orderby=orderby,
+            lazy=lazy,
+        )
+        if not any(field.split(':')[0] == 'demand_comment' for field in fields):
+            return result
+        for group in result:
+            product = group.get('product_id')
+            if product:
+                product_id = (
+                    product[0] if isinstance(product, (list, tuple)) else product
+                )
+                group['demand_comment'] = self._get_analog_demand_comment(
+                    product_id,
+                    group.get('demand_comment'),
+                )
+        return result
