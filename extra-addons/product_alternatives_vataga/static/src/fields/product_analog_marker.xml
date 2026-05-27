@@ -14,14 +14,28 @@
                 class="o_product_analog_marker_menu"
                 t-att-style="state.menuStyle"
             >
-                <div
-                    t-foreach="analogNames"
-                    t-as="analogName"
-                    t-key="analogName"
-                    class="o_product_analog_marker_item"
-                >
-                    <t t-esc="analogName"/>
-                </div>
+                <table class="o_product_analog_marker_table">
+                    <thead>
+                        <tr>
+                            <th>Товар специфікації</th>
+                            <th>Аналог</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr
+                            t-foreach="analogRows"
+                            t-as="analogRow"
+                            t-key="analogRow.component + '|' + analogRow.analog"
+                        >
+                            <td>
+                                <t t-esc="analogRow.component"/>
+                            </td>
+                            <td>
+                                <t t-esc="analogRow.analog"/>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
         </div>
     </t>

@@ -9,7 +9,7 @@ export class ProductAnalogMarkerField extends Component {
     setup() {
         this.orm = useService("orm");
         this.root = useRef("root");
-        this.state = useState({ open: false, analogNames: [], menuStyle: "" });
+        this.state = useState({ open: false, analogRows: [], menuStyle: "" });
         onMounted(() => this.clearCellTitle());
         onPatched(() => this.clearCellTitle());
     }
@@ -22,19 +22,26 @@ export class ProductAnalogMarkerField extends Component {
         return this.props.record.data[this.props.name] || "";
     }
 
-    get analogNames() {
-        return this.state.analogNames;
+    get analogRows() {
+        return this.state.analogRows;
     }
 
     get markerAnalogNames() {
         return this.markerPayload.split("\n").slice(1).filter(Boolean);
     }
 
-    get fallbackAnalogNames() {
+    get fallbackAnalogRows() {
         const names = this.props.record.data.analog_product_names || "";
-        return this.markerAnalogNames.length
+        const lines = this.markerAnalogNames.length
             ? this.markerAnalogNames
             : names.split("\n").filter(Boolean);
+        return lines.map((line) => {
+            const [component, ...analogParts] = line.split("\t");
+            return {
+                component: component || "",
+                analog: analogParts.join("\t") || component || "",
+            };
+        });
     }
 
     get recordModel() {
@@ -50,22 +57,29 @@ export class ProductAnalogMarkerField extends Component {
     }
 
     async loadAnalogNames() {
-        if (this.fallbackAnalogNames.length) {
-            this.state.analogNames = this.fallbackAnalogNames;
+        if (this.fallbackAnalogRows.length) {
+            this.state.analogRows = this.fallbackAnalogRows;
             return;
         }
         if (!this.recordModel || !this.recordId) {
-            this.state.analogNames = [];
+            this.state.analogRows = [];
             return;
         }
         try {
-            this.state.analogNames = await this.orm.call(
+            const lines = await this.orm.call(
                 this.recordModel,
                 "get_analog_product_names",
                 [[this.recordId]]
             );
+            this.state.analogRows = lines.map((line) => {
+                const [component, ...analogParts] = line.split("\t");
+                return {
+                    component: component || "",
+                    analog: analogParts.join("\t") || component || "",
+                };
+            });
         } catch {
-            this.state.analogNames = [];
+            this.state.analogRows = [];
         }
     }
 
@@ -76,12 +90,18 @@ export class ProductAnalogMarkerField extends Component {
             return;
         }
         const rect = ev.currentTarget.getBoundingClientRect();
+        const menuWidth = Math.min(760, window.innerWidth - 24);
+        const left = Math.max(
+            menuWidth / 2 + 12,
+            Math.min(rect.left + rect.width / 2, window.innerWidth - menuWidth / 2 - 12)
+        );
         this.state.menuStyle = [
             `top: ${rect.bottom + 4}px`,
-            `left: ${rect.left + rect.width / 2}px`,
+            `left: ${left}px`,
+            `width: ${menuWidth}px`,
         ].join("; ");
         this.state.open = true;
-        if (!this.state.analogNames.length) {
+        if (!this.state.analogRows.length) {
             await this.loadAnalogNames();
         }
     }
@@ -102,7 +122,7 @@ ProductAnalogMarkerField.props = {
 
 export const productAnalogMarkerField = {
     component: ProductAnalogMarkerField,
-    supportedTypes: ["char"],
+    supportedTypes: ["char", "text"],
 };
 
 registry.category("fields").add("product_analog_marker", productAnalogMarkerField);

@@ -157,7 +157,7 @@ class ProductAnalytic(models.Model):
 class MrpBom(models.Model):
     _inherit = 'mrp.bom'
 
-    analog_marker = fields.Char(
+    analog_marker = fields.Text(
         compute='_compute_analog_products',
         string='Analogs',
     )
@@ -172,13 +172,14 @@ class MrpBom(models.Model):
     )
     def _compute_analog_products(self):
         for bom in self:
-            analog_products = (
-                bom.bom_line_ids.product_id.product_tmpl_id.analog_line_ids.product_id
+            analog_pairs = []
+            for line in bom.bom_line_ids:
+                analog_pairs.extend(line._get_analog_product_pairs())
+            analog_product_names = '\n'.join(
+                f'{component}\t{analog}'
+                for component, analog in analog_pairs
             )
-            analog_product_names = '\n'.join(analog_products.mapped('display_name'))
-            bom.analog_marker = (
-                f'(A)\n{analog_product_names}' if analog_product_names else ''
-            )
+            bom.analog_marker = f'(A)\n{analog_product_names}' if analog_pairs else ''
             bom.analog_product_names = analog_product_names
 
     def get_analog_product_names(self):
@@ -194,7 +195,7 @@ class MrpBomLine(models.Model):
         compute='_compute_analog_products',
         string='Analogs',
     )
-    analog_marker = fields.Char(
+    analog_marker = fields.Text(
         compute='_compute_analog_products',
         string='Analogs',
     )
@@ -207,12 +208,23 @@ class MrpBomLine(models.Model):
     def _compute_analog_products(self):
         for line in self:
             analog_products = line.product_id.product_tmpl_id.analog_line_ids.product_id
-            analog_product_names = '\n'.join(analog_products.mapped('display_name'))
+            analog_product_names = '\n'.join(
+                f'{component}\t{analog}'
+                for component, analog in line._get_analog_product_pairs()
+            )
             line.analog_product_ids = analog_products
             line.analog_marker = (
                 f'(A)\n{analog_product_names}' if analog_product_names else ''
             )
             line.analog_product_names = analog_product_names
+
+    def _get_analog_product_pairs(self):
+        self.ensure_one()
+        component_name = self.product_id.display_name
+        return [
+            (component_name, analog.display_name)
+            for analog in self.product_id.product_tmpl_id.analog_line_ids.product_id
+        ]
 
     def get_analog_product_names(self):
         self.ensure_one()

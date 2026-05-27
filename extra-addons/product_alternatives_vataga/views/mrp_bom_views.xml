@@ -9,7 +9,7 @@
                 <field name="analog_product_names" invisible="1"/>
                 <field
                     name="analog_marker"
-                    string="Аналоги"
+                    string="&#1040;&#1085;&#1072;&#1083;&#1086;&#1075;&#1080;"
                     widget="product_analog_marker"
                     readonly="1"
                     optional="show"
@@ -23,10 +23,10 @@
         <field name="model">mrp.bom</field>
         <field name="inherit_id" ref="mrp.mrp_bom_tree_view"/>
         <field name="arch" type="xml">
-            <xpath expr="//tree/field[last()]" position="after">
+            <xpath expr="//tree/field[@name='product_tmpl_id']" position="after">
                 <field
                     name="analog_marker"
-                    string="Аналоги"
+                    string="&#1040;&#1085;&#1072;&#1083;&#1086;&#1075;&#1080;"
                     widget="product_analog_marker"
                     readonly="1"
                     optional="hide"

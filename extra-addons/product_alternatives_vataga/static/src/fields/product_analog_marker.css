@@ -18,16 +18,36 @@
     border: 1px solid #d8dadd;
     box-shadow: 0 6px 18px rgba(17, 24, 39, 0.16);
     color: #374151;
-    max-width: 520px;
-    min-width: 240px;
-    padding: 6px 0;
+    max-width: 760px;
+    min-width: 520px;
+    padding: 0;
     position: fixed;
     transform: translateX(-50%);
     white-space: normal;
     z-index: 1080;
 }
 
-.o_product_analog_marker_item {
-    padding: 6px 12px;
+.o_product_analog_marker_table {
+    border-collapse: collapse;
+    table-layout: fixed;
+    width: 100%;
+}
+
+.o_product_analog_marker_table th,
+.o_product_analog_marker_table td {
+    border-bottom: 1px solid #e7e9ed;
+    padding: 8px 10px;
+    text-align: left;
+    vertical-align: top;
     word-break: break-word;
+}
+
+.o_product_analog_marker_table th {
+    background: #f9fafb;
+    color: #111827;
+    font-weight: 600;
+}
+
+.o_product_analog_marker_table tr:last-child td {
+    border-bottom: 0;
 }
