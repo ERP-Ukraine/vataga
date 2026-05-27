@@ -152,3 +152,29 @@ class ProductAnalytic(models.Model):
                 )
             else:
                 product_analytic.demand_comment = comment
+
+
+class MrpBomLine(models.Model):
+    _inherit = 'mrp.bom.line'
+
+    analog_product_ids = fields.Many2many(
+        comodel_name='product.product',
+        compute='_compute_analog_products',
+        string='Analogs',
+    )
+    analog_marker = fields.Char(
+        compute='_compute_analog_products',
+        string='Analogs',
+    )
+    analog_product_names = fields.Text(
+        compute='_compute_analog_products',
+        string='Analog Products',
+    )
+
+    @api.depends('product_id', 'product_id.product_tmpl_id.analog_line_ids.product_id')
+    def _compute_analog_products(self):
+        for line in self:
+            analog_products = line.product_id.product_tmpl_id.analog_line_ids.product_id
+            line.analog_product_ids = analog_products
+            line.analog_marker = '(A)' if analog_products else ''
+            line.analog_product_names = '\n'.join(analog_products.mapped('display_name'))

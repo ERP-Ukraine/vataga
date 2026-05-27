@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates>
+    <t t-name="product_alternatives_vataga.ProductAnalogMarkerField">
+        <div class="o_product_analog_marker" t-if="marker">
+            <button
+                type="button"
+                class="btn btn-link o_product_analog_marker_button"
+                t-on-click="toggleDropdown"
+            >
+                <t t-esc="marker"/>
+            </button>
+            <div t-if="state.open" class="o_product_analog_marker_menu">
+                <div
+                    t-foreach="analogNames"
+                    t-as="analogName"
+                    t-key="analogName"
+                    class="o_product_analog_marker_item"
+                >
+                    <t t-esc="analogName"/>
+                </div>
+            </div>
+        </div>
+    </t>
+</templates>

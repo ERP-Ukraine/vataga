@@ -1,0 +1,33 @@
+.o_product_analog_marker {
+    display: flex;
+    justify-content: center;
+    position: relative;
+    width: 100%;
+}
+
+.o_product_analog_marker_button {
+    color: #0d6efd;
+    font-weight: 600;
+    line-height: 1;
+    padding: 0;
+    text-decoration: none;
+}
+
+.o_product_analog_marker_menu {
+    background: #fff;
+    border: 1px solid #d8dadd;
+    box-shadow: 0 6px 18px rgba(17, 24, 39, 0.16);
+    color: #374151;
+    left: 50%;
+    min-width: 240px;
+    padding: 6px 0;
+    position: absolute;
+    top: 100%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    z-index: 20;
+}
+
+.o_product_analog_marker_item {
+    padding: 6px 12px;
+}

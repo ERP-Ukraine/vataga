@@ -8,6 +8,7 @@
     'installable': True,
     'application': False,
     'depends': [
+        'mrp',
         'product',
         'purchase_demand_vataga',
         'stock',
@@ -16,11 +17,15 @@
         'security/ir.model.access.csv',
         'views/product_template_views.xml',
         'views/product_analytic_views.xml',
+        'views/mrp_bom_views.xml',
     ],
     'assets': {
         'web.assets_backend': [
             'product_alternatives_vataga/static/src/views/pivot/analog_marker.xml',
             'product_alternatives_vataga/static/src/views/pivot/analog_marker.js',
+            'product_alternatives_vataga/static/src/fields/product_analog_marker.xml',
+            'product_alternatives_vataga/static/src/fields/product_analog_marker.js',
+            'product_alternatives_vataga/static/src/fields/product_analog_marker.scss',
             'product_alternatives_vataga/static/src/scss/analog_marker.scss',
         ],
     },
