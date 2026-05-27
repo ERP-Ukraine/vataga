@@ -175,10 +175,11 @@ class MrpBom(models.Model):
             analog_products = (
                 bom.bom_line_ids.product_id.product_tmpl_id.analog_line_ids.product_id
             )
-            bom.analog_marker = '(A)' if analog_products else ''
-            bom.analog_product_names = '\n'.join(
-                analog_products.mapped('display_name')
+            analog_product_names = '\n'.join(analog_products.mapped('display_name'))
+            bom.analog_marker = (
+                f'(A)\n{analog_product_names}' if analog_product_names else ''
             )
+            bom.analog_product_names = analog_product_names
 
     def get_analog_product_names(self):
         self.ensure_one()
@@ -206,9 +207,12 @@ class MrpBomLine(models.Model):
     def _compute_analog_products(self):
         for line in self:
             analog_products = line.product_id.product_tmpl_id.analog_line_ids.product_id
+            analog_product_names = '\n'.join(analog_products.mapped('display_name'))
             line.analog_product_ids = analog_products
-            line.analog_marker = '(A)' if analog_products else ''
-            line.analog_product_names = '\n'.join(analog_products.mapped('display_name'))
+            line.analog_marker = (
+                f'(A)\n{analog_product_names}' if analog_product_names else ''
+            )
+            line.analog_product_names = analog_product_names
 
     def get_analog_product_names(self):
         self.ensure_one()

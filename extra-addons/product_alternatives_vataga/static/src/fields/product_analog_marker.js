@@ -12,6 +12,10 @@ export class ProductAnalogMarkerField extends Component {
     }
 
     get marker() {
+        return this.markerPayload.split("\n")[0] || "";
+    }
+
+    get markerPayload() {
         return this.props.record.data[this.props.name] || "";
     }
 
@@ -19,9 +23,15 @@ export class ProductAnalogMarkerField extends Component {
         return this.state.analogNames;
     }
 
+    get markerAnalogNames() {
+        return this.markerPayload.split("\n").slice(1).filter(Boolean);
+    }
+
     get fallbackAnalogNames() {
         const names = this.props.record.data.analog_product_names || "";
-        return names.split("\n").filter(Boolean);
+        return this.markerAnalogNames.length
+            ? this.markerAnalogNames
+            : names.split("\n").filter(Boolean);
     }
 
     get recordModel() {
