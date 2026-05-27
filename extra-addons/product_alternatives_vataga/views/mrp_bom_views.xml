@@ -23,7 +23,7 @@
         <field name="model">mrp.bom</field>
         <field name="inherit_id" ref="mrp.mrp_bom_tree_view"/>
         <field name="arch" type="xml">
-            <xpath expr="//tree/field[1]" position="after">
+            <xpath expr="//tree/field[not(@widget='handle')][1]" position="after">
                 <field
                     name="analog_marker"
                     string="&#1040;&#1085;&#1072;&#1083;&#1086;&#1075;&#1080;"
