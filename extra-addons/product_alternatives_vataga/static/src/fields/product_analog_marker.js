@@ -25,11 +25,15 @@ export class ProductAnalogMarkerField extends Component {
     }
 
     get recordModel() {
-        return this.props.record.resModel || this.props.record.model?.root?.resModel;
+        return (
+            this.props.record.resModel ||
+            this.props.record.model?.root?.resModel ||
+            this.props.record.model?.config?.resModel
+        );
     }
 
     get recordId() {
-        return this.props.record.resId || this.props.record.data.id;
+        return this.props.record.resId || this.props.record.data.id || this.props.record.evalContext?.id;
     }
 
     async loadAnalogNames() {
@@ -41,11 +45,15 @@ export class ProductAnalogMarkerField extends Component {
             this.state.analogNames = [];
             return;
         }
-        this.state.analogNames = await this.orm.call(
-            this.recordModel,
-            "get_analog_product_names",
-            [[this.recordId]]
-        );
+        try {
+            this.state.analogNames = await this.orm.call(
+                this.recordModel,
+                "get_analog_product_names",
+                [[this.recordId]]
+            );
+        } catch {
+            this.state.analogNames = [];
+        }
     }
 
     async toggleDropdown(ev) {

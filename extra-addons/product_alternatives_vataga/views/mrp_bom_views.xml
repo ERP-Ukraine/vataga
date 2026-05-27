@@ -25,6 +25,11 @@
         <field name="arch" type="xml">
             <xpath expr="//tree/field[last()]" position="after">
                 <field
+                    name="analog_product_names"
+                    column_invisible="1"
+                    invisible="1"
+                />
+                <field
                     name="analog_marker"
                     string="Аналоги"
                     widget="product_analog_marker"
