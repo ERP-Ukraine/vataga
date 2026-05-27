@@ -180,6 +180,10 @@ class MrpBom(models.Model):
                 analog_products.mapped('display_name')
             )
 
+    def get_analog_product_names(self):
+        self.ensure_one()
+        return self.analog_product_names.split('\n') if self.analog_product_names else []
+
 
 class MrpBomLine(models.Model):
     _inherit = 'mrp.bom.line'
@@ -205,3 +209,7 @@ class MrpBomLine(models.Model):
             line.analog_product_ids = analog_products
             line.analog_marker = '(A)' if analog_products else ''
             line.analog_product_names = '\n'.join(analog_products.mapped('display_name'))
+
+    def get_analog_product_names(self):
+        self.ensure_one()
+        return self.analog_product_names.split('\n') if self.analog_product_names else []

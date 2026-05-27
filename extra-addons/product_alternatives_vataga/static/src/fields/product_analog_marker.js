@@ -2,11 +2,13 @@
 
 import { Component, useState } from "@odoo/owl";
 import { registry } from "@web/core/registry";
+import { useService } from "@web/core/utils/hooks";
 import { standardFieldProps } from "@web/views/fields/standard_field_props";
 
 export class ProductAnalogMarkerField extends Component {
     setup() {
-        this.state = useState({ open: false });
+        this.orm = useService("orm");
+        this.state = useState({ open: false, analogNames: [] });
     }
 
     get marker() {
@@ -14,13 +16,44 @@ export class ProductAnalogMarkerField extends Component {
     }
 
     get analogNames() {
+        return this.state.analogNames;
+    }
+
+    get fallbackAnalogNames() {
         const names = this.props.record.data.analog_product_names || "";
         return names.split("\n").filter(Boolean);
     }
 
-    toggleDropdown(ev) {
+    get recordModel() {
+        return this.props.record.resModel || this.props.record.model?.root?.resModel;
+    }
+
+    get recordId() {
+        return this.props.record.resId || this.props.record.data.id;
+    }
+
+    async loadAnalogNames() {
+        if (this.fallbackAnalogNames.length) {
+            this.state.analogNames = this.fallbackAnalogNames;
+            return;
+        }
+        if (!this.recordModel || !this.recordId) {
+            this.state.analogNames = [];
+            return;
+        }
+        this.state.analogNames = await this.orm.call(
+            this.recordModel,
+            "get_analog_product_names",
+            [[this.recordId]]
+        );
+    }
+
+    async toggleDropdown(ev) {
         ev.stopPropagation();
         this.state.open = !this.state.open;
+        if (this.state.open) {
+            await this.loadAnalogNames();
+        }
     }
 }
 
