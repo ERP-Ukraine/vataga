@@ -6,7 +6,7 @@
         <field name="inherit_id" ref="sale_demand_vataga.product_analytic_pivot"/>
         <field name="arch" type="xml">
             <field name="comment" position="replace">
-                <field name="demand_comment" type="measure"/>
+                <field name="demand_comment" string="Примітки" type="measure"/>
             </field>
         </field>
     </record>

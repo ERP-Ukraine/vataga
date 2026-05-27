@@ -88,32 +88,3 @@ class TestProductAnalog(TransactionCase):
         )
 
         self.assertEqual(product_analytic.demand_comment, 'Need substitute (A)')
-
-    def test_read_group_marks_analog_product_comment(self):
-        analog_product = self.Product.create(
-            {
-                'name': 'Grouped analog product',
-                'uom_id': self.unit_uom.id,
-                'uom_po_id': self.unit_uom.id,
-            }
-        )
-        self.ProductAnalytic.create(
-            {
-                'product_id': analog_product.id,
-                'sale_contract_id': self.sale_contract.id,
-            }
-        )
-        self.ProductAnalog.create(
-            {
-                'product_tmpl_id': self.main_product.product_tmpl_id.id,
-                'product_id': analog_product.id,
-            }
-        )
-
-        groups = self.ProductAnalytic.read_group(
-            [('product_id', '=', analog_product.id)],
-            ['demand_comment:max'],
-            ['product_id'],
-        )
-
-        self.assertEqual(groups[0]['demand_comment'], 'Need substitute (A)')

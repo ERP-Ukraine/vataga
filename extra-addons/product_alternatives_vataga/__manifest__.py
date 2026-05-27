@@ -17,4 +17,9 @@
         'views/product_template_views.xml',
         'views/product_analytic_views.xml',
     ],
+    'assets': {
+        'web.assets_backend': [
+            'product_alternatives_vataga/static/src/views/pivot/analog_marker.js',
+        ],
+    },
 }
