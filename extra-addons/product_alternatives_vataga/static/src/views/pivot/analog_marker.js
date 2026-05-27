@@ -1,7 +1,6 @@
 /** @odoo-module **/
 
-import { useService } from "@web/core/utils/hooks";
-import { onMounted, onPatched } from "@odoo/owl";
+import { onMounted, onPatched, onWillUnmount } from "@odoo/owl";
 import { patch } from "@web/core/utils/patch";
 import { PivotRendererDemand } from "@sale_demand_vataga/views/pivot/pivot_renderer";
 
@@ -16,24 +15,20 @@ const COMMENT_HEADER_TITLES = new Set([
 patch(PivotRendererDemand.prototype, {
     setup() {
         super.setup(...arguments);
-        this.orm = useService("orm");
-        this.analogProductNames = new Set();
         onMounted(() => {
-            this.loadAnalogProductNames();
+            this.startAnalogMarkerObserver();
+            this.scheduleRenderAnalogMarkers();
         });
         onPatched(() => {
-            this.renderAnalogMarkers();
+            this.scheduleRenderAnalogMarkers();
+        });
+        onWillUnmount(() => {
+            this.analogMarkerObserver?.disconnect();
         });
     },
 
-    async loadAnalogProductNames() {
-        const analogs = await this.orm.searchRead("product.analog", [], ["product_id"]);
-        this.analogProductNames = new Set(
-            analogs
-                .map((analog) => analog.product_id && analog.product_id[1])
-                .filter(Boolean)
-        );
-        this.renderAnalogMarkers();
+    scheduleRenderAnalogMarkers() {
+        window.requestAnimationFrame(() => this.renderAnalogMarkers());
     },
 
     getCommentColumnIndexes() {
@@ -65,14 +60,19 @@ patch(PivotRendererDemand.prototype, {
         }
     },
 
-    getRowProductName(row) {
-        const copyIcon = row.querySelector("th i.fa-copy[data-tooltip]");
-        return copyIcon?.dataset.tooltip || "";
-    },
-
-    isAnalogProductRow(row) {
-        const productName = this.getRowProductName(row);
-        return productName && this.analogProductNames.has(productName);
+    startAnalogMarkerObserver() {
+        const table = this.tableRef?.el;
+        if (!table || this.analogMarkerObserver) {
+            return;
+        }
+        this.analogMarkerObserver = new MutationObserver(() => {
+            this.scheduleRenderAnalogMarkers();
+        });
+        this.analogMarkerObserver.observe(table, {
+            childList: true,
+            characterData: true,
+            subtree: true,
+        });
     },
 
     centerAnalogMarkerCell(cell) {
@@ -94,17 +94,11 @@ patch(PivotRendererDemand.prototype, {
             return;
         }
         this.renameCommentHeaders();
-        if (!this.analogProductNames.size) {
-            return;
-        }
         const commentColumnIndexes = this.getCommentColumnIndexes();
         if (!commentColumnIndexes.length) {
             return;
         }
         for (const row of table.querySelectorAll("tbody tr")) {
-            if (!this.isAnalogProductRow(row)) {
-                continue;
-            }
             const cells = [...row.children];
             for (const columnIndex of commentColumnIndexes) {
                 const cell = cells[columnIndex];
@@ -113,12 +107,9 @@ patch(PivotRendererDemand.prototype, {
                 }
                 const valueElement = cell.querySelector(".o_value") || cell;
                 const value = valueElement.textContent.trim();
-                if (!value) {
-                    valueElement.textContent = "(A)";
-                } else if (!value.includes("(A)")) {
-                    valueElement.textContent = `${value} (A)`;
+                if (value.includes("(A)")) {
+                    this.centerAnalogMarkerCell(cell);
                 }
-                this.centerAnalogMarkerCell(cell);
             }
         }
     },
