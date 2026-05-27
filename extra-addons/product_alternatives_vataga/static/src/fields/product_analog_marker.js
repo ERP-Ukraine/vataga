@@ -1,17 +1,35 @@
 /** @odoo-module **/
 
-import { Component, onMounted, onPatched, useRef, useState } from "@odoo/owl";
+import { Component, onMounted, onPatched, onWillUnmount, useRef, useState } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { standardFieldProps } from "@web/views/fields/standard_field_props";
+
+let activeAnalogMarkerField = null;
 
 export class ProductAnalogMarkerField extends Component {
     setup() {
         this.orm = useService("orm");
         this.root = useRef("root");
         this.state = useState({ open: false, analogRows: [], menuStyle: "" });
-        onMounted(() => this.clearCellTitle());
+        this.closeDropdown = this.closeDropdown.bind(this);
+        this.onDocumentClick = this.onDocumentClick.bind(this);
+        this.onWindowScroll = this.onWindowScroll.bind(this);
+        onMounted(() => {
+            this.clearCellTitle();
+            document.addEventListener("click", this.onDocumentClick);
+            window.addEventListener("scroll", this.onWindowScroll, true);
+            window.addEventListener("resize", this.closeDropdown);
+        });
         onPatched(() => this.clearCellTitle());
+        onWillUnmount(() => {
+            document.removeEventListener("click", this.onDocumentClick);
+            window.removeEventListener("scroll", this.onWindowScroll, true);
+            window.removeEventListener("resize", this.closeDropdown);
+            if (activeAnalogMarkerField === this) {
+                activeAnalogMarkerField = null;
+            }
+        });
     }
 
     get marker() {
@@ -86,23 +104,36 @@ export class ProductAnalogMarkerField extends Component {
     async toggleDropdown(ev) {
         ev.stopPropagation();
         if (this.state.open) {
-            this.state.open = false;
+            this.closeDropdown();
             return;
         }
-        const rect = ev.currentTarget.getBoundingClientRect();
-        const menuWidth = Math.min(760, window.innerWidth - 24);
-        const left = Math.max(
-            menuWidth / 2 + 12,
-            Math.min(rect.left + rect.width / 2, window.innerWidth - menuWidth / 2 - 12)
-        );
-        this.state.menuStyle = [
-            `top: ${rect.bottom + 4}px`,
-            `left: ${left}px`,
-            `width: ${menuWidth}px`,
-        ].join("; ");
+        if (activeAnalogMarkerField && activeAnalogMarkerField !== this) {
+            activeAnalogMarkerField.closeDropdown();
+        }
+        activeAnalogMarkerField = this;
+        this.state.menuStyle = "";
         this.state.open = true;
         if (!this.state.analogRows.length) {
             await this.loadAnalogNames();
+        }
+    }
+
+    closeDropdown() {
+        this.state.open = false;
+        if (activeAnalogMarkerField === this) {
+            activeAnalogMarkerField = null;
+        }
+    }
+
+    onDocumentClick(ev) {
+        if (this.state.open && !this.root.el?.contains(ev.target)) {
+            this.closeDropdown();
+        }
+    }
+
+    onWindowScroll(ev) {
+        if (this.state.open && !this.root.el?.contains(ev.target)) {
+            this.closeDropdown();
         }
     }
 
