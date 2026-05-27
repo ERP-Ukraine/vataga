@@ -1,6 +1,6 @@
 /** @odoo-module **/
 
-import { Component, useState } from "@odoo/owl";
+import { Component, onMounted, onPatched, useRef, useState } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { standardFieldProps } from "@web/views/fields/standard_field_props";
@@ -8,7 +8,10 @@ import { standardFieldProps } from "@web/views/fields/standard_field_props";
 export class ProductAnalogMarkerField extends Component {
     setup() {
         this.orm = useService("orm");
-        this.state = useState({ open: false, analogNames: [] });
+        this.root = useRef("root");
+        this.state = useState({ open: false, analogNames: [], menuStyle: "" });
+        onMounted(() => this.clearCellTitle());
+        onPatched(() => this.clearCellTitle());
     }
 
     get marker() {
@@ -68,9 +71,25 @@ export class ProductAnalogMarkerField extends Component {
 
     async toggleDropdown(ev) {
         ev.stopPropagation();
-        this.state.open = !this.state.open;
         if (this.state.open) {
+            this.state.open = false;
+            return;
+        }
+        const rect = ev.currentTarget.getBoundingClientRect();
+        this.state.menuStyle = [
+            `top: ${rect.bottom + 4}px`,
+            `left: ${rect.left + rect.width / 2}px`,
+        ].join("; ");
+        this.state.open = true;
+        if (!this.state.analogNames.length) {
             await this.loadAnalogNames();
+        }
+    }
+
+    clearCellTitle() {
+        const cell = this.root.el?.closest("td");
+        if (cell) {
+            cell.removeAttribute("title");
         }
     }
 }
