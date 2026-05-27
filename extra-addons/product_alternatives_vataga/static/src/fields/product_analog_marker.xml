@@ -5,14 +5,12 @@
             <button
                 type="button"
                 class="btn btn-link o_product_analog_marker_button"
-                t-on-click="toggleDropdown"
             >
                 <t t-esc="marker"/>
             </button>
             <div
-                t-if="state.open"
+                t-if="analogRows.length"
                 class="o_product_analog_marker_menu"
-                t-att-style="state.menuStyle"
             >
                 <table class="o_product_analog_marker_table">
                     <thead>

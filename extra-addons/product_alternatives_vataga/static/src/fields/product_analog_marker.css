@@ -18,6 +18,7 @@
     border: 1px solid #d8dadd;
     box-shadow: 0 6px 18px rgba(17, 24, 39, 0.16);
     color: #374151;
+    display: none;
     left: 50%;
     max-height: 320px;
     min-width: 760px;
@@ -29,6 +30,10 @@
     transform: translateX(-50%);
     white-space: normal;
     z-index: 1080;
+}
+
+.o_product_analog_marker:focus-within .o_product_analog_marker_menu {
+    display: block;
 }
 
 .o_product_analog_marker_table {
