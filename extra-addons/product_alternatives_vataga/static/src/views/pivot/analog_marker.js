@@ -76,10 +76,16 @@ patch(PivotRendererDemand.prototype, {
     },
 
     centerAnalogMarkerCell(cell) {
+        const valueElement = cell.querySelector(".o_value") || cell;
         cell.classList.remove("text-start", "text-end");
         cell.classList.add("text-center");
         cell.style.setProperty("text-align", "center", "important");
         cell.style.setProperty("vertical-align", "middle", "important");
+        valueElement.classList.remove("text-start", "text-end");
+        valueElement.classList.add("text-center");
+        valueElement.style.setProperty("display", "block", "important");
+        valueElement.style.setProperty("width", "100%", "important");
+        valueElement.style.setProperty("text-align", "center", "important");
     },
 
     renderAnalogMarkers() {
@@ -102,14 +108,15 @@ patch(PivotRendererDemand.prototype, {
             const cells = [...row.children];
             for (const columnIndex of commentColumnIndexes) {
                 const cell = cells[columnIndex];
-                if (!cell || !cell.classList.contains("o_pivot_cell_value")) {
+                if (!cell) {
                     continue;
                 }
-                const value = cell.textContent.trim();
+                const valueElement = cell.querySelector(".o_value") || cell;
+                const value = valueElement.textContent.trim();
                 if (!value) {
-                    cell.textContent = "(A)";
+                    valueElement.textContent = "(A)";
                 } else if (!value.includes("(A)")) {
-                    cell.textContent = `${value} (A)`;
+                    valueElement.textContent = `${value} (A)`;
                 }
                 this.centerAnalogMarkerCell(cell);
             }
