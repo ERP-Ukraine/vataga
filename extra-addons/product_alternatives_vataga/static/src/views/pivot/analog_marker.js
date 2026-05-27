@@ -75,6 +75,13 @@ patch(PivotRendererDemand.prototype, {
         return productName && this.analogProductNames.has(productName);
     },
 
+    centerAnalogMarkerCell(cell) {
+        cell.classList.remove("text-start", "text-end");
+        cell.classList.add("text-center");
+        cell.style.setProperty("text-align", "center", "important");
+        cell.style.setProperty("vertical-align", "middle", "important");
+    },
+
     renderAnalogMarkers() {
         const table = this.tableRef?.el;
         if (!table) {
@@ -104,8 +111,7 @@ patch(PivotRendererDemand.prototype, {
                 } else if (!value.includes("(A)")) {
                     cell.textContent = `${value} (A)`;
                 }
-                cell.classList.add("text-center");
-                cell.style.textAlign = "center";
+                this.centerAnalogMarkerCell(cell);
             }
         }
     },
