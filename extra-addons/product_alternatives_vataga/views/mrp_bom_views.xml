@@ -17,4 +17,22 @@
             </xpath>
         </field>
     </record>
+
+    <record id="mrp_bom_tree_view_analogs" model="ir.ui.view">
+        <field name="name">mrp.bom.tree.analogs</field>
+        <field name="model">mrp.bom</field>
+        <field name="inherit_id" ref="mrp.mrp_bom_tree_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//tree/field[last()]" position="after">
+                <field name="analog_product_names" invisible="1"/>
+                <field
+                    name="analog_marker"
+                    string="Аналоги"
+                    widget="product_analog_marker"
+                    readonly="1"
+                    optional="hide"
+                />
+            </xpath>
+        </field>
+    </record>
 </odoo>

@@ -154,6 +154,33 @@ class ProductAnalytic(models.Model):
                 product_analytic.demand_comment = comment
 
 
+class MrpBom(models.Model):
+    _inherit = 'mrp.bom'
+
+    analog_marker = fields.Char(
+        compute='_compute_analog_products',
+        string='Analogs',
+    )
+    analog_product_names = fields.Text(
+        compute='_compute_analog_products',
+        string='Analog Products',
+    )
+
+    @api.depends(
+        'bom_line_ids.product_id',
+        'bom_line_ids.product_id.product_tmpl_id.analog_line_ids.product_id',
+    )
+    def _compute_analog_products(self):
+        for bom in self:
+            analog_products = (
+                bom.bom_line_ids.product_id.product_tmpl_id.analog_line_ids.product_id
+            )
+            bom.analog_marker = '(A)' if analog_products else ''
+            bom.analog_product_names = '\n'.join(
+                analog_products.mapped('display_name')
+            )
+
+
 class MrpBomLine(models.Model):
     _inherit = 'mrp.bom.line'
 

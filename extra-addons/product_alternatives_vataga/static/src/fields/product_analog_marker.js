@@ -29,6 +29,10 @@ ProductAnalogMarkerField.template =
 ProductAnalogMarkerField.props = {
     ...standardFieldProps,
 };
-ProductAnalogMarkerField.supportedTypes = ["char"];
 
-registry.category("fields").add("product_analog_marker", ProductAnalogMarkerField);
+export const productAnalogMarkerField = {
+    component: ProductAnalogMarkerField,
+    supportedTypes: ["char"],
+};
+
+registry.category("fields").add("product_analog_marker", productAnalogMarkerField);
