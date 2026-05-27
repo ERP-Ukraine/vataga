@@ -25,7 +25,7 @@
             'product_alternatives_vataga/static/src/views/pivot/analog_marker.js',
             'product_alternatives_vataga/static/src/fields/product_analog_marker.xml',
             'product_alternatives_vataga/static/src/fields/product_analog_marker.js',
-            'product_alternatives_vataga/static/src/fields/product_analog_marker.scss',
+            'product_alternatives_vataga/static/src/fields/product_analog_marker.css',
             'product_alternatives_vataga/static/src/scss/analog_marker.scss',
         ],
     },
