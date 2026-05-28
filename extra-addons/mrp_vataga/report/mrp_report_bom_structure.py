@@ -276,7 +276,7 @@ class ReportBomStructure(models.AbstractModel):
                 "free_to_manufacture_qty": 0,
             }
 
-        free_qty = 0
+        raw_free_qty_total = 0
         on_hand_qty = 0
         warehouse_quantities = []
         for warehouse_id in self._get_selected_warehouse_ids():
@@ -289,7 +289,7 @@ class ReportBomStructure(models.AbstractModel):
             warehouse_on_hand_qty = warehouse_product.uom_id._compute_quantity(
                 warehouse_product.qty_available, bom_uom
             )
-            free_qty += warehouse_free_qty_used
+            raw_free_qty_total += warehouse_free_qty
             on_hand_qty += warehouse_on_hand_qty
             warehouse_quantities.append(
                 {
@@ -304,6 +304,7 @@ class ReportBomStructure(models.AbstractModel):
                     "bom_uom": bom_uom.display_name,
                 }
             )
+        free_qty = max(raw_free_qty_total, 0)
 
         self._append_multi_warehouse_debug(
             "quantities_info",
@@ -312,6 +313,7 @@ class ReportBomStructure(models.AbstractModel):
                 "product_display_name": product.display_name,
                 "product_default_code": product.default_code,
                 "bom_uom": bom_uom.display_name,
+                "raw_free_qty_total": raw_free_qty_total,
                 "free_qty_total": free_qty,
                 "on_hand_qty_total": on_hand_qty,
                 "warehouse_quantities": warehouse_quantities,
@@ -324,6 +326,62 @@ class ReportBomStructure(models.AbstractModel):
             "stock_loc": "in_stock",
             "free_to_manufacture_qty": free_qty,
         }
+
+    @api.model
+    def _get_availabilities(
+        self,
+        product,
+        quantity,
+        product_info,
+        bom_key,
+        quantities_info,
+        level,
+        ignore_stock=False,
+        components=False,
+        bom_line=None,
+        report_line=False,
+    ):
+        availabilities = super()._get_availabilities(
+            product,
+            quantity,
+            product_info,
+            bom_key,
+            quantities_info,
+            level,
+            ignore_stock=ignore_stock,
+            components=components,
+            bom_line=bom_line,
+            report_line=report_line,
+        )
+        if (
+            self._is_multi_warehouse_context()
+            and not ignore_stock
+            and level == 0
+            and availabilities.get("stock_avail_state") == "available"
+        ):
+            stock_state = availabilities["stock_avail_state"]
+            stock_delay = 0
+            availabilities.update(
+                {
+                    "availability_display": self._format_date_display(stock_state, stock_delay),
+                    "availability_state": stock_state,
+                    "availability_delay": stock_delay,
+                }
+            )
+            self._append_multi_warehouse_debug(
+                "top_level_stock_availability_override",
+                {
+                    "product_id": product.id,
+                    "product_display_name": product.display_name,
+                    "product_default_code": product.default_code,
+                    "stock_state": stock_state,
+                    "stock_delay": stock_delay,
+                    "quantity": quantity,
+                    "free_qty": quantities_info.get("free_qty"),
+                    "on_hand_qty": quantities_info.get("on_hand_qty"),
+                },
+            )
+        return availabilities
 
     @api.model
     def _get_components_closest_forecasted(
