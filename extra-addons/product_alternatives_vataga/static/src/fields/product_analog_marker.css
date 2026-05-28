@@ -32,6 +32,7 @@
     z-index: 1080;
 }
 
+.o_product_analog_marker:hover .o_product_analog_marker_menu,
 .o_product_analog_marker:focus-within .o_product_analog_marker_menu {
     display: block;
 }

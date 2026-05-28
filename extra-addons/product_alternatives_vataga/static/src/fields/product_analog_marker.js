@@ -7,8 +7,9 @@ import { standardFieldProps } from "@web/views/fields/standard_field_props";
 export class ProductAnalogMarkerField extends Component {
     setup() {
         this.root = useRef("root");
-        onMounted(() => this.clearCellTitle());
-        onPatched(() => this.clearCellTitle());
+        this.clearTitles = this.clearTitles.bind(this);
+        onMounted(() => this.clearTitles());
+        onPatched(() => this.clearTitles());
     }
 
     get marker() {
@@ -41,10 +42,17 @@ export class ProductAnalogMarkerField extends Component {
         });
     }
 
-    clearCellTitle() {
+    clearTitles() {
         const cell = this.root.el?.closest("td");
         if (cell) {
             cell.removeAttribute("title");
+            cell.dataset.tooltip = "";
+        }
+        if (this.root.el) {
+            this.root.el.removeAttribute("title");
+            this.root.el.querySelectorAll("[title]").forEach((node) => {
+                node.removeAttribute("title");
+            });
         }
     }
 }

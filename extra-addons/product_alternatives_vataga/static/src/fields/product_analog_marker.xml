@@ -1,10 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <templates>
     <t t-name="product_alternatives_vataga.ProductAnalogMarkerField">
-        <div class="o_product_analog_marker" t-if="marker" t-ref="root">
+        <div
+            class="o_product_analog_marker"
+            t-if="marker"
+            t-ref="root"
+            t-on-mouseenter="clearTitles"
+            t-on-focusin="clearTitles"
+        >
             <button
                 type="button"
                 class="btn btn-link o_product_analog_marker_button"
+                title=""
             >
                 <t t-esc="marker"/>
             </button>
