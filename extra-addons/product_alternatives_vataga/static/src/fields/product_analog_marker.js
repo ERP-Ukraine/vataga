@@ -1,15 +1,33 @@
 /** @odoo-module **/
 
-import { Component, onMounted, onPatched, useRef } from "@odoo/owl";
+import { Component, onMounted, onPatched, onWillUnmount, useRef, useState } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { standardFieldProps } from "@web/views/fields/standard_field_props";
+
+let activeAnalogMarkerField = null;
 
 export class ProductAnalogMarkerField extends Component {
     setup() {
         this.root = useRef("root");
+        this.state = useState({ open: false, menuStyle: "" });
         this.clearTitles = this.clearTitles.bind(this);
-        onMounted(() => this.clearTitles());
+        this.closeDropdown = this.closeDropdown.bind(this);
+        this.onDocumentClick = this.onDocumentClick.bind(this);
+        onMounted(() => {
+            this.clearTitles();
+            document.addEventListener("click", this.onDocumentClick);
+            window.addEventListener("scroll", this.closeDropdown, true);
+            window.addEventListener("resize", this.closeDropdown);
+        });
         onPatched(() => this.clearTitles());
+        onWillUnmount(() => {
+            document.removeEventListener("click", this.onDocumentClick);
+            window.removeEventListener("scroll", this.closeDropdown, true);
+            window.removeEventListener("resize", this.closeDropdown);
+            if (activeAnalogMarkerField === this) {
+                activeAnalogMarkerField = null;
+            }
+        });
     }
 
     get marker() {
@@ -40,6 +58,48 @@ export class ProductAnalogMarkerField extends Component {
                 analog: analogParts.join("\t") || component || "",
             };
         });
+    }
+
+    toggleDropdown(ev) {
+        ev.stopPropagation();
+        this.clearTitles();
+        if (this.state.open) {
+            this.closeDropdown();
+            return;
+        }
+        if (activeAnalogMarkerField && activeAnalogMarkerField !== this) {
+            activeAnalogMarkerField.closeDropdown();
+        }
+        activeAnalogMarkerField = this;
+        this.state.menuStyle = this.getMenuStyle(ev.currentTarget);
+        this.state.open = true;
+    }
+
+    getMenuStyle(target) {
+        const rect = target.getBoundingClientRect();
+        const width = Math.min(860, window.innerWidth - 24);
+        const left = Math.max(
+            width / 2 + 12,
+            Math.min(rect.left + rect.width / 2, window.innerWidth - width / 2 - 12)
+        );
+        return [
+            `top: ${rect.bottom + 4}px`,
+            `left: ${left}px`,
+            `width: ${width}px`,
+        ].join("; ");
+    }
+
+    closeDropdown() {
+        this.state.open = false;
+        if (activeAnalogMarkerField === this) {
+            activeAnalogMarkerField = null;
+        }
+    }
+
+    onDocumentClick(ev) {
+        if (this.state.open && !this.root.el?.contains(ev.target)) {
+            this.closeDropdown();
+        }
     }
 
     clearTitles() {
