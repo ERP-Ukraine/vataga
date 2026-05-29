@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <record id="mt_account_move_autolog" model="mail.message.subtype">
-        <field name="name">Invoice Autolog</field>
-        <field name="description">Automatic invoice change log</field>
+        <field name="name">Автолог рахунку</field>
+        <field name="description">Автоматичний журнал змін рахунку</field>
         <field name="res_model">account.move</field>
         <field name="default" eval="False"/>
         <field name="internal" eval="True"/>
