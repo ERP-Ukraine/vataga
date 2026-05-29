@@ -22,6 +22,23 @@ class AccountMoveLine(models.Model):
         '__last_update',
     }
 
+    _autolog_field_labels = {
+        'name': _("Опис"),
+        'product_id': _("Товар"),
+        'quantity': _("Кількість"),
+        'product_uom_id': _("Одиниця виміру"),
+        'price_unit': _("Ціна"),
+        'discount': _("Знижка"),
+        'tax_ids': _("Податки"),
+        'account_id': _("Рахунок"),
+        'analytic_distribution': _("Аналітичний розподіл"),
+        'price_subtotal': _("Підсумок"),
+        'price_total': _("Всього"),
+        'balance': _("Баланс"),
+        'debit': _("Дебет"),
+        'credit': _("Кредит"),
+    }
+
     vataga_locked_analytic_plan_ids = fields.Json(
         compute='_compute_vataga_locked_analytic_plan_ids',
     )
@@ -112,6 +129,12 @@ class AccountMoveLine(models.Model):
         self.ensure_one()
         return self.product_id.display_name or self.name or _("Порожньо")
 
+    def _get_invoice_line_autolog_field_label(self, field_name):
+        return self._autolog_field_labels.get(
+            field_name,
+            self._fields[field_name].string or field_name,
+        )
+
     def _format_tracked_value(self, field_name):
         self.ensure_one()
         if field_name == 'analytic_distribution':
@@ -169,7 +192,7 @@ class AccountMoveLine(models.Model):
                 new_value = line._format_tracked_value(field_name)
                 if old_value == new_value:
                     continue
-                field_label = line._fields[field_name].string or field_name
+                field_label = line._get_invoice_line_autolog_field_label(field_name)
                 changes.append(
                     _("%(field)s: %(old)s → %(new)s") % {
                         'field': field_label,

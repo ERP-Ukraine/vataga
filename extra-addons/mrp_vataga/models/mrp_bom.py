@@ -16,6 +16,15 @@ class MrpBom(models.Model):
         'company_id',
     )
 
+    _autolog_field_labels = {
+        'product_tmpl_id': _("Продукт"),
+        'product_id': _("Варіант продукту"),
+        'product_qty': _("Кількість"),
+        'product_uom_id': _("Одиниця виміру"),
+        'type': _("Тип"),
+        'company_id': _("Компанія"),
+    }
+
     def _should_skip_bom_autologs(self):
         return self.env.context.get(AUTOLOG_SKIP_CONTEXT_KEY)
 
@@ -41,6 +50,12 @@ class MrpBom(models.Model):
         if value in (False, None, ''):
             return _("Порожньо")
         return str(value)
+
+    def _get_bom_autolog_field_label(self, field_name):
+        return self._autolog_field_labels.get(
+            field_name,
+            self._fields[field_name].string or field_name,
+        )
 
     def _post_bom_autolog(self, body):
         self.ensure_one()
@@ -70,9 +85,9 @@ class MrpBom(models.Model):
                 new_value = bom._format_bom_autolog_value(field_name)
                 if old_value == new_value:
                     continue
-                field_label = bom._fields[field_name].string or field_name
+                field_label = bom._get_bom_autolog_field_label(field_name)
                 changes.append(
-                    _("%(field)s: %(old)s -> %(new)s") % {
+                    _("%(field)s: %(old)s → %(new)s") % {
                         'field': field_label,
                         'old': old_value,
                         'new': new_value,
@@ -103,6 +118,16 @@ class MrpBomLine(models.Model):
         'write_date',
         'write_uid',
         '__last_update',
+    }
+
+    _autolog_field_labels = {
+        'product_id': _("Компонент"),
+        'product_qty': _("Кількість"),
+        'product_uom_id': _("Одиниця виміру"),
+        'name': _("Опис"),
+        'child_bom_id': _("Специфікація компонента"),
+        'operation_id': _("Операція"),
+        'manual_consumption': _("Ручне споживання"),
     }
 
     def _tracked_component_fields(self, vals):
@@ -136,6 +161,16 @@ class MrpBomLine(models.Model):
             return _("Порожньо")
         return str(value)
 
+    def _format_component_autolog_subject(self):
+        self.ensure_one()
+        return self.product_id.display_name or _("Порожньо")
+
+    def _get_component_autolog_field_label(self, field_name):
+        return self._autolog_field_labels.get(
+            field_name,
+            self._fields[field_name].string or field_name,
+        )
+
     @api.model_create_multi
     def create(self, vals_list):
         lines = super().create(vals_list)
@@ -144,7 +179,7 @@ class MrpBomLine(models.Model):
         for line in lines.filtered('bom_id'):
             line.bom_id._post_bom_autolog(
                 _("Додано компонент: %(product)s, кількість: %(qty)s %(uom)s") % {
-                    'product': line.product_id.display_name or _("Порожньо"),
+                    'product': line._format_component_autolog_subject(),
                     'qty': line.product_qty,
                     'uom': line.product_uom_id.display_name or _("Порожньо"),
                 }
@@ -170,9 +205,9 @@ class MrpBomLine(models.Model):
                 new_value = line._format_tracked_value(field_name)
                 if old_value == new_value:
                     continue
-                field_label = line._fields[field_name].string or field_name
+                field_label = line._get_component_autolog_field_label(field_name)
                 changes.append(
-                    _("%(field)s: %(old)s -> %(new)s") % {
+                    _("%(field)s: %(old)s → %(new)s") % {
                         'field': field_label,
                         'old': old_value,
                         'new': new_value,
@@ -180,7 +215,8 @@ class MrpBomLine(models.Model):
                 )
             if changes:
                 line.bom_id._post_bom_autolog(
-                    _("Змінено компонент: %(changes)s") % {
+                    _("Змінено компонент: %(product)s; %(changes)s") % {
+                        'product': line._format_component_autolog_subject(),
                         'changes': '; '.join(changes),
                     }
                 )
@@ -193,7 +229,7 @@ class MrpBomLine(models.Model):
             (
                 line.bom_id,
                 _("Видалено компонент: %(product)s, кількість: %(qty)s %(uom)s") % {
-                    'product': line.product_id.display_name or _("Порожньо"),
+                    'product': line._format_component_autolog_subject(),
                     'qty': line.product_qty,
                     'uom': line.product_uom_id.display_name or _("Порожньо"),
                 },

@@ -29,6 +29,17 @@ class AccountMove(models.Model):
         'seller_contract_id',
     )
 
+    _autolog_field_labels = {
+        'partner_id': _("Партнер"),
+        'invoice_date': _("Дата рахунку"),
+        'invoice_date_due': _("Термін оплати"),
+        'ref': _("Референс"),
+        'project_account_id': _("Проект"),
+        'budget_account_id': _("Бюджет"),
+        'cash_flow_item_account_id': _("Стаття Cashflow"),
+        'seller_contract_id': _("Контракт продажу"),
+    }
+
     project_account_id = fields.Many2one(
         'account.analytic.account', domain="[('is_plan_project', '=', True)]"
     )
@@ -95,6 +106,12 @@ class AccountMove(models.Model):
             return _("Порожньо")
         return str(value)
 
+    def _get_move_autolog_field_label(self, field_name):
+        return self._autolog_field_labels.get(
+            field_name,
+            self._fields[field_name].string or field_name,
+        )
+
     def _post_move_autolog(self, body):
         self.ensure_one()
         if self._should_skip_move_autologs():
@@ -132,7 +149,7 @@ class AccountMove(models.Model):
                     new_value = move._format_move_autolog_value(field_name)
                     if old_value == new_value:
                         continue
-                    field_label = move._fields[field_name].string or field_name
+                    field_label = move._get_move_autolog_field_label(field_name)
                     changes.append(
                         _("%(field)s: %(old)s → %(new)s") % {
                             'field': field_label,
