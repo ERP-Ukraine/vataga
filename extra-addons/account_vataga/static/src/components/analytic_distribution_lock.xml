@@ -9,10 +9,10 @@
             <attribute name="readonly">isVatagaAnalyticFieldLocked(field)</attribute>
         </xpath>
         <xpath expr="//Field[@name=&quot;'percentage'&quot;]" position="attributes">
-            <attribute name="readonly">Boolean(vatagaLockedPlanIds.length)</attribute>
+            <attribute name="readonly">vatagaLockedPlanIds.length > 0</attribute>
         </xpath>
         <xpath expr="//td[@t-if='valueColumnEnabled']/Field" position="attributes">
-            <attribute name="readonly">Boolean(vatagaLockedPlanIds.length)</attribute>
+            <attribute name="readonly">vatagaLockedPlanIds.length > 0</attribute>
         </xpath>
         <xpath expr="//span[contains(@class, 'fa-trash-o')]" position="attributes">
             <attribute name="t-att-class">{'d-none': vatagaLockedPlanIds.length}</attribute>

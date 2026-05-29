@@ -8,6 +8,10 @@ class AccountMoveThreadController(http.Controller):
         "Invoice line added:",
         "Invoice line updated:",
         "Invoice line removed:",
+        "Рахунок змінено:",
+        "Додано рядок рахунку:",
+        "Змінено рядок рахунку:",
+        "Видалено рядок рахунку:",
     )
 
     @http.route("/account_vataga/mail/thread/messages", methods=["POST"], type="json", auth="user")

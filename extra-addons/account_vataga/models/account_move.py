@@ -59,25 +59,29 @@ class AccountMove(models.Model):
         return self.env.context.get(AUTOLOG_SKIP_CONTEXT_KEY)
 
     def _get_move_autolog_fields(self, vals):
-        return [field_name for field_name in self._autolog_tracked_fields if field_name in vals]
+        return [
+            field_name
+            for field_name in self._autolog_tracked_fields
+            if field_name in vals and not field_name.startswith('x_studio_')
+        ]
 
     def _format_move_autolog_value(self, field_name):
         self.ensure_one()
         field = self._fields[field_name]
         value = self[field_name]
         if field.type == 'many2one':
-            return value.display_name or _("Empty")
+            return value.display_name or _("Порожньо")
         if field.type == 'selection':
             selection = field._description_selection(self.env)
-            return dict(selection).get(value, value or _("Empty"))
+            return dict(selection).get(value, value or _("Порожньо"))
         if field.type == 'boolean':
-            return _("Yes") if value else _("No")
+            return _("Так") if value else _("Ні")
         if field.type == 'date':
-            return fields.Date.to_string(value) if value else _("Empty")
+            return fields.Date.to_string(value) if value else _("Порожньо")
         if field.type == 'datetime':
-            return fields.Datetime.to_string(value) if value else _("Empty")
+            return fields.Datetime.to_string(value) if value else _("Порожньо")
         if value in (False, None, ''):
-            return _("Empty")
+            return _("Порожньо")
         return str(value)
 
     def _post_move_autolog(self, body):
@@ -119,7 +123,7 @@ class AccountMove(models.Model):
                         continue
                     field_label = move._fields[field_name].string or field_name
                     changes.append(
-                        _("%(field)s: %(old)s -> %(new)s") % {
+                        _("%(field)s: %(old)s → %(new)s") % {
                             'field': field_label,
                             'old': old_value,
                             'new': new_value,
@@ -127,7 +131,7 @@ class AccountMove(models.Model):
                     )
                 if changes:
                     move._post_move_autolog(
-                        _("Invoice updated: %(changes)s") % {
+                        _("Рахунок змінено: %(changes)s") % {
                             'changes': '; '.join(changes),
                         }
                     )

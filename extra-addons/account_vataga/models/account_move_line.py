@@ -75,6 +75,8 @@ class AccountMoveLine(models.Model):
     def _tracked_invoice_line_fields(self, vals):
         fields_to_track = []
         for field_name in vals:
+            if field_name.startswith('x_studio_'):
+                continue
             if field_name in self._tracking_ignored_fields:
                 continue
             field = self._fields.get(field_name)
@@ -87,7 +89,7 @@ class AccountMoveLine(models.Model):
         self.ensure_one()
         analytic_distribution = self.analytic_distribution or {}
         if not analytic_distribution:
-            return _("Empty")
+            return _("Порожньо")
         account_ids = []
         for key in analytic_distribution:
             account_ids.extend(int(account_id) for account_id in key.split(',') if account_id)
@@ -110,20 +112,20 @@ class AccountMoveLine(models.Model):
         field = self._fields[field_name]
         value = self[field_name]
         if field.type == 'many2one':
-            return value.display_name or _("Empty")
+            return value.display_name or _("Порожньо")
         if field.type == 'many2many':
-            return ", ".join(value.mapped('display_name')) or _("Empty")
+            return ", ".join(value.mapped('display_name')) or _("Порожньо")
         if field.type == 'selection':
             selection = field._description_selection(self.env)
-            return dict(selection).get(value, value or _("Empty"))
+            return dict(selection).get(value, value or _("Порожньо"))
         if field.type == 'boolean':
-            return _("Yes") if value else _("No")
+            return _("Так") if value else _("Ні")
         if field.type == 'date':
-            return fields.Date.to_string(value) if value else _("Empty")
+            return fields.Date.to_string(value) if value else _("Порожньо")
         if field.type == 'datetime':
-            return fields.Datetime.to_string(value) if value else _("Empty")
+            return fields.Datetime.to_string(value) if value else _("Порожньо")
         if value in (False, None, ''):
-            return _("Empty")
+            return _("Порожньо")
         return str(value)
 
     @api.model_create_multi
@@ -133,10 +135,10 @@ class AccountMoveLine(models.Model):
             return lines
         for line in lines.filtered(lambda line: line._should_post_invoice_line_autolog()):
             line.move_id._post_move_autolog(
-                _("Invoice line added: %(product)s, quantity: %(qty)s %(uom)s") % {
-                    'product': line.product_id.display_name or line.name or _("Empty"),
+                _("Додано рядок рахунку: %(product)s, кількість: %(qty)s %(uom)s") % {
+                    'product': line.product_id.display_name or line.name or _("Порожньо"),
                     'qty': line.quantity,
-                    'uom': line.product_uom_id.display_name or _("Empty"),
+                    'uom': line.product_uom_id.display_name or _("Порожньо"),
                 }
             )
         return lines
@@ -162,7 +164,7 @@ class AccountMoveLine(models.Model):
                     continue
                 field_label = line._fields[field_name].string or field_name
                 changes.append(
-                    _("%(field)s: %(old)s -> %(new)s") % {
+                    _("%(field)s: %(old)s → %(new)s") % {
                         'field': field_label,
                         'old': old_value,
                         'new': new_value,
@@ -170,7 +172,7 @@ class AccountMoveLine(models.Model):
                 )
             if changes:
                 line.move_id._post_move_autolog(
-                    _("Invoice line updated: %(changes)s") % {
+                    _("Змінено рядок рахунку: %(changes)s") % {
                         'changes': '; '.join(changes),
                     }
                 )
@@ -182,10 +184,10 @@ class AccountMoveLine(models.Model):
         log_messages = [
             (
                 line.move_id,
-                _("Invoice line removed: %(product)s, quantity: %(qty)s %(uom)s") % {
-                    'product': line.product_id.display_name or line.name or _("Empty"),
+                _("Видалено рядок рахунку: %(product)s, кількість: %(qty)s %(uom)s") % {
+                    'product': line.product_id.display_name or line.name or _("Порожньо"),
                     'qty': line.quantity,
-                    'uom': line.product_uom_id.display_name or _("Empty"),
+                    'uom': line.product_uom_id.display_name or _("Порожньо"),
                 },
             )
             for line in self.filtered(lambda line: line._should_post_invoice_line_autolog())
