@@ -108,6 +108,10 @@ class AccountMoveLine(models.Model):
             parts.append("%s: %s%%" % (", ".join(names), percentage))
         return "; ".join(parts)
 
+    def _format_invoice_line_autolog_subject(self):
+        self.ensure_one()
+        return self.product_id.display_name or self.name or _("РџРѕСЂРѕР¶РЅСЊРѕ")
+
     def _format_tracked_value(self, field_name):
         self.ensure_one()
         if field_name == 'analytic_distribution':
@@ -175,7 +179,8 @@ class AccountMoveLine(models.Model):
                 )
             if changes:
                 line.move_id._post_move_autolog(
-                    _("Змінено рядок рахунку: %(changes)s") % {
+                    _("Змінено рядок рахунку: %(product)s; %(changes)s") % {
+                        'product': line._format_invoice_line_autolog_subject(),
                         'changes': '; '.join(changes),
                     }
                 )
