@@ -14,6 +14,7 @@
         'analytic_vataga',
     ],
     'data': [
+        'data/mail_message_subtype.xml',
         'data/account_payment_view.xml',
         'views/account_move.xml',
         'views/res_config_settings_views.xml',
@@ -22,6 +23,8 @@
     ],
     'assets': {
         'web.assets_backend': [
+            'account_vataga/static/src/chatter/account_move_chatter.xml',
+            'account_vataga/static/src/chatter/account_move_chatter.js',
             'account_vataga/static/src/components/analytic_distribution_lock.js',
             'account_vataga/static/src/components/analytic_distribution_lock.xml',
         ],
