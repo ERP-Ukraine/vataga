@@ -110,7 +110,7 @@ class AccountMoveLine(models.Model):
 
     def _format_invoice_line_autolog_subject(self):
         self.ensure_one()
-        return self.product_id.display_name or self.name or _("РџРѕСЂРѕР¶РЅСЊРѕ")
+        return self.product_id.display_name or self.name or _("Порожньо")
 
     def _format_tracked_value(self, field_name):
         self.ensure_one()
