@@ -4,6 +4,30 @@ from odoo import _, api, fields, models
 class AccountMoveLine(models.Model):
     _inherit = 'account.move.line'
 
+    vataga_locked_analytic_plan_ids = fields.Json(
+        compute='_compute_vataga_locked_analytic_plan_ids',
+    )
+
+    @api.depends('move_id.state')
+    def _compute_vataga_locked_analytic_plan_ids(self):
+        project_plan = self.env.ref(
+            'analytic_vataga.account_analytic_plan_project',
+            raise_if_not_found=False,
+        )
+        seller_contract_plan = self.env.ref(
+            'analytic_vataga.account_analytic_plan_seller_contract',
+            raise_if_not_found=False,
+        )
+        locked_plan_ids = [
+            plan.id
+            for plan in (project_plan, seller_contract_plan)
+            if plan
+        ]
+        for line in self:
+            line.vataga_locked_analytic_plan_ids = (
+                locked_plan_ids if line.move_id.state != 'draft' else []
+            )
+
     @api.depends(
         'account_id', 'partner_id', 'product_id',
         'move_id.project_account_id', 'move_id.budget_account_id',
