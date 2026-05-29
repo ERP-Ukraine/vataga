@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t
+        t-name="account_vataga.AnalyticDistributionPopupLock"
+        t-inherit="analytic.AnalyticDistributionPopup"
+        t-inherit-mode="extension"
+    >
+        <xpath expr="//td[Field[@name='field']]/Field" position="attributes">
+            <attribute name="readonly">isVatagaAnalyticFieldLocked(field)</attribute>
+        </xpath>
+        <xpath expr="//span[contains(@class, 'fa-trash-o')]" position="attributes">
+            <attribute name="t-att-class">{'d-none': vatagaLockedPlanIds.length}</attribute>
+        </xpath>
+        <xpath expr="//td[contains(@class, 'o_field_x2many_list_row_add')]" position="attributes">
+            <attribute name="t-att-class">{'d-none': vatagaLockedPlanIds.length, 'o_field_x2many_list_row_add': true}</attribute>
+        </xpath>
+    </t>
+</templates>

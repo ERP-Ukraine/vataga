@@ -6,6 +6,9 @@
         <field name="model">account.move</field>
         <field name="inherit_id" ref="account.view_move_form" />
         <field name="arch" type="xml">
+            <xpath expr="//button[@name='button_draft']" position="attributes">
+                <attribute name="confirm">Ви впевнені, що хочете перейти в чернетку? Якщо є кнопки модерації, вони будуть скинуті.</attribute>
+            </xpath>
             <xpath expr="//group[@id='header_left_group']" position="inside">
                 <field name="project_account_id" readonly="state != 'draft'"
                     groups="analytic.group_analytic_accounting"

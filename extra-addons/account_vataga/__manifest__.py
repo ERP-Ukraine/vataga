@@ -14,9 +14,7 @@
         'analytic_vataga',
     ],
     'data': [
-        'security/ir.model.access.csv',
         'data/account_payment_view.xml',
-        'wizard/account_moderation_reset_confirmation_wizard.xml',
         'views/account_move.xml',
         'views/res_config_settings_views.xml',
         'views/account_payment_view.xml',
@@ -25,6 +23,7 @@
     'assets': {
         'web.assets_backend': [
             'account_vataga/static/src/components/analytic_distribution_lock.js',
+            'account_vataga/static/src/components/analytic_distribution_lock.xml',
         ],
     },
 }

@@ -28,6 +28,11 @@ patch(AnalyticDistribution.prototype, {
         return this.vatagaLockedPlanIds.includes(planId);
     },
 
+    isVatagaAnalyticFieldLocked(fieldName) {
+        const match = fieldName.match(/^x_plan(\d+)_id$/);
+        return match ? this.isVatagaPlanLocked(Number(match[1])) : false;
+    },
+
     recordProps(line) {
         const props = super.recordProps(...arguments);
         for (const account of line.analyticAccounts) {

@@ -42,15 +42,6 @@ class AccountMove(models.Model):
             if field.name in self._fields
         ]
 
-    def _get_moves_requiring_moderation_reset_confirmation(self):
-        posted_invoice_moves = self.filtered(
-            lambda move: move.state == 'posted' and move.move_type == 'in_invoice'
-        )
-        fields_to_reset = self._get_studio_boolean_fields_to_reset()
-        return posted_invoice_moves.filtered(
-            lambda move: any(move[field_name] for field_name in fields_to_reset)
-        )
-
     def write(self, vals):
         posted_invoice_lines = self.env['account.move.line']
         if set(vals) & self.ANALYTIC_HEADER_FIELDS:
@@ -66,21 +57,6 @@ class AccountMove(models.Model):
         return res
 
     def button_draft(self):
-        if not self.env.context.get('skip_moderation_reset_confirmation'):
-            moves_to_confirm = self._get_moves_requiring_moderation_reset_confirmation()
-            if moves_to_confirm:
-                wizard = self.env['account.moderation.reset.confirmation.wizard'].create({
-                    'move_ids': [(6, 0, self.ids)],
-                })
-                return {
-                    'name': _('Confirm Draft Reset'),
-                    'type': 'ir.actions.act_window',
-                    'res_model': 'account.moderation.reset.confirmation.wizard',
-                    'res_id': wizard.id,
-                    'view_mode': 'form',
-                    'target': 'new',
-                }
-
         posted_invoice_moves = self.filtered(
             lambda move: move.state == 'posted' and move.move_type == 'in_invoice'
         )
