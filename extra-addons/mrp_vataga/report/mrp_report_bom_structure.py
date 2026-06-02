@@ -24,12 +24,13 @@ class ReportBomStructure(models.AbstractModel):
 
     @api.model
     def _get_multi_warehouse_forecast_quantities(self, product_ids, date_today):
+        selected_warehouse_ids = self._get_selected_warehouse_ids()
         forecast_rows = self.env["report.stock.quantity"].search_read(
             [
                 ("state", "=", "forecast"),
                 ("date", ">=", date_today),
                 ("product_id", "in", list(set(product_ids))),
-                ("warehouse_id", "in", self._get_selected_warehouse_ids()),
+                ("warehouse_id", "in", selected_warehouse_ids),
             ],
             fields=["product_id", "product_qty", "date"],
             order="product_id asc, date asc",
@@ -73,17 +74,18 @@ class ReportBomStructure(models.AbstractModel):
                 "free_to_manufacture_qty": 0,
             }
 
-        free_qty = 0
+        raw_free_qty_total = 0
         on_hand_qty = 0
         for warehouse_id in self._get_selected_warehouse_ids():
             warehouse_product = product.with_context(warehouse=warehouse_id)
-            free_qty += max(
-                warehouse_product.uom_id._compute_quantity(warehouse_product.free_qty, bom_uom),
-                0,
+            warehouse_free_qty = warehouse_product.uom_id._compute_quantity(
+                warehouse_product.free_qty, bom_uom
             )
+            raw_free_qty_total += warehouse_free_qty
             on_hand_qty += warehouse_product.uom_id._compute_quantity(
                 warehouse_product.qty_available, bom_uom
             )
+        free_qty = max(raw_free_qty_total, 0)
 
         return {
             "free_qty": free_qty,
@@ -91,6 +93,49 @@ class ReportBomStructure(models.AbstractModel):
             "stock_loc": "in_stock",
             "free_to_manufacture_qty": free_qty,
         }
+
+    @api.model
+    def _get_availabilities(
+        self,
+        product,
+        quantity,
+        product_info,
+        bom_key,
+        quantities_info,
+        level,
+        ignore_stock=False,
+        components=False,
+        bom_line=None,
+        report_line=False,
+    ):
+        availabilities = super()._get_availabilities(
+            product,
+            quantity,
+            product_info,
+            bom_key,
+            quantities_info,
+            level,
+            ignore_stock=ignore_stock,
+            components=components,
+            bom_line=bom_line,
+            report_line=report_line,
+        )
+        if (
+            self._is_multi_warehouse_context()
+            and not ignore_stock
+            and level == 0
+            and availabilities.get("stock_avail_state") == "available"
+        ):
+            stock_state = availabilities["stock_avail_state"]
+            stock_delay = 0
+            availabilities.update(
+                {
+                    "availability_display": self._format_date_display(stock_state, stock_delay),
+                    "availability_state": stock_state,
+                    "availability_delay": stock_delay,
+                }
+            )
+        return availabilities
 
     @api.model
     def _get_components_closest_forecasted(
@@ -128,7 +173,7 @@ class ReportBomStructure(models.AbstractModel):
                 remaining_products.append(product.id)
                 closest_forecasted[product.id][line.id] = None
 
-        date_today = self.env.context.get("from_date", fields.date.today())
+        date_today = self.env.context.get("from_date", fields.Date.today())
         forecast_quantities = self._get_multi_warehouse_forecast_quantities(
             remaining_products, date_today
         )
@@ -163,7 +208,7 @@ class ReportBomStructure(models.AbstractModel):
         if closest_forecasted == date.max:
             return ("unavailable", False)
 
-        date_today = self.env.context.get("from_date", fields.date.today())
+        date_today = self.env.context.get("from_date", fields.Date.today())
         if product and product.detailed_type != "product":
             return ("available", 0)
 
@@ -183,7 +228,7 @@ class ReportBomStructure(models.AbstractModel):
                         product.id, []
                     ),
                     product_info[product.id]["consumptions"][stock_loc],
-                )
+            )
             if closest_forecasted:
                 return ("expected", (closest_forecasted - date_today).days)
         return ("unavailable", False)
