@@ -17,6 +17,8 @@ class ResPartner(models.Model):
         return company_type if company_type is not None else default_company_type
 
     def _should_validate_counterparty_name_from_values(self, values):
+        if self.env.context.get("skip_counterparty_name_validation"):
+            return False
         company_type = self._get_counterparty_company_type_from_values(values)
         parent_id = values.get("parent_id")
         return company_type == "company" and not parent_id
@@ -51,14 +53,22 @@ class ResPartner(models.Model):
         messages = self._get_partner_name_validation_messages(name)
         return "\n".join(messages) if messages else False
 
+    def _is_linked_to_user(self):
+        self.ensure_one()
+        return bool(self.with_context(active_test=False).sudo().user_ids)
+
     def _should_validate_counterparty_name(self):
         self.ensure_one()
+        if self.env.context.get("skip_counterparty_name_validation") or self._is_linked_to_user():
+            return False
         # Business rule: validate only standalone counterparty cards, not child
         # contacts or addresses inside the company card.
         return self.company_type == "company" and not self.parent_id
 
     def _should_validate_counterparty_name_after_values(self, values):
         self.ensure_one()
+        if self.env.context.get("skip_counterparty_name_validation") or self._is_linked_to_user():
+            return False
         company_type = self._get_counterparty_company_type_from_values(
             values,
             default_company_type=self.company_type,

@@ -79,6 +79,19 @@ class TestPartnerNameValidation(TransactionCase):
 
         self.assertEqual(contact.name, "іван петренко")
 
+    def test_user_partner_is_not_validated_as_counterparty(self):
+        user_name = "\u0412\u0456\u043a\u0442\u043e\u0440 \u041a\u0443\u0437\u044c\u043c\u0435\u043d\u043a\u043e"
+        user = self.env["res.users"].create({
+            "name": user_name,
+            "login": "viktor.kuzmenko.partner.validation@example.com",
+        })
+
+        user.partner_id.write({"company_type": "company"})
+        user.partner_id.write({"name": user_name})
+
+        self.assertEqual(user.name, user_name)
+        self.assertEqual(user.partner_id.name, user_name)
+
     def test_empty_name_has_no_format_error(self):
         self.assertFalse(
             self.env["res.partner"]._get_partner_name_validation_error("")
