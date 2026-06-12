@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+
+    <record id="user_login_setting_view_form" model="ir.ui.view">
+        <field name="name">es.config.settings.view.form.inherit.user.login</field>
+        <field name="model">res.config.settings</field>
+        <field name="priority" eval="5"/>
+        <field name="inherit_id" ref="base.res_config_settings_view_form" />
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="User Logs" string="User Login System" name="login info" logo="hia_user_login_status/static/description/icon.png">
+                    <block title="User Login System">
+                        <setting string="Store User Session Activity Log" help="storing Activity Logs">
+                            <field name="store_user_time" function="ir.config_parameter.set_param" eval="('hia_user_login_status.store_user_time', True)" />
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="login_status_setting_action" model="ir.actions.act_window">
+        <field name="name">User Login Status Setting</field>
+        <field name="type">ir.actions.act_window</field>
+        <field name="res_model">res.config.settings</field>
+        <field name="view_id" ref="user_login_setting_view_form"/>
+        <field name="view_mode">form</field>
+        <field name="target">inline</field>
+        <field name="context">{'module' : 'hia_user_login_status'}</field>
+    </record>
+
+</odoo>
