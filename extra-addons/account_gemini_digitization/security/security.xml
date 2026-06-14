@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="account_gemini_digitization_job_company_rule" model="ir.rule">
+        <field name="name">Gemini digitization jobs: company access</field>
+        <field name="model_id" ref="model_account_gemini_digitization_job"/>
+        <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+        <field name="groups" eval="[(4, ref('base.group_user'))]"/>
+    </record>
+
+    <record id="account_gemini_digitization_line_company_rule" model="ir.rule">
+        <field name="name">Gemini digitization lines: company access</field>
+        <field name="model_id" ref="model_account_gemini_digitization_line"/>
+        <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+        <field name="groups" eval="[(4, ref('base.group_user'))]"/>
+    </record>
+</odoo>

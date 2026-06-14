@@ -1,0 +1,28 @@
+{
+    'name': 'Account Gemini Digitization',
+    'summary': 'Prepare supplier bill and purchase order digitization with Gemini',
+    'version': '17.0.1.0.0',
+    'category': 'Accounting/Accounting',
+    'author': 'ERP Ukraine LLC',
+    'website': 'https://erp.co.ua',
+    'support': 'support@erp.co.ua',
+    'license': 'LGPL-3',
+    'auto_install': False,
+    'installable': True,
+    'application': False,
+    'depends': [
+        'account',
+        'purchase',
+        'purchase_vataga',
+    ],
+    'data': [
+        'security/security.xml',
+        'security/ir.model.access.csv',
+        'views/digitization_job_views.xml',
+        'views/res_config_settings_views.xml',
+        'views/account_move_views.xml',
+        'views/purchase_order_views.xml',
+        'wizard/digitization_review_wizard.xml',
+    ],
+    'assets': {},
+}

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="purchase_order_form_gemini_digitization" model="ir.ui.view">
+        <field name="name">purchase.order.form.gemini.digitization</field>
+        <field name="model">purchase.order</field>
+        <field name="inherit_id" ref="purchase.purchase_order_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form/header" position="inside">
+                <button
+                    name="action_create_gemini_digitization_job"
+                    string="Оцифрувати через Gemini"
+                    type="object"
+                    class="oe_highlight"
+                    invisible="state not in ('draft', 'sent')"
+                />
+            </xpath>
+            <xpath expr="//div[@name='button_box']" position="inside">
+                <button
+                    name="action_view_gemini_digitization_jobs"
+                    type="object"
+                    class="oe_stat_button"
+                    icon="fa-magic"
+                    invisible="gemini_digitization_job_count == 0"
+                >
+                    <field
+                        name="gemini_digitization_job_count"
+                        widget="statinfo"
+                        string="Gemini OCR"
+                    />
+                </button>
+            </xpath>
+        </field>
+    </record>
+</odoo>

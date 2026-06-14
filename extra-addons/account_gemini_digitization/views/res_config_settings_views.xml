@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="res_config_settings_view_form_gemini_digitization" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.gemini.digitization</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="account.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//block[@id='account_digitalization']" position="after">
+                <block title="Gemini Digitization" name="account_gemini_digitization_settings" groups="base.group_system">
+                    <div class="row mt16">
+                        <label for="gemini_api_key" class="col-lg-3 o_light_label"/>
+                        <field name="gemini_api_key" password="True"/>
+                    </div>
+                    <div class="row mt16">
+                        <label for="gemini_model" class="col-lg-3 o_light_label"/>
+                        <field name="gemini_model" placeholder="gemini-1.5-pro"/>
+                    </div>
+                    <div class="row mt16">
+                        <label for="gemini_request_timeout" class="col-lg-3 o_light_label"/>
+                        <field name="gemini_request_timeout"/>
+                    </div>
+                    <div class="row mt16">
+                        <label for="gemini_min_confidence" class="col-lg-3 o_light_label"/>
+                        <field name="gemini_min_confidence"/>
+                    </div>
+                </block>
+            </xpath>
+        </field>
+    </record>
+</odoo>
