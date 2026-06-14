@@ -1,5 +1,12 @@
+import logging
+
 from odoo import _, fields, models
 from odoo.exceptions import UserError
+
+from ..services import GeminiClient, ResponseParser
+
+
+_logger = logging.getLogger(__name__)
 
 
 class AccountGeminiDigitizationJob(models.Model):
@@ -106,7 +113,37 @@ class AccountGeminiDigitizationJob(models.Model):
     )
 
     def action_process(self):
-        raise UserError(_('Gemini processing is not implemented yet.'))
+        self.ensure_one()
+        if self.state in ('done', 'cancelled'):
+            raise UserError(_('Cannot process a done or cancelled digitization job.'))
+
+        client = GeminiClient(self.env)
+        try:
+            if not self.attachment_id:
+                raise UserError(_('Не знайдено вкладення для обробки Gemini.'))
+            self.write({
+                'state': 'processing',
+                'error_message': False,
+            })
+            response = client.recognize(self)
+            self.write({
+                'raw_request_json': client.last_request_payload,
+            })
+            ResponseParser(self.env).apply_to_job(
+                self,
+                response,
+                raw_response=client.last_raw_response,
+            )
+        except UserError as error:
+            self._save_processing_error(error, client)
+            raise
+        except Exception as error:
+            _logger.exception('Unexpected Gemini digitization processing error.')
+            user_error = UserError(_('Помилка обробки Gemini: %s') % error)
+            self._save_processing_error(user_error, client)
+            raise user_error
+
+        return self._get_job_form_action()
 
     def action_open_review_wizard(self):
         raise UserError(_('Digitization review wizard is not implemented yet.'))
@@ -127,3 +164,40 @@ class AccountGeminiDigitizationJob(models.Model):
 
     def _create_lines_from_response(self):
         raise UserError(_('Creating digitization lines from Gemini response is not implemented yet.'))
+
+    def _get_job_form_action(self):
+        self.ensure_one()
+        form_view = self.env.ref(
+            'account_gemini_digitization.view_account_gemini_digitization_job_form'
+        )
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _('Gemini Digitization Job'),
+            'res_model': 'account.gemini.digitization.job',
+            'view_mode': 'form',
+            'views': [(form_view.id, 'form')],
+            'res_id': self.id,
+            'target': 'current',
+        }
+
+    def _save_processing_error(self, error, client):
+        self.ensure_one()
+        error_message = self._get_error_message(error)
+        values = {
+            'state': 'error',
+            'error_message': error_message,
+        }
+        if getattr(client, 'last_request_payload', None):
+            values['raw_request_json'] = client.last_request_payload
+        if getattr(client, 'last_raw_response', None) is not None:
+            values['raw_response_json'] = client.last_raw_response
+        elif getattr(client, 'last_raw_text', None):
+            values['raw_response_json'] = {'text': client.last_raw_text}
+        self.write(values)
+        # Keep the diagnostic state visible even though the button raises UserError.
+        self.env.cr.commit()
+
+    def _get_error_message(self, error):
+        if getattr(error, 'args', None):
+            return error.args[0]
+        return str(error)
