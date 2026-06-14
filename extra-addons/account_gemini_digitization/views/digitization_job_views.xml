@@ -190,8 +190,9 @@
     <menuitem
         id="menu_account_gemini_digitization_root"
         name="Gemini Digitization"
+        parent="account.menu_finance_configuration"
         sequence="80"
-        groups="base.group_user"
+        groups="account.group_account_manager"
     />
 
     <menuitem
@@ -200,6 +201,6 @@
         parent="menu_account_gemini_digitization_root"
         action="action_account_gemini_digitization_job"
         sequence="10"
-        groups="base.group_user"
+        groups="account.group_account_manager"
     />
 </odoo>
