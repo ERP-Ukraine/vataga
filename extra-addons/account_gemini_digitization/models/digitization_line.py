@@ -70,6 +70,13 @@ class AccountGeminiDigitizationLine(models.Model):
         string='Matched Product',
         ondelete='set null',
     )
+    candidate_product_ids = fields.Many2many(
+        comodel_name='product.product',
+        relation='account_gemini_digitization_line_product_candidate_rel',
+        column1='line_id',
+        column2='product_id',
+        string='Product Candidates',
+    )
     match_status = fields.Selection(
         selection=MATCH_STATUS_SELECTION,
         required=True,
@@ -82,8 +89,16 @@ class AccountGeminiDigitizationLine(models.Model):
         string='Vendor Bill Line',
         ondelete='set null',
     )
+    candidate_move_line_ids = fields.Many2many(
+        comodel_name='account.move.line',
+        relation='account_gemini_digitization_line_move_line_candidate_rel',
+        column1='line_id',
+        column2='move_line_id',
+        string='Vendor Bill Line Candidates',
+    )
     source_columns = fields.Text()
     note = fields.Text()
+    match_note = fields.Text()
     company_id = fields.Many2one(
         related='job_id.company_id',
         store=True,

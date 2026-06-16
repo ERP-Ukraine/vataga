@@ -106,10 +106,12 @@
                                     <field name="amount_total"/>
                                     <field name="source_columns"/>
                                     <field name="matched_product_id"/>
+                                    <field name="candidate_product_ids" widget="many2many_tags"/>
                                     <field name="match_status"/>
                                     <field name="match_score"/>
                                     <field name="match_method"/>
                                     <field name="move_line_id"/>
+                                    <field name="candidate_move_line_ids" widget="many2many_tags"/>
                                     <field name="confidence"/>
                                     <field name="currency_id" column_invisible="True"/>
                                     <field name="company_id" column_invisible="True"/>
@@ -137,16 +139,19 @@
                                             <field name="amount_tax"/>
                                             <field name="amount_total"/>
                                             <field name="matched_product_id"/>
+                                            <field name="candidate_product_ids" widget="many2many_tags"/>
                                             <field name="match_status"/>
                                             <field name="match_score"/>
                                             <field name="match_method"/>
                                             <field name="move_line_id"/>
+                                            <field name="candidate_move_line_ids" widget="many2many_tags"/>
                                             <field name="confidence"/>
                                         </group>
                                     </group>
                                     <group>
                                         <field name="source_columns"/>
                                         <field name="note"/>
+                                        <field name="match_note"/>
                                     </group>
                                 </form>
                             </field>

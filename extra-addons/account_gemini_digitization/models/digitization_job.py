@@ -4,7 +4,7 @@ import logging
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
-from ..services import GeminiClient, ResponseParser
+from ..services import GeminiClient, ProductMatcher, ResponseParser
 
 
 _logger = logging.getLogger(__name__)
@@ -153,6 +153,7 @@ class AccountGeminiDigitizationJob(models.Model):
                 response,
                 raw_response=client.last_raw_response,
             )
+            self._run_product_matching()
         except UserError as error:
             self._save_processing_error(error, client)
             raise
@@ -183,6 +184,18 @@ class AccountGeminiDigitizationJob(models.Model):
 
     def _create_lines_from_response(self):
         raise UserError(_('Creating digitization lines from Gemini response is not implemented yet.'))
+
+    def _run_product_matching(self):
+        self.ensure_one()
+        try:
+            ProductMatcher(self.env).match_job(self)
+        except Exception as error:
+            _logger.exception('Gemini digitization product matching failed.')
+            warning = _('Product matching warning: %s') % error
+            self.write({
+                'state': 'review',
+                'error_message': self._append_error_message(warning),
+            })
 
     def _get_job_form_action(self):
         self.ensure_one()
@@ -220,6 +233,11 @@ class AccountGeminiDigitizationJob(models.Model):
         if getattr(error, 'args', None):
             return error.args[0]
         return str(error)
+
+    def _append_error_message(self, message):
+        if self.error_message:
+            return '%s\n%s' % (self.error_message, message)
+        return message
 
     def _format_json_for_display(self, value):
         if value in (False, None, ''):
