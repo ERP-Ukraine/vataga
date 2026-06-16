@@ -22,7 +22,7 @@ class ResponseParser:
             raise UserError(_('Gemini response must be a JSON object.'))
 
         lines = response.get('lines')
-        if not isinstance(lines, list) or not lines:
+        if not isinstance(lines, list):
             raise UserError(_('Gemini JSON не містить рядків lines.'))
 
         return {

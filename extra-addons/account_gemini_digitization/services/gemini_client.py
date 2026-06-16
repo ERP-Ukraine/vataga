@@ -1,4 +1,5 @@
 import base64
+import copy
 import json
 import logging
 import re
@@ -51,32 +52,77 @@ class GeminiClient:
 
     def recognize(self, job):
         job.ensure_one()
-        attachment = self._get_valid_attachment(job)
         config = self.get_config()
+        endpoint = self._build_endpoint(config)
+        self.last_request_payload = self._build_minimal_request_metadata(
+            job,
+            config,
+            endpoint,
+            error='request_not_sent_yet',
+        )
+        self._save_job_raw_request(job)
         if not config['api_key']:
+            self.last_request_payload = self._build_minimal_request_metadata(
+                job,
+                config,
+                endpoint,
+                error='missing_api_key',
+            )
+            self._save_job_raw_request(job)
+            self._set_preflight_error(
+                'missing_api_key',
+                _('Не задано Gemini API key у налаштуваннях модуля.'),
+            )
+            self._save_job_raw_response(job)
             raise UserError(_('Не задано Gemini API key у налаштуваннях модуля.'))
 
-        file_content = self._decode_attachment(attachment)
+        try:
+            attachment = self._get_valid_attachment(job)
+            file_content = self._decode_attachment(attachment)
+        except UserError:
+            self._save_job_raw_response(job)
+            raise
         prompt = self._build_prompt(job, config)
         payload = self._build_request_payload(prompt, attachment.mimetype, file_content)
-        self.last_request_payload = self._sanitize_request_payload(
+        self.last_request_payload = self._build_request_metadata(
             job,
             attachment,
             payload,
             config,
+            endpoint,
+            prompt,
             len(file_content),
         )
+        self._save_job_raw_request(job)
 
-        raw_response = self._post_to_gemini(config, payload)
-        self.last_raw_response = raw_response
-        self.last_raw_text = self._extract_text(raw_response)
-        return self._extract_json(self.last_raw_text)
+        final_response = self._post_to_gemini(job, config, endpoint, payload)
+        try:
+            self.last_raw_text = self._extract_text(final_response)
+            self._augment_last_raw_response({
+                'extracted_text_for_json_parse': self.last_raw_text,
+            })
+            self._save_job_raw_response(job)
+            return self._extract_json(self.last_raw_text)
+        except UserError:
+            self._save_job_raw_response(job)
+            raise
 
     def _get_valid_attachment(self, job):
         attachment = job.attachment_id
         if not attachment:
+            self._set_preflight_error(
+                'missing_attachment',
+                _('Не знайдено вкладення для обробки Gemini.'),
+            )
             raise UserError(_('Не знайдено вкладення для обробки Gemini.'))
         if attachment.mimetype not in self.SUPPORTED_MIMETYPES:
+            self._set_preflight_error(
+                'unsupported_mimetype',
+                _(
+                    'Gemini підтримує тільки PDF, PNG або JPEG вкладення для цього процесу.'
+                ),
+                {'mimetype': attachment.mimetype},
+            )
             raise UserError(_(
                 'Gemini підтримує тільки PDF, PNG або JPEG вкладення для цього процесу.'
             ))
@@ -84,13 +130,25 @@ class GeminiClient:
 
     def _decode_attachment(self, attachment):
         if not attachment.datas:
+            self._set_preflight_error(
+                'empty_attachment',
+                _('Вкладення порожнє або недоступне для читання.'),
+            )
             raise UserError(_('Вкладення порожнє або недоступне для читання.'))
         try:
             file_content = base64.b64decode(attachment.datas)
         except Exception as error:
             _logger.exception('Failed to decode Gemini digitization attachment.')
+            self._set_preflight_error(
+                'attachment_decode_error',
+                _('Не вдалося прочитати файл вкладення: %s') % error,
+            )
             raise UserError(_('Не вдалося прочитати файл вкладення: %s') % error)
         if not file_content:
+            self._set_preflight_error(
+                'empty_attachment',
+                _('Вкладення порожнє або недоступне для читання.'),
+            )
             raise UserError(_('Вкладення порожнє або недоступне для читання.'))
         return file_content
 
@@ -110,17 +168,25 @@ class GeminiClient:
             }],
             'generationConfig': {
                 'temperature': 0,
-                'response_mime_type': 'application/json',
+                'responseMimeType': 'application/json',
+                'responseSchema': self._build_response_schema(),
             },
         }
 
-    def _sanitize_request_payload(self, job, attachment, payload, config, file_size):
-        safe_payload = json.loads(json.dumps(payload))
-        safe_payload['contents'][0]['parts'][1]['inline_data']['data'] = (
-            '<base64 file content omitted>'
-        )
+    def _build_request_metadata(
+        self,
+        job,
+        attachment,
+        payload,
+        config,
+        endpoint,
+        prompt,
+        file_size,
+    ):
+        generation_config = copy.deepcopy(payload.get('generationConfig') or {})
         return {
             'model': self._normalize_model_name(config['model']),
+            'endpoint': endpoint,
             'timeout': config['timeout'],
             'min_confidence': config['min_confidence'],
             'mode': job.mode,
@@ -128,77 +194,219 @@ class GeminiClient:
                 'id': attachment.id,
                 'name': attachment.name,
                 'mimetype': attachment.mimetype,
-                'file_size': file_size,
+                'size': file_size,
             },
-            'payload': safe_payload,
+            'generation_config': generation_config,
+            'prompt_preview': self._shorten(prompt, limit=4000),
+            'contains_file_base64': False,
         }
 
-    def _post_to_gemini(self, config, payload):
-        model = self._normalize_model_name(config['model'])
-        url = (
-            'https://generativelanguage.googleapis.com/v1beta/'
-            '%s:generateContent'
-        ) % model
+    def _build_minimal_request_metadata(self, job, config, endpoint, error=None):
+        request_metadata = {
+            'model': self._normalize_model_name(config['model']),
+            'endpoint': endpoint,
+            'timeout': config['timeout'],
+            'min_confidence': config['min_confidence'],
+            'mode': job.mode,
+            'error': error,
+        }
+        attachment = job.attachment_id
+        if attachment:
+            request_metadata['attachment'] = {
+                'id': attachment.id,
+                'name': attachment.name,
+                'mimetype': attachment.mimetype,
+                'size': getattr(attachment, 'file_size', 0),
+            }
+        return request_metadata
+
+    def _post_to_gemini(self, job, config, endpoint, payload):
+        attempts = []
+        first_response = self._execute_request(
+            config,
+            endpoint,
+            payload,
+            attempt='with_response_schema',
+        )
+        attempts.append(first_response)
+        self._set_last_raw_response(attempts, first_response)
+        self._save_job_raw_response(job)
+        self._raise_transport_error(first_response)
+
+        final_response = first_response
+        if self._should_retry_without_schema(first_response, payload):
+            fallback_payload = copy.deepcopy(payload)
+            fallback_payload['generationConfig'].pop('responseSchema', None)
+            reason = self._extract_error_message(first_response)
+            self.last_request_payload['response_schema_fallback'] = {
+                'triggered': True,
+                'reason': self._shorten(reason),
+                'generation_config': fallback_payload.get('generationConfig'),
+            }
+            self._save_job_raw_request(job)
+            final_response = self._execute_request(
+                config,
+                endpoint,
+                fallback_payload,
+                attempt='without_response_schema',
+            )
+            attempts.append(final_response)
+            self._set_last_raw_response(attempts, final_response)
+            self._save_job_raw_response(job)
+            self._raise_transport_error(final_response)
+
+        if final_response.get('status_code', 0) >= 400:
+            message = self._extract_error_message(final_response)
+            raise UserError(
+                _('Gemini API повернув HTTP %(status)s: %(message)s') % {
+                    'status': final_response.get('status_code'),
+                    'message': self._shorten(message),
+                }
+            )
+        return final_response
+
+    def _execute_request(self, config, endpoint, payload, attempt):
         try:
             response = requests.post(
-                url,
+                endpoint,
                 params={'key': config['api_key']},
                 json=payload,
                 timeout=config['timeout'],
             )
         except requests.Timeout:
-            raise UserError(_('Час очікування відповіді Gemini API вичерпано.'))
-        except requests.RequestException as error:
-            raise UserError(_('Помилка запиту до Gemini API: %s') % error)
-
-        if not response.content:
-            raise UserError(_('Gemini API повернув порожню відповідь.'))
-
-        raw_response = self._response_to_json(response)
-        if response.status_code >= 400:
-            self.last_raw_response = raw_response
-            message = self._extract_error_message(raw_response) or response.text
-            raise UserError(
-                _('Gemini API повернув HTTP %(status)s: %(message)s') % {
-                    'status': response.status_code,
-                    'message': self._shorten(message),
-                }
-            )
-        return raw_response
-
-    def _response_to_json(self, response):
-        try:
-            return response.json()
-        except ValueError:
             return {
-                'status_code': response.status_code,
-                'text': response.text,
+                'attempt': attempt,
+                'status_code': None,
+                'transport_error': {
+                    'type': 'timeout',
+                    'message': _('Час очікування відповіді Gemini API вичерпано.'),
+                },
+            }
+        except requests.RequestException as error:
+            return {
+                'attempt': attempt,
+                'status_code': None,
+                'transport_error': {
+                    'type': error.__class__.__name__,
+                    'message': str(error),
+                },
             }
 
-    def _extract_text(self, raw_response):
-        if not raw_response:
-            raise UserError(_('Gemini API повернув порожню відповідь.'))
+        response_capture = {
+            'attempt': attempt,
+            'status_code': response.status_code,
+            'headers': self._sanitize_response_headers(response.headers),
+            'content_type': response.headers.get('Content-Type'),
+        }
+        if not response.content:
+            response_capture['empty_response'] = True
+            return response_capture
+        try:
+            response_capture['response_json'] = response.json()
+        except ValueError:
+            response_capture['response_text'] = response.text
+        return response_capture
+
+    def _set_last_raw_response(self, attempts, final_response):
+        self.last_raw_response = {
+            'attempts': attempts,
+            'final_response': final_response,
+        }
+
+    def _raise_transport_error(self, response_capture):
+        transport_error = response_capture.get('transport_error')
+        if transport_error:
+            raise UserError(_('Помилка запиту до Gemini API: %s') % (
+                transport_error.get('message') or transport_error.get('type')
+            ))
+
+    def _extract_text(self, response_capture):
+        response_json = response_capture.get('response_json')
+        diagnostics = {
+            'response_keys': sorted(response_json.keys()) if isinstance(response_json, dict) else [],
+            'finish_reasons': [],
+            'prompt_feedback': False,
+            'non_text_parts': [],
+            'text_part_count': 0,
+        }
+        if not response_json:
+            diagnostics['empty_reason'] = 'response_is_not_json'
+            diagnostics['status_code'] = response_capture.get('status_code')
+            diagnostics['response_text_present'] = bool(response_capture.get('response_text'))
+            self._augment_last_raw_response({
+                'extracted_text_for_json_parse': '',
+                'text_extraction': diagnostics,
+            })
+            raise UserError(_(
+                'Gemini API не повернув JSON response. Деталі збережено у вкладці Raw JSON.'
+            ))
 
         text_parts = []
-        for candidate in raw_response.get('candidates', []):
+        diagnostics['prompt_feedback'] = response_json.get('promptFeedback')
+        candidates = response_json.get('candidates') or []
+        if not candidates:
+            diagnostics['empty_reason'] = 'no_candidates'
+            self._augment_last_raw_response({
+                'extracted_text_for_json_parse': '',
+                'text_extraction': diagnostics,
+            })
+            raise UserError(_(
+                'Gemini API не повернув candidates. Деталі збережено у вкладці Raw JSON.'
+            ))
+
+        for candidate_index, candidate in enumerate(candidates):
+            diagnostics['finish_reasons'].append(candidate.get('finishReason'))
             content = candidate.get('content') or {}
-            for part in content.get('parts', []):
+            for part_index, part in enumerate(content.get('parts') or []):
                 text = part.get('text')
                 if text:
                     text_parts.append(text)
+                    diagnostics['text_part_count'] += 1
+                    continue
+                diagnostics['non_text_parts'].append({
+                    'candidate_index': candidate_index,
+                    'part_index': part_index,
+                    'keys': sorted(part.keys()),
+                })
 
         text = '\n'.join(text_parts).strip()
         if not text:
-            raise UserError(_('Gemini API не повернув текст з JSON.'))
+            diagnostics['empty_reason'] = 'no_text_parts'
+            self._augment_last_raw_response({
+                'extracted_text_for_json_parse': '',
+                'text_extraction': diagnostics,
+            })
+            raise UserError(_(
+                'Gemini API не повернув текст для JSON parse. Деталі збережено у вкладці Raw JSON.'
+            ))
+        self._augment_last_raw_response({
+            'text_extraction': diagnostics,
+        })
         return text
 
     def _extract_json(self, text):
         json_text = self._extract_json_text(text)
+        self._augment_last_raw_response({
+            'json_text_candidate': json_text,
+        })
         try:
             data = json.loads(json_text)
-        except json.JSONDecodeError:
-            raise UserError(_('Gemini повернув текст замість валідного JSON.'))
+        except json.JSONDecodeError as error:
+            self._augment_last_raw_response({
+                'json_parse_error': {
+                    'message': str(error),
+                    'line': error.lineno,
+                    'column': error.colno,
+                    'position': error.pos,
+                },
+            })
+            raise UserError(_(
+                'Gemini повернув невалідний JSON. Деталі збережено у вкладці Raw JSON.'
+            ))
         if not isinstance(data, dict):
+            self._augment_last_raw_response({
+                'json_parse_error': 'Parsed JSON root is not an object.',
+            })
             raise UserError(_('Gemini JSON must be an object.'))
         return data
 
@@ -220,10 +428,15 @@ class GeminiClient:
 
     def _extract_error_message(self, raw_response):
         if isinstance(raw_response, dict):
+            response_json = raw_response.get('response_json')
+            if isinstance(response_json, dict):
+                error = response_json.get('error')
+                if isinstance(error, dict):
+                    return error.get('message')
             error = raw_response.get('error')
             if isinstance(error, dict):
                 return error.get('message')
-            return raw_response.get('text')
+            return raw_response.get('response_text') or raw_response.get('text')
         return False
 
     def _normalize_model_name(self, model):
@@ -232,16 +445,29 @@ class GeminiClient:
             return model
         return 'models/%s' % model
 
+    def _build_endpoint(self, config):
+        return (
+            'https://generativelanguage.googleapis.com/v1beta/'
+            '%s:generateContent'
+        ) % self._normalize_model_name(config['model'])
+
     def _build_prompt(self, job, config):
         mode_text = self._get_mode_prompt(job.mode)
         return """
 You are extracting data from a supplier invoice document for Odoo.
 
 Return only valid JSON.
+Return ONLY one valid JSON object.
 Do not use markdown.
+Do not wrap JSON in markdown.
 Do not add explanations.
+Do not include explanations.
+The first character must be {.
+The last character must be }.
 Do not invent data.
 If a field is not visible, return null.
+If a field is unknown, use null.
+If no invoice lines are found, return "lines": [].
 Do not translate product names.
 Do not improve, normalize, or correct product names.
 Do not merge product lines.
@@ -314,3 +540,90 @@ Do not create purchase order lines.
         if len(value) <= limit:
             return value
         return '%s...' % value[:limit]
+
+    def _build_response_schema(self):
+        return {
+            'type': 'object',
+            'properties': {
+                'invoice_number': {'type': 'string'},
+                'invoice_date': {'type': 'string'},
+                'vendor_name': {'type': 'string'},
+                'currency': {'type': 'string'},
+                'untaxed_amount': {'type': 'number'},
+                'tax_amount': {'type': 'number'},
+                'total_amount': {'type': 'number'},
+                'confidence': {'type': 'number'},
+                'lines': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'object',
+                        'properties': {
+                            'supplier_product_code': {'type': 'string'},
+                            'supplier_product_name': {'type': 'string'},
+                            'description': {'type': 'string'},
+                            'quantity': {'type': 'number'},
+                            'uom': {'type': 'string'},
+                            'unit_price': {'type': 'number'},
+                            'tax_rate': {'type': 'number'},
+                            'tax_amount': {'type': 'number'},
+                            'line_total': {'type': 'number'},
+                            'confidence': {'type': 'number'},
+                            'evidence': {'type': 'string'},
+                        },
+                    },
+                },
+            },
+            'required': ['lines'],
+        }
+
+    def _should_retry_without_schema(self, response_capture, payload):
+        generation_config = payload.get('generationConfig') or {}
+        if 'responseSchema' not in generation_config:
+            return False
+        if response_capture.get('status_code') != 400:
+            return False
+        message = (self._extract_error_message(response_capture) or '').lower()
+        return (
+            'schema' in message
+            or 'responseschema' in message
+            or 'response_schema' in message
+        )
+
+    def _sanitize_response_headers(self, headers):
+        sensitive_headers = {
+            'authorization',
+            'proxy-authorization',
+            'set-cookie',
+            'x-goog-api-key',
+            'x-api-key',
+            'cookie',
+        }
+        result = {}
+        for key, value in dict(headers or {}).items():
+            if key.lower() in sensitive_headers:
+                result[key] = '<omitted>'
+            else:
+                result[key] = value
+        return result
+
+    def _augment_last_raw_response(self, values):
+        if self.last_raw_response is None:
+            self.last_raw_response = {}
+        self.last_raw_response.update(values)
+
+    def _save_job_raw_request(self, job):
+        if self.last_request_payload is not None:
+            job.write({'raw_request_json': self.last_request_payload})
+
+    def _save_job_raw_response(self, job):
+        if self.last_raw_response is not None:
+            job.write({'raw_response_json': self.last_raw_response})
+
+    def _set_preflight_error(self, code, message, details=None):
+        self.last_raw_response = {
+            'preflight_error': {
+                'code': code,
+                'message': message,
+                'details': details or {},
+            },
+        }

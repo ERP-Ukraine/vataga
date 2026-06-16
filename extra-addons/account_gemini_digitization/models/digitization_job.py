@@ -119,8 +119,6 @@ class AccountGeminiDigitizationJob(models.Model):
 
         client = GeminiClient(self.env)
         try:
-            if not self.attachment_id:
-                raise UserError(_('Не знайдено вкладення для обробки Gemini.'))
             self.write({
                 'state': 'processing',
                 'error_message': False,
