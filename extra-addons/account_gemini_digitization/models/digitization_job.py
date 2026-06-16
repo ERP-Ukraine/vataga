@@ -1,6 +1,7 @@
+import json
 import logging
 
-from odoo import _, fields, models
+from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
 from ..services import GeminiClient, ResponseParser
@@ -81,6 +82,16 @@ class AccountGeminiDigitizationJob(models.Model):
         string='Raw Response JSON',
         copy=False,
     )
+    raw_request_json_text = fields.Text(
+        string='Raw Request JSON',
+        compute='_compute_raw_json_text',
+        readonly=True,
+    )
+    raw_response_json_text = fields.Text(
+        string='Raw Response JSON',
+        compute='_compute_raw_json_text',
+        readonly=True,
+    )
     error_message = fields.Text(
         copy=False,
     )
@@ -111,6 +122,16 @@ class AccountGeminiDigitizationJob(models.Model):
         string='Recognized Lines',
         copy=False,
     )
+
+    @api.depends('raw_request_json', 'raw_response_json')
+    def _compute_raw_json_text(self):
+        for job in self:
+            job.raw_request_json_text = self._format_json_for_display(
+                job.raw_request_json
+            )
+            job.raw_response_json_text = self._format_json_for_display(
+                job.raw_response_json
+            )
 
     def action_process(self):
         self.ensure_one()
@@ -199,3 +220,19 @@ class AccountGeminiDigitizationJob(models.Model):
         if getattr(error, 'args', None):
             return error.args[0]
         return str(error)
+
+    def _format_json_for_display(self, value):
+        if value in (False, None, ''):
+            return False
+        try:
+            if isinstance(value, str):
+                value = json.loads(value)
+            return json.dumps(
+                value,
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+                default=str,
+            )
+        except Exception:
+            return str(value)

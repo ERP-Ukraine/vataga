@@ -86,7 +86,7 @@
                     <notebook>
                         <page string="Lines">
                             <field name="line_ids" context="{'default_job_id': id}">
-                                <tree editable="bottom">
+                                <tree editable="bottom" create="0" delete="0">
                                     <field name="sequence" widget="handle"/>
                                     <field name="supplier_product_code"/>
                                     <field name="supplier_product_name"/>
@@ -141,8 +141,8 @@
                         </page>
                         <page string="Raw JSON">
                             <group>
-                                <field name="raw_request_json"/>
-                                <field name="raw_response_json"/>
+                                <field name="raw_request_json_text" readonly="1"/>
+                                <field name="raw_response_json_text" readonly="1"/>
                             </group>
                         </page>
                         <page string="Errors">
