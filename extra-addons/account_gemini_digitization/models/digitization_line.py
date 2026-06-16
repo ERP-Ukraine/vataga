@@ -31,11 +31,29 @@ class AccountGeminiDigitizationLine(models.Model):
     uom_name = fields.Char(
         string='UoM Name',
     )
+    price_unit_without_tax = fields.Float(
+        string='Price Without Tax',
+    )
+    price_unit_with_tax = fields.Float(
+        string='Price With Tax',
+    )
     price_unit = fields.Float()
     tax_rate = fields.Float()
     tax_ids = fields.Many2many(
         comodel_name='account.tax',
         string='Taxes',
+    )
+    line_subtotal_without_tax = fields.Monetary(
+        string='Subtotal Without Tax',
+        currency_field='currency_id',
+    )
+    line_tax_amount = fields.Monetary(
+        string='Line Tax Amount',
+        currency_field='currency_id',
+    )
+    line_total_with_tax = fields.Monetary(
+        string='Total With Tax',
+        currency_field='currency_id',
     )
     amount_untaxed = fields.Monetary(
         currency_field='currency_id',
@@ -64,6 +82,7 @@ class AccountGeminiDigitizationLine(models.Model):
         string='Vendor Bill Line',
         ondelete='set null',
     )
+    source_columns = fields.Text()
     note = fields.Text()
     company_id = fields.Many2one(
         related='job_id.company_id',

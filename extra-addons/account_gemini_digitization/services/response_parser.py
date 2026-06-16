@@ -35,11 +35,17 @@ class ResponseParser:
             'total_amount': self._to_float(response.get('total_amount')),
             'confidence': self._to_float(response.get('confidence')),
         }
-        header_tax_rate = self._compute_header_tax_rate(header)
+        header_tax_rate = self._compute_header_tax_rate(header, lines)
+        legacy_line_total_kind = self._detect_legacy_line_total_kind(lines, header)
         return {
             'header': header,
             'lines': [
-                self._parse_line(line, index, header_tax_rate)
+                self._parse_line(
+                    line,
+                    index,
+                    header_tax_rate=header_tax_rate,
+                    legacy_line_total_kind=legacy_line_total_kind,
+                )
                 for index, line in enumerate(lines, start=1)
             ],
             'raw': response,
@@ -74,33 +80,92 @@ class ResponseParser:
                 'description': line['description'],
                 'quantity': line['quantity'],
                 'uom_name': line['uom_name'],
+                'price_unit_without_tax': line['price_unit_without_tax'],
+                'price_unit_with_tax': line['price_unit_with_tax'],
                 'price_unit': line['price_unit'],
                 'tax_rate': line['tax_rate'],
+                'line_subtotal_without_tax': line['line_subtotal_without_tax'],
+                'line_tax_amount': line['line_tax_amount'],
+                'line_total_with_tax': line['line_total_with_tax'],
                 'amount_untaxed': line['amount_untaxed'],
                 'amount_tax': line['amount_tax'],
                 'amount_total': line['amount_total'],
                 'confidence': line['confidence'],
+                'source_columns': line['source_columns'],
                 'note': line['note'],
                 'match_status': 'draft',
             })
         return parsed
 
-    def _parse_line(self, line, index, header_tax_rate=False):
+    def _parse_line(
+        self,
+        line,
+        index,
+        header_tax_rate=False,
+        legacy_line_total_kind=False,
+    ):
         if not isinstance(line, dict):
             raise UserError(_('Gemini line %s must be a JSON object.') % index)
+        warnings = []
         quantity = self._to_float(line.get('quantity'))
-        price_unit = self._to_float(line.get('unit_price'))
-        amount_untaxed = self._to_float(line.get('line_total'))
+        source_columns = self._stringify_value(line.get('source_columns'))
+        evidence = self._clean_string(line.get('evidence'))
+        context_text = self._build_context_text(source_columns, evidence)
+
         tax_rate = self._get_effective_tax_rate(
             self._to_float(line.get('tax_rate')),
             header_tax_rate,
         )
-        amount_tax = self._compute_line_tax_amount(
-            amount_untaxed,
-            tax_rate,
-            self._to_float(line.get('tax_amount')),
+
+        price_unit_without_tax = self._to_float(line.get('price_unit_without_tax'))
+        price_unit_with_tax = self._to_float(line.get('price_unit_with_tax'))
+        legacy_price_unit = self._to_float(line.get('unit_price'))
+        if not self._is_number(price_unit_without_tax) and not self._is_number(
+            price_unit_with_tax
+        ) and self._is_number(legacy_price_unit):
+            if self._context_says_with_tax(context_text):
+                price_unit_with_tax = legacy_price_unit
+            else:
+                price_unit_without_tax = legacy_price_unit
+
+        line_subtotal_without_tax = self._to_float(
+            line.get('line_subtotal_without_tax')
         )
-        amount_total = self._compute_line_total(amount_untaxed, amount_tax)
+        line_tax_amount = self._first_number(
+            line.get('line_tax_amount'),
+            line.get('tax_amount'),
+        )
+        line_total_with_tax = self._to_float(line.get('line_total_with_tax'))
+
+        legacy_line_total = self._to_float(line.get('line_total'))
+        if not self._is_number(line_subtotal_without_tax) and not self._is_number(
+            line_total_with_tax
+        ) and self._is_number(legacy_line_total):
+            if self._context_says_without_tax(context_text):
+                line_subtotal_without_tax = legacy_line_total
+            elif self._context_says_with_tax(context_text):
+                line_total_with_tax = legacy_line_total
+            elif legacy_line_total_kind == 'without_tax':
+                line_subtotal_without_tax = legacy_line_total
+            elif legacy_line_total_kind == 'with_tax':
+                line_total_with_tax = legacy_line_total
+            else:
+                warnings.append(
+                    'Legacy line_total is ambiguous and was not used as a normalized amount.'
+                )
+
+        normalized = self._normalize_amounts(
+            quantity=quantity,
+            price_unit_without_tax=price_unit_without_tax,
+            price_unit_with_tax=price_unit_with_tax,
+            line_subtotal_without_tax=line_subtotal_without_tax,
+            line_tax_amount=line_tax_amount,
+            line_total_with_tax=line_total_with_tax,
+            tax_rate=tax_rate,
+        )
+        if normalized['warning']:
+            warnings.append(normalized['warning'])
+
         return {
             'sequence': index * 10,
             'supplier_product_code': self._clean_string(
@@ -112,13 +177,19 @@ class ResponseParser:
             'description': self._clean_string(line.get('description')),
             'quantity': quantity,
             'uom_name': self._clean_string(line.get('uom')),
-            'price_unit': price_unit,
+            'price_unit_without_tax': normalized['price_unit_without_tax'],
+            'price_unit_with_tax': normalized['price_unit_with_tax'],
+            'price_unit': normalized['price_unit'],
             'tax_rate': tax_rate,
-            'amount_untaxed': amount_untaxed,
-            'amount_tax': amount_tax,
-            'amount_total': amount_total,
+            'line_subtotal_without_tax': normalized['line_subtotal_without_tax'],
+            'line_tax_amount': normalized['line_tax_amount'],
+            'line_total_with_tax': normalized['line_total_with_tax'],
+            'amount_untaxed': normalized['amount_untaxed'],
+            'amount_tax': normalized['amount_tax'],
+            'amount_total': normalized['amount_total'],
             'confidence': self._to_float(line.get('confidence')),
-            'note': self._clean_string(line.get('evidence')),
+            'source_columns': source_columns,
+            'note': self._build_note(evidence, warnings),
         }
 
     def _clean_string(self, value):
@@ -157,6 +228,13 @@ class ResponseParser:
         except ValueError:
             return False
 
+    def _first_number(self, *values):
+        for value in values:
+            number = self._to_float(value)
+            if self._is_number(number):
+                return number
+        return False
+
     def _to_date(self, value):
         value = self._clean_string(value)
         if not value:
@@ -168,7 +246,16 @@ class ResponseParser:
                 continue
         return False
 
-    def _compute_header_tax_rate(self, header):
+    def _compute_header_tax_rate(self, header, lines):
+        explicit_rates = {
+            self._round_rate(self._to_float(line.get('tax_rate')))
+            for line in lines
+            if isinstance(line, dict)
+            and self._is_positive_number(self._to_float(line.get('tax_rate')))
+        }
+        if len(explicit_rates) > 1:
+            return False
+
         untaxed_amount = header.get('untaxed_amount')
         tax_amount = header.get('tax_amount')
         if not self._is_positive_number(untaxed_amount):
@@ -203,6 +290,173 @@ class ResponseParser:
             return self._round_amount(amount_untaxed + amount_tax)
         return amount_untaxed
 
+    def _normalize_amounts(
+        self,
+        quantity=False,
+        price_unit_without_tax=False,
+        price_unit_with_tax=False,
+        line_subtotal_without_tax=False,
+        line_tax_amount=False,
+        line_total_with_tax=False,
+        tax_rate=False,
+    ):
+        warning = False
+
+        if self._is_number(price_unit_with_tax) and not self._is_number(
+            price_unit_without_tax
+        ) and self._is_positive_number(tax_rate):
+            price_unit_without_tax = self._round_amount(
+                price_unit_with_tax / (1 + tax_rate / 100)
+            )
+        if self._is_number(price_unit_without_tax) and not self._is_number(
+            price_unit_with_tax
+        ) and self._is_positive_number(tax_rate):
+            price_unit_with_tax = self._round_amount(
+                price_unit_without_tax * (1 + tax_rate / 100)
+            )
+
+        if not self._is_number(line_subtotal_without_tax):
+            if self._is_number(quantity) and self._is_number(price_unit_without_tax):
+                line_subtotal_without_tax = self._round_amount(
+                    quantity * price_unit_without_tax
+                )
+            elif self._is_number(line_total_with_tax) and self._is_positive_number(
+                tax_rate
+            ):
+                line_subtotal_without_tax = self._round_amount(
+                    line_total_with_tax / (1 + tax_rate / 100)
+                )
+            elif self._is_number(line_total_with_tax) and self._is_number(
+                line_tax_amount
+            ):
+                line_subtotal_without_tax = self._round_amount(
+                    line_total_with_tax - line_tax_amount
+                )
+
+        if not self._is_number(line_tax_amount):
+            if self._is_number(line_subtotal_without_tax) and self._is_positive_number(
+                tax_rate
+            ):
+                line_tax_amount = self._round_amount(
+                    line_subtotal_without_tax * tax_rate / 100
+                )
+            elif self._is_number(line_total_with_tax) and self._is_number(
+                line_subtotal_without_tax
+            ):
+                line_tax_amount = self._round_amount(
+                    line_total_with_tax - line_subtotal_without_tax
+                )
+
+        if not self._is_number(line_total_with_tax):
+            if self._is_number(line_subtotal_without_tax) and self._is_number(
+                line_tax_amount
+            ):
+                line_total_with_tax = self._round_amount(
+                    line_subtotal_without_tax + line_tax_amount
+                )
+            elif self._is_number(quantity) and self._is_number(price_unit_with_tax):
+                line_total_with_tax = self._round_amount(quantity * price_unit_with_tax)
+
+        if not self._is_number(line_total_with_tax) and self._is_number(
+            line_subtotal_without_tax
+        ) and not self._is_number(line_tax_amount):
+            line_total_with_tax = line_subtotal_without_tax
+
+        if self._is_number(line_subtotal_without_tax) and self._is_number(
+            line_tax_amount
+        ) and not self._is_number(line_total_with_tax):
+            line_total_with_tax = self._round_amount(
+                line_subtotal_without_tax + line_tax_amount
+            )
+
+        if not self._is_number(tax_rate) and not self._is_number(line_tax_amount):
+            warning = 'Tax rate is not reliably determined.'
+
+        return {
+            'price_unit_without_tax': price_unit_without_tax,
+            'price_unit_with_tax': price_unit_with_tax,
+            'line_subtotal_without_tax': line_subtotal_without_tax,
+            'line_tax_amount': line_tax_amount,
+            'line_total_with_tax': line_total_with_tax,
+            'price_unit': price_unit_without_tax,
+            'amount_untaxed': line_subtotal_without_tax,
+            'amount_tax': line_tax_amount,
+            'amount_total': line_total_with_tax,
+            'warning': warning,
+        }
+
+    def _detect_legacy_line_total_kind(self, lines, header):
+        legacy_totals = []
+        for line in lines:
+            if not isinstance(line, dict):
+                continue
+            if self._has_precise_amount_fields(line):
+                continue
+            value = self._to_float(line.get('line_total'))
+            if self._is_number(value):
+                legacy_totals.append(value)
+        if not legacy_totals:
+            return False
+
+        legacy_sum = self._round_amount(sum(legacy_totals))
+        if self._amounts_close(legacy_sum, header.get('untaxed_amount')):
+            return 'without_tax'
+        if self._amounts_close(legacy_sum, header.get('total_amount')):
+            return 'with_tax'
+        return False
+
+    def _has_precise_amount_fields(self, line):
+        return any(
+            self._is_number(self._to_float(line.get(field_name)))
+            for field_name in (
+                'line_subtotal_without_tax',
+                'line_tax_amount',
+                'line_total_with_tax',
+            )
+        )
+
+    def _build_context_text(self, source_columns=False, evidence=False):
+        return ' '.join(
+            value.lower()
+            for value in (source_columns, evidence)
+            if isinstance(value, str) and value
+        )
+
+    def _context_says_without_tax(self, context_text):
+        return bool(re.search(
+            r'(без\s*(пдв|ндс|vat|tax)|without\s*(vat|tax)|excl\.?\s*(vat|tax)|net)',
+            context_text,
+        ))
+
+    def _context_says_with_tax(self, context_text):
+        return bool(re.search(
+            r'((з|із|с)\s*(пдв|ндс)|with\s*(vat|tax)|incl\.?\s*(vat|tax)|gross)',
+            context_text,
+        ))
+
+    def _stringify_value(self, value):
+        if value in (None, False, ''):
+            return False
+        if isinstance(value, str):
+            return value.strip() or False
+        if isinstance(value, (list, tuple, dict)):
+            return str(value)
+        return str(value)
+
+    def _build_note(self, evidence=False, warnings=None):
+        parts = []
+        if evidence:
+            parts.append(evidence)
+        for warning in warnings or []:
+            if warning:
+                parts.append('Warning: %s' % warning)
+        return '\n'.join(parts) or False
+
+    def _amounts_close(self, first, second, tolerance=0.02):
+        if not self._is_number(first) or not self._is_number(second):
+            return False
+        return abs(first - second) <= tolerance
+
     def _is_number(self, value):
         return isinstance(value, (int, float)) and not isinstance(value, bool)
 
@@ -211,3 +465,6 @@ class ResponseParser:
 
     def _round_amount(self, value):
         return round(value + 0.000000001, 2)
+
+    def _round_rate(self, value):
+        return round(value + 0.000000001, 4)

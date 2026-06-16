@@ -93,12 +93,18 @@
                                     <field name="description"/>
                                     <field name="quantity"/>
                                     <field name="uom_name"/>
+                                    <field name="price_unit_without_tax"/>
+                                    <field name="price_unit_with_tax"/>
                                     <field name="price_unit"/>
                                     <field name="tax_rate"/>
                                     <field name="tax_ids" widget="many2many_tags"/>
+                                    <field name="line_subtotal_without_tax"/>
+                                    <field name="line_tax_amount"/>
+                                    <field name="line_total_with_tax"/>
                                     <field name="amount_untaxed"/>
                                     <field name="amount_tax"/>
                                     <field name="amount_total"/>
+                                    <field name="source_columns"/>
                                     <field name="matched_product_id"/>
                                     <field name="match_status"/>
                                     <field name="match_score"/>
@@ -117,11 +123,16 @@
                                             <field name="description"/>
                                             <field name="quantity"/>
                                             <field name="uom_name"/>
+                                            <field name="price_unit_without_tax"/>
+                                            <field name="price_unit_with_tax"/>
                                             <field name="price_unit"/>
                                             <field name="tax_rate"/>
                                             <field name="tax_ids" widget="many2many_tags"/>
                                         </group>
                                         <group>
+                                            <field name="line_subtotal_without_tax"/>
+                                            <field name="line_tax_amount"/>
+                                            <field name="line_total_with_tax"/>
                                             <field name="amount_untaxed"/>
                                             <field name="amount_tax"/>
                                             <field name="amount_total"/>
@@ -134,6 +145,7 @@
                                         </group>
                                     </group>
                                     <group>
+                                        <field name="source_columns"/>
                                         <field name="note"/>
                                     </group>
                                 </form>

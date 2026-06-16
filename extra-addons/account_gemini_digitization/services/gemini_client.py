@@ -475,15 +475,21 @@ Keep product lines in the same order as in the document.
 Return numbers as JSON numbers without currency symbols.
 Return dates in YYYY-MM-DD format.
 Return VAT separately as tax_rate and tax_amount.
-If a line table contains a column named "Сума без ПДВ", "Сума без НДС",
-"Amount without VAT", or a similar phrase, return that value as line_total.
-In that case line_total is the untaxed line amount, not the tax-included amount.
-If VAT rate is shown only in the document footer/header, use that rate as
-tax_rate for every line unless a line has a different explicit VAT rate.
-If the document contains total VAT at 20%%, tax_rate must be 20 for every
-taxable line even when the 20%% rate is shown only in the footer.
-Do not set tax_rate to 0 if the document contains VAT.
-Return tax_rate as null only when VAT is not found anywhere in the document.
+Determine the meaning of each table column from its header and surrounding totals.
+If a column explicitly means price without VAT, return it as price_unit_without_tax.
+If a column explicitly means price with VAT, return it as price_unit_with_tax.
+If a column explicitly means line subtotal without VAT, return it as line_subtotal_without_tax.
+If a column explicitly means line total with VAT, return it as line_total_with_tax.
+If a line VAT amount is shown separately, return it as line_tax_amount.
+If the VAT rate is shown only in the footer/header and it is clearly one rate for
+the whole document, return that rate as tax_rate for each taxable line.
+If multiple VAT rates are present or there is any doubt, return tax_rate as null
+for the uncertain line.
+Do not set tax_rate to 0 unless the document explicitly marks that line as zero-rated or VAT-exempt.
+If VAT is not found anywhere in the document, return tax_rate as null.
+Use source_columns to describe which document columns were used for the line amounts.
+Keep legacy fields unit_price, line_total, and tax_amount when available, but use
+the precise fields above as the primary representation.
 For every line, return evidence when possible.
 Use confidence values from 0 to 1. The downstream review threshold is %(min_confidence)s.
 
@@ -507,12 +513,18 @@ JSON schema:
       "description": null,
       "quantity": null,
       "uom": null,
+      "price_unit_without_tax": null,
+      "price_unit_with_tax": null,
+      "line_subtotal_without_tax": null,
+      "line_tax_amount": null,
+      "line_total_with_tax": null,
       "unit_price": null,
       "tax_rate": null,
       "tax_amount": null,
       "line_total": null,
       "confidence": null,
-      "evidence": null
+      "evidence": null,
+      "source_columns": null
     }
   ]
 }
@@ -572,12 +584,18 @@ Do not create purchase order lines.
                             'description': {'type': 'string'},
                             'quantity': {'type': 'number'},
                             'uom': {'type': 'string'},
+                            'price_unit_without_tax': {'type': 'number'},
+                            'price_unit_with_tax': {'type': 'number'},
+                            'line_subtotal_without_tax': {'type': 'number'},
+                            'line_tax_amount': {'type': 'number'},
+                            'line_total_with_tax': {'type': 'number'},
                             'unit_price': {'type': 'number'},
                             'tax_rate': {'type': 'number'},
                             'tax_amount': {'type': 'number'},
                             'line_total': {'type': 'number'},
                             'confidence': {'type': 'number'},
                             'evidence': {'type': 'string'},
+                            'source_columns': {'type': 'string'},
                         },
                     },
                 },
