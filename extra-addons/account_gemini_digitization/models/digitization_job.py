@@ -166,7 +166,29 @@ class AccountGeminiDigitizationJob(models.Model):
         return self._get_job_form_action()
 
     def action_open_review_wizard(self):
-        raise UserError(_('Digitization review wizard is not implemented yet.'))
+        self.ensure_one()
+        if self.state != 'review':
+            raise UserError(_('Gemini review can be opened only for jobs in Review state.'))
+
+        wizard = self.env['account.gemini.digitization.review.wizard'].create({
+            'job_id': self.id,
+            'line_ids': [
+                (0, 0, self._prepare_review_wizard_line_values(line))
+                for line in self.line_ids.sorted('sequence')
+            ],
+        })
+        form_view = self.env.ref(
+            'account_gemini_digitization.view_account_gemini_digitization_review_wizard_form'
+        )
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _('Review Gemini Digitization'),
+            'res_model': 'account.gemini.digitization.review.wizard',
+            'view_mode': 'form',
+            'views': [(form_view.id, 'form')],
+            'res_id': wizard.id,
+            'target': 'new',
+        }
 
     def action_cancel(self):
         self.write({'state': 'cancelled'})
@@ -184,6 +206,39 @@ class AccountGeminiDigitizationJob(models.Model):
 
     def _create_lines_from_response(self):
         raise UserError(_('Creating digitization lines from Gemini response is not implemented yet.'))
+
+    def _prepare_review_wizard_line_values(self, line):
+        return {
+            'job_line_id': line.id,
+            'sequence': line.sequence,
+            'supplier_product_code': line.supplier_product_code,
+            'supplier_product_name': line.supplier_product_name,
+            'description': line.description,
+            'quantity': line.quantity,
+            'uom_name': line.uom_name,
+            'price_unit_without_tax': line.price_unit_without_tax,
+            'price_unit_with_tax': line.price_unit_with_tax,
+            'line_subtotal_without_tax': line.line_subtotal_without_tax,
+            'line_tax_amount': line.line_tax_amount,
+            'line_total_with_tax': line.line_total_with_tax,
+            'price_unit': line.price_unit,
+            'tax_rate': line.tax_rate,
+            'tax_ids': [(6, 0, line.tax_ids.ids)],
+            'amount_untaxed': line.amount_untaxed,
+            'amount_tax': line.amount_tax,
+            'amount_total': line.amount_total,
+            'matched_product_id': line.matched_product_id.id,
+            'move_line_id': line.move_line_id.id,
+            'candidate_product_ids': [(6, 0, line.candidate_product_ids.ids)],
+            'candidate_move_line_ids': [(6, 0, line.candidate_move_line_ids.ids)],
+            'match_status': line.match_status,
+            'match_score': line.match_score,
+            'match_method': line.match_method,
+            'match_note': line.match_note,
+            'confidence': line.confidence,
+            'source_columns': line.source_columns,
+            'note': line.note,
+        }
 
     def _run_product_matching(self):
         self.ensure_one()
