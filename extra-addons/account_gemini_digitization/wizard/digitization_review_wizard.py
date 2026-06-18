@@ -212,7 +212,7 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
         method = line.match_method
         if line._is_manual_selection() or status not in ('matched', 'manual'):
             status = 'manual'
-            method = method or 'manual_review'
+            method = method or 'manual_move_line'
 
         line.job_line_id.write({
             'move_line_id': move_line.id,
@@ -382,8 +382,7 @@ class AccountGeminiDigitizationReviewLineWizard(models.TransientModel):
             line.matched_product_id = line.move_line_id.product_id
             if line._is_manual_selection() or line.match_status not in ('matched', 'manual'):
                 line.match_status = 'manual'
-                if not line.match_method:
-                    line.match_method = 'manual_review'
+                line.match_method = 'manual_move_line'
 
     def _is_manual_selection(self):
         self.ensure_one()

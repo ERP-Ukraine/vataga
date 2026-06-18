@@ -111,6 +111,14 @@ class ProductMatcher:
     def _score_move_line(self, line, move_line, partner):
         product = move_line.product_id
         score, method, notes = self._score_product_identity(line, product, partner)
+        score, method, notes = self._score_partial_code_match(
+            line,
+            move_line,
+            partner,
+            score,
+            method,
+            notes,
+        )
         score, method = self._score_move_line_text(line, move_line, score, method)
         score, notes = self._apply_partial_consistency(line, move_line, score, notes)
         score, method, notes, numeric_strong = self._apply_partial_numeric_fallback(
@@ -127,6 +135,7 @@ class ProductMatcher:
             'method': method,
             'notes': notes,
             'numeric_strong': numeric_strong,
+            'extracted_codes': self._line_codes(line),
         }
 
     def _score_product(self, line, product, partner):
@@ -176,6 +185,46 @@ class ProductMatcher:
         if score:
             notes.append('Identity score %.2f by %s.' % (score, method))
         return score, method, notes
+
+    def _score_partial_code_match(self, line, move_line, partner, score, method, notes):
+        product = move_line.product_id
+        for code in self._line_codes(line):
+            for target, target_method in self._partial_code_targets(product, move_line, partner):
+                if not self._code_in_text(code, target):
+                    continue
+                score, method = self._choose_score(
+                    score,
+                    method,
+                    0.92,
+                    target_method,
+                )
+                notes.append(
+                    'Partial code match: %s found in %s.'
+                    % (code, target_method)
+                )
+        return score, method, notes
+
+    def _partial_code_targets(self, product, move_line, partner):
+        targets = []
+        for value, method in (
+            (getattr(product, 'default_code', False), 'default_code_partial'),
+            (getattr(product, 'barcode', False), 'barcode_partial'),
+            (getattr(product, 'display_name', False), 'product_display_name_partial'),
+            (getattr(product, 'name', False), 'product_name_partial'),
+            (getattr(move_line, 'name', False), 'move_line_name_partial'),
+        ):
+            if value:
+                targets.append((value, method))
+        for seller in self._product_sellers(product, partner):
+            for field_name, method in (
+                ('product_code', 'supplier_code_partial'),
+                ('product_name', 'supplier_name_partial'),
+                ('name', 'supplierinfo_name_partial'),
+            ):
+                value = getattr(seller, field_name, False)
+                if value:
+                    targets.append((value, method))
+        return targets
 
     def _score_move_line_text(self, line, move_line, score, method):
         for query in self._line_name_terms(line):
@@ -231,7 +280,17 @@ class ProductMatcher:
         checks = self._get_partial_numeric_checks(line, move_line)
         numeric_strong = False
 
-        if checks['quantity_match'] and checks['amount_match_count']:
+        if checks['quantity_match'] and checks['price_match'] and checks['subtotal_match']:
+            numeric_strong = True
+            fallback_score = 0.93
+            fallback_method = 'quantity_price_subtotal'
+            notes.append('Numeric fallback: quantity, price_unit, and subtotal match.')
+        elif checks['quantity_match'] and checks['price_match']:
+            numeric_strong = True
+            fallback_score = 0.91
+            fallback_method = 'quantity_price'
+            notes.append('Numeric fallback: quantity and price_unit match.')
+        elif checks['quantity_match'] and checks['amount_match_count']:
             numeric_strong = True
             fallback_score = 0.88
             fallback_method = checks['best_amount_method']
@@ -268,6 +327,7 @@ class ProductMatcher:
         )
 
         amount_checks = []
+        matched_by_label = {}
         for label, method, recognized_value, move_value in (
             (
                 'price_unit',
@@ -296,6 +356,7 @@ class ProductMatcher:
                 and self._amounts_close(recognized_value, move_value)
             )
             amount_checks.append((label, method, matched))
+            matched_by_label[label] = matched
 
         matched_amounts = [
             (label, method)
@@ -310,6 +371,9 @@ class ProductMatcher:
             'amount_match_count': len(matched_amounts),
             'best_amount_label': best_amount_label,
             'best_amount_method': best_amount_method,
+            'price_match': matched_by_label.get('price_unit', False),
+            'subtotal_match': matched_by_label.get('subtotal', False),
+            'total_match': matched_by_label.get('total', False),
         }
 
     def _write_match_result(
@@ -389,7 +453,7 @@ class ProductMatcher:
             return False
 
         winner = strong_candidates[0]
-        winner['score'] = max(winner.get('score') or 0.0, 0.92)
+        winner['score'] = max(winner.get('score') or 0.0, 0.95)
         if winner.get('method'):
             if not winner['method'].endswith('_unique'):
                 winner['method'] = '%s_unique' % winner['method']
@@ -465,10 +529,15 @@ class ProductMatcher:
         return '\n'.join(lines)
 
     def _build_partial_diagnostics(self, line, move_lines, candidates):
+        extracted_codes = self._line_codes(line)
         diagnostics = [
             'Partial bill matching diagnostics:',
+            'Extracted supplier/internal codes: %s.' % (
+                ', '.join(extracted_codes) if extracted_codes else 'none'
+            ),
             'Invoice lines checked: %s.' % len(move_lines),
             'Methods tried: supplier_product_code, supplier_product_name, default_code, barcode, product name, move_line.name, quantity, price, subtotal, total.',
+            'Fields compared: quantity, price_unit, amount_untaxed/subtotal, amount_total, product/default/barcode/display names, supplierinfo code/name.',
         ]
         if not move_lines:
             diagnostics.append('No product invoice lines are available on the vendor bill.')
@@ -630,16 +699,18 @@ class ProductMatcher:
 
     def _line_codes(self, line):
         codes = []
+        explicit_code = getattr(line, 'supplier_product_code', False)
+        if explicit_code:
+            codes.append(explicit_code)
         for value in (
-            getattr(line, 'supplier_product_code', False),
             getattr(line, 'supplier_product_name', False),
             getattr(line, 'description', False),
+            getattr(line, 'note', False),
+            getattr(line, 'source_columns', False),
         ):
             if not value:
                 continue
-            if value == getattr(line, 'supplier_product_code', False):
-                codes.append(value)
-            codes.extend(self._extract_bracket_codes(value))
+            codes.extend(self._extract_codes_from_text(value))
         return [code for code in self._unique_normalized_codes(codes) if code]
 
     def _line_name_terms(self, line):
@@ -675,6 +746,53 @@ class ProductMatcher:
             for match in re.findall(r'\[([^\]]+)\]', value or '')
             if match.strip()
         ]
+
+    def _extract_codes_from_text(self, value):
+        value = value or ''
+        codes = []
+        codes.extend(self._extract_bracket_codes(value))
+        codes.extend(self._extract_leading_codes(value))
+        codes.extend(self._extract_embedded_codes(value))
+        return codes
+
+    def _extract_leading_codes(self, value):
+        value = (value or '').strip()
+        if not value:
+            return []
+        bracket_match = re.match(r'^\[([^\]]+)\]', value)
+        if bracket_match:
+            return [bracket_match.group(1).strip()]
+        match = re.match(r'^([^\W_][\w./-]{1,40})', value, flags=re.U)
+        if not match:
+            return []
+        code = match.group(1).strip(':-.,;')
+        if self._looks_like_code(code):
+            return [code]
+        return []
+
+    def _extract_embedded_codes(self, value):
+        codes = []
+        patterns = (
+            r'\b[^\W_\d]{1,12}\d[\w/-]{1,30}\b',
+            r'\b\d[\w/-]*[-/]\d[\w/-]*\b',
+        )
+        for pattern in patterns:
+            for match in re.findall(pattern, value or '', flags=re.U):
+                code = str(match).strip(':-.,;')
+                if self._looks_like_code(code):
+                    codes.append(code)
+        return codes
+
+    def _looks_like_code(self, value):
+        normalized = self._normalize_code(value)
+        if len(normalized) < 3:
+            return False
+        has_digit = any(char.isdigit() for char in value)
+        if not has_digit:
+            return False
+        has_alpha = any(char.isalpha() for char in value)
+        has_separator = any(char in value for char in ('-', '/', '.'))
+        return has_alpha or has_separator or len(normalized) >= 4
 
     def _unique_normalized_codes(self, codes):
         result = []
@@ -741,6 +859,15 @@ class ProductMatcher:
         left_normalized = self._normalize_code(left)
         right_normalized = self._normalize_code(right)
         return bool(left_normalized and right_normalized and left_normalized == right_normalized)
+
+    def _code_in_text(self, code, text):
+        code_normalized = self._normalize_code(code)
+        text_normalized = self._normalize_code(text)
+        if not code_normalized or not text_normalized:
+            return False
+        if len(code_normalized) < 4:
+            return False
+        return code_normalized in text_normalized
 
     def _to_float(self, value):
         if value in (None, False, ''):
