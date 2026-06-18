@@ -11,6 +11,44 @@ _logger = logging.getLogger(__name__)
 class ProductMatcher:
     MATCHED_THRESHOLD = 0.90
     CANDIDATE_THRESHOLD = 0.70
+    BEST_GAP_MATCH_THRESHOLD = 0.05
+    LOW_VALUE_CODE_PATTERNS = (
+        re.compile(r'^ip\d{2,3}$', flags=re.I),
+    )
+    LOW_VALUE_CODE_TOKENS = {
+        'abs',
+        'led',
+        'mm',
+        'pc',
+        'pvc',
+    }
+    GENERIC_NAME_TOKENS = {
+        'aluminium',
+        'box',
+        'cover',
+        'plastic',
+        'алюмінієвий',
+        'алюминиевый',
+        'бокс',
+        'коробка',
+        'корпус',
+        'кришка',
+        'кріплення',
+        'пластик',
+        'пластиковий',
+        'универсальний',
+        'універсальний',
+        'герметичний',
+    }
+    INTERNAL_PRODUCT_TERMS = (
+        'модифікований',
+        'модифицированный',
+        'під блок',
+        'под блок',
+        'наземний робот',
+        'наземный робот',
+        'центрального',
+    )
 
     CYRILLIC_LATIN_LOOKALIKES = str.maketrans({
         'А': 'A', 'а': 'a',
@@ -88,7 +126,12 @@ class ProductMatcher:
             try:
                 products = self._find_full_bill_products(line, partner)
                 candidates = [
-                    self._score_product(line, product, partner)
+                    self._score_product(
+                        line,
+                        product,
+                        partner,
+                        strict_code_profile=True,
+                    )
                     for product in products
                 ]
                 diagnostics = self._build_product_diagnostics(
@@ -103,6 +146,7 @@ class ProductMatcher:
                     candidates,
                     include_move_lines=False,
                     diagnostics=diagnostics,
+                    allow_best_gap_match=True,
                 )
             except Exception as error:
                 _logger.exception('Gemini full bill matching failed.')
@@ -219,7 +263,34 @@ class ProductMatcher:
         return products
 
     def _find_full_bill_products(self, line, partner):
-        return self._find_full_purchase_products(line, partner)
+        products = []
+        profile = self._line_code_profile(line)
+        search_codes = profile['primary_codes'] or profile['secondary_codes']
+
+        for seller in self._find_supplierinfos_by_codes(
+            profile['primary_codes'],
+            partner,
+        ):
+            self._append_unique(products, self._seller_product(seller))
+
+        for code in search_codes:
+            if self._is_low_value_code(code):
+                continue
+            for product in self._search_products_exact('default_code', code):
+                self._append_unique(products, product)
+            for product in self._search_products_exact('barcode', code):
+                self._append_unique(products, product)
+            for product in self._search_products_code_like(code):
+                self._append_unique(products, product)
+            for seller in self._search_supplierinfos_code_like(code, partner):
+                self._append_unique(products, self._seller_product(seller))
+
+        for term in self._full_bill_search_terms(line, profile):
+            for product in self._search_products_like(term):
+                self._append_unique(products, product)
+            for seller in self._search_supplierinfos_like(term, partner):
+                self._append_unique(products, self._seller_product(seller))
+        return products
 
     def _score_move_line(self, line, move_line, partner):
         product = move_line.product_id
@@ -256,7 +327,10 @@ class ProductMatcher:
             'candidate_codes': self._candidate_codes(product, move_line, partner),
         }
 
-    def _score_product(self, line, product, partner):
+    def _score_product(self, line, product, partner, strict_code_profile=False):
+        if strict_code_profile:
+            return self._score_product_strict(line, product, partner)
+
         score, method, notes = self._score_product_identity(line, product, partner)
         score, method, notes = self._score_product_code_match(
             line,
@@ -274,6 +348,143 @@ class ProductMatcher:
             'notes': notes,
             'extracted_codes': self._line_codes(line),
             'candidate_codes': self._product_candidate_codes(product, partner),
+        }
+
+    def _score_product_strict(self, line, product, partner):
+        profile = self._line_code_profile(line)
+        primary_codes = profile['primary_codes']
+        secondary_codes = profile['secondary_codes']
+        ignored_low_value_tokens = profile['ignored_low_value_tokens']
+        candidate_codes = self._product_candidate_codes(product, partner)
+        notes = []
+        boosts = []
+        penalties = []
+        score = 0.0
+        method = False
+        supplierinfo_signal = 'none'
+
+        for token in ignored_low_value_tokens:
+            notes.append('Ignored low-value token %s for exact matching.' % token)
+
+        for code in primary_codes:
+            if self._supplier_code_matches(product, partner, code):
+                score = 1.0
+                method = 'supplierinfo_code_exact'
+                supplierinfo_signal = 'supplierinfo_code_exact:%s' % code
+                notes.append('Exact vendor supplierinfo code match: %s.' % code)
+                break
+            if self._code_equals(code, getattr(product, 'default_code', False)):
+                score = 1.0
+                method = 'default_code_exact'
+                notes.append('Exact product default_code match: %s.' % code)
+                break
+            if self._code_equals(code, getattr(product, 'barcode', False)):
+                score = 1.0
+                method = 'barcode_exact'
+                notes.append('Exact product barcode match: %s.' % code)
+                break
+
+        if score < 1.0:
+            supplierinfo_signal = self._supplierinfo_signal(
+                line,
+                product,
+                partner,
+                primary_codes,
+            )
+            score, method, notes = self._score_primary_product_codes(
+                product,
+                partner,
+                primary_codes,
+                candidate_codes,
+                score,
+                method,
+                notes,
+            )
+
+        base_score = score
+        similarity_score = self._best_product_similarity(line, product)
+        if not score and similarity_score >= self.CANDIDATE_THRESHOLD:
+            score = similarity_score
+            method = 'product_name_similarity'
+            notes.append('Name similarity used as base score %.2f.' % similarity_score)
+        elif score and similarity_score >= self.CANDIDATE_THRESHOLD:
+            boost = min(0.04, (similarity_score - self.CANDIDATE_THRESHOLD) * 0.2)
+            if boost > 0:
+                score += boost
+                boosts.append('name_similarity +%.2f' % boost)
+
+        secondary_boost = self._secondary_token_boost(
+            product,
+            partner,
+            secondary_codes,
+        )
+        if secondary_boost:
+            score += secondary_boost
+            boosts.append('meaningful_secondary_tokens +%.2f' % secondary_boost)
+
+        meaningful_boost = self._meaningful_token_overlap_boost(line, product)
+        if meaningful_boost:
+            score += meaningful_boost
+            boosts.append('meaningful_text_overlap +%.2f' % meaningful_boost)
+
+        brand_boost = self._brand_boost(line, product)
+        if brand_boost:
+            score += brand_boost
+            boosts.append('brand_match +%.2f' % brand_boost)
+
+        dimension_boost = self._dimension_boost(line, product)
+        if dimension_boost:
+            score += dimension_boost
+            boosts.append('dimension_match +%.2f' % dimension_boost)
+
+        supplierinfo_boost = self._supplierinfo_presence_boost(product, partner)
+        if supplierinfo_boost:
+            score += supplierinfo_boost
+            boosts.append('vendor_supplierinfo_present +%.2f' % supplierinfo_boost)
+            if supplierinfo_signal == 'none':
+                supplierinfo_signal = 'vendor_supplierinfo_present'
+
+        authoritative_exact = method in (
+            'supplierinfo_code_exact',
+            'default_code_exact',
+            'barcode_exact',
+        )
+        internal_penalty = (
+            0.0
+            if authoritative_exact
+            else self._internal_product_penalty(line, product)
+        )
+        if internal_penalty:
+            score -= internal_penalty
+            penalties.append(
+                'internal/modified product terms not present in OCR text -%.2f'
+                % internal_penalty
+            )
+
+        if not score:
+            method = method or False
+        notes.extend('Boost: %s.' % boost for boost in boosts)
+        notes.extend('Penalty: %s.' % penalty for penalty in penalties)
+        if base_score:
+            notes.append('Base score %.2f by %s.' % (base_score, method or 'unknown'))
+        notes.append('Similarity score %.2f.' % similarity_score)
+
+        return {
+            'product': product,
+            'move_line': False,
+            'score': self._clamp_score(score),
+            'method': method,
+            'notes': notes,
+            'extracted_codes': self._line_codes(line),
+            'candidate_codes': candidate_codes,
+            'primary_codes': primary_codes,
+            'secondary_codes': secondary_codes,
+            'ignored_low_value_tokens': ignored_low_value_tokens,
+            'supplierinfo_signal': supplierinfo_signal,
+            'base_score': self._clamp_score(base_score),
+            'similarity_score': self._clamp_score(similarity_score),
+            'boosts': boosts,
+            'penalties': penalties,
         }
 
     def _score_product_identity(self, line, product, partner):
@@ -313,6 +524,169 @@ class ProductMatcher:
         if score:
             notes.append('Identity score %.2f by %s.' % (score, method))
         return score, method, notes
+
+    def _score_primary_product_codes(
+        self,
+        product,
+        partner,
+        primary_codes,
+        candidate_codes,
+        score,
+        method,
+        notes,
+    ):
+        for code in primary_codes:
+            exact_token = self._find_code_exact_token(code, candidate_codes)
+            if exact_token:
+                score, method = self._choose_score(
+                    score,
+                    method,
+                    0.89,
+                    'product_primary_code_token_exact',
+                )
+                notes.append(
+                    'Primary code-token match: %s equals product token %s.'
+                    % (code, exact_token)
+                )
+                continue
+
+            prefix_token = self._find_code_prefix_token(code, candidate_codes)
+            if prefix_token:
+                score, method = self._choose_score(
+                    score,
+                    method,
+                    0.88,
+                    'product_primary_code_prefix',
+                )
+                notes.append(
+                    'Primary code prefix/substring match: %s found in product token %s.'
+                    % (code, prefix_token)
+                )
+                continue
+
+            for target, target_method in self._product_code_targets(product, partner):
+                if not self._code_in_text(code, target):
+                    continue
+                score, method = self._choose_score(
+                    score,
+                    method,
+                    0.86,
+                    'primary_%s' % target_method,
+                )
+                notes.append(
+                    'Primary code match: %s found in %s.' % (code, target_method)
+                )
+        return score, method, notes
+
+    def _supplierinfo_signal(self, line, product, partner, primary_codes):
+        if not partner:
+            return 'no_vendor_partner'
+        sellers = self._product_sellers(product, partner)
+        if not sellers:
+            return 'no_vendor_supplierinfo'
+        for code in primary_codes:
+            for seller in sellers:
+                if self._code_equals(code, getattr(seller, 'product_code', False)):
+                    return 'supplierinfo_code_exact:%s' % code
+        supplier_name = getattr(line, 'supplier_product_name', False)
+        if supplier_name:
+            for seller_name in self._product_supplier_names(product, partner):
+                if self._normalize_text(supplier_name) == self._normalize_text(seller_name):
+                    return 'supplierinfo_name_exact'
+        return 'vendor_supplierinfo_present'
+
+    def _best_product_similarity(self, line, product):
+        best = 0.0
+        for query in self._line_name_terms(line):
+            for target, _target_method in self._product_name_targets(product):
+                best = max(best, self._score_text_match(query, target))
+        return best
+
+    def _secondary_token_boost(self, product, partner, secondary_codes):
+        if not secondary_codes:
+            return 0.0
+        matched = 0
+        candidate_codes = self._product_candidate_codes(product, partner)
+        for token in secondary_codes:
+            if self._is_low_value_code(token):
+                continue
+            if self._find_code_exact_token(token, candidate_codes):
+                matched += 1
+                continue
+            if self._find_code_prefix_token(token, candidate_codes):
+                matched += 1
+                continue
+            if any(self._code_in_text(token, target) for target, _method in self._product_code_targets(product, partner)):
+                matched += 1
+        return min(0.04, matched * 0.02)
+
+    def _meaningful_token_overlap_boost(self, line, product):
+        line_tokens = self._meaningful_tokens(self._ocr_line_text(line))
+        product_tokens = self._meaningful_tokens(self._product_text(product))
+        if not line_tokens or not product_tokens:
+            return 0.0
+        overlap = line_tokens & product_tokens
+        if not overlap:
+            return 0.0
+        ratio = len(overlap) / len(line_tokens)
+        if ratio >= 0.50:
+            return 0.05
+        if ratio >= 0.30:
+            return 0.03
+        if len(overlap) >= 2:
+            return 0.02
+        return 0.0
+
+    def _brand_boost(self, line, product):
+        line_text = self._normalize_text(self._ocr_line_text(line))
+        product_text = self._normalize_text(self._product_text(product))
+        for brand in ('gainta',):
+            if brand in line_text and brand in product_text:
+                return 0.04
+        return 0.0
+
+    def _dimension_boost(self, line, product):
+        line_dimensions = self._extract_dimension_numbers(self._ocr_line_text(line))
+        product_dimensions = self._extract_dimension_numbers(self._product_text(product))
+        if len(line_dimensions) < 2 or len(product_dimensions) < 2:
+            return 0.0
+        unmatched = list(product_dimensions)
+        matches = 0
+        for line_dimension in line_dimensions:
+            for index, product_dimension in enumerate(unmatched):
+                if abs(line_dimension - product_dimension) <= 1.0:
+                    matches += 1
+                    unmatched.pop(index)
+                    break
+        if matches >= min(3, len(line_dimensions), len(product_dimensions)):
+            return 0.05
+        if matches >= 2:
+            return 0.03
+        return 0.0
+
+    def _supplierinfo_presence_boost(self, product, partner):
+        if not partner:
+            return 0.0
+        return 0.03 if self._product_sellers(product, partner) else 0.0
+
+    def _internal_product_penalty(self, line, product):
+        product_text = self._normalize_text(
+            '%s %s %s' % (
+                getattr(product, 'default_code', False) or '',
+                getattr(product, 'display_name', False) or '',
+                getattr(product, 'name', False) or '',
+            )
+        )
+        line_text = self._normalize_text(self._ocr_line_text(line))
+        penalty = 0.0
+        default_code = (getattr(product, 'default_code', False) or '').upper()
+        if default_code.startswith('SUB-'):
+            penalty += 0.08
+        for term in self.INTERNAL_PRODUCT_TERMS:
+            term_normalized = self._normalize_text(term)
+            if term_normalized and term_normalized in product_text and term_normalized not in line_text:
+                penalty += 0.05
+        return min(0.15, penalty)
 
     def _score_product_code_match(self, line, product, partner, score, method, notes):
         candidate_codes = self._product_candidate_codes(product, partner)
@@ -656,6 +1030,7 @@ class ProductMatcher:
         candidates,
         include_move_lines=False,
         diagnostics=False,
+        allow_best_gap_match=False,
     ):
         if include_move_lines:
             unique_numeric_match = self._promote_unique_partial_numeric_match(candidates)
@@ -705,6 +1080,18 @@ class ProductMatcher:
             })
             if include_move_lines and winner.get('move_line'):
                 values['move_line_id'] = winner['move_line'].id
+        elif self._can_match_best_gap(visible_candidates, allow_best_gap_match):
+            winner = visible_candidates[0]
+            values.update({
+                'match_status': 'matched',
+                'matched_product_id': winner['product'].id,
+                'match_score': winner['score'],
+                'match_method': winner['method'],
+            })
+            winner.setdefault('notes', []).append(
+                'Best candidate selected because score gap is at least %.2f.'
+                % self.BEST_GAP_MATCH_THRESHOLD
+            )
         elif visible_candidates:
             values['match_status'] = 'ambiguous'
         else:
@@ -716,6 +1103,17 @@ class ProductMatcher:
             status=values['match_status'],
         )
         line.write(values)
+
+    def _can_match_best_gap(self, visible_candidates, allow_best_gap_match):
+        if not allow_best_gap_match or not visible_candidates:
+            return False
+        best = visible_candidates[0]
+        if best['score'] < self.MATCHED_THRESHOLD:
+            return False
+        if len(visible_candidates) == 1:
+            return True
+        second = visible_candidates[1]
+        return (best['score'] - second['score']) >= self.BEST_GAP_MATCH_THRESHOLD
 
     def _promote_unique_partial_numeric_match(self, candidates):
         strong_candidates = [
@@ -939,7 +1337,23 @@ class ProductMatcher:
                 if candidate.get('candidate_codes')
                 else 'none'
             ),
+            '  primary_codes=%s; secondary_tokens=%s; ignored_low_value_tokens=%s'
+            % (
+                ', '.join(candidate.get('primary_codes') or []) or 'none',
+                ', '.join(candidate.get('secondary_codes') or []) or 'none',
+                ', '.join(candidate.get('ignored_low_value_tokens') or []) or 'none',
+            ),
+            '  supplierinfo_signal=%s; base_score=%.2f; similarity_score=%.2f'
+            % (
+                candidate.get('supplierinfo_signal') or 'none',
+                candidate.get('base_score') or 0.0,
+                candidate.get('similarity_score') or 0.0,
+            ),
         ]
+        if candidate.get('boosts'):
+            values.append('  boosts: %s' % '; '.join(candidate['boosts']))
+        if candidate.get('penalties'):
+            values.append('  penalties: %s' % '; '.join(candidate['penalties']))
         if candidate.get('notes'):
             values.append('  why: %s' % '; '.join(candidate['notes']))
         return values
@@ -953,15 +1367,37 @@ class ProductMatcher:
         mode_label='Product',
     ):
         partner = self._get_job_partner(job)
-        extracted_codes = self._line_codes(line)
+        profile = self._line_code_profile(line)
+        supplierinfo_candidates = self._find_supplierinfos_by_codes(
+            profile['primary_codes'],
+            partner,
+        )
+        supplierinfo_exact = [
+            seller
+            for seller in supplierinfo_candidates
+            if any(
+                self._code_equals(code, getattr(seller, 'product_code', False))
+                for code in profile['primary_codes']
+            )
+        ]
         diagnostics = [
             '%s matching diagnostics:' % mode_label,
             'Job mode: %s.' % job.mode,
             'Move ID: %s.' % (job.move_id.id if getattr(job, 'move_id', False) else 'none'),
-            'Partner ID: %s.' % (partner.id if partner else 'none'),
-            'Extracted supplier/internal codes: %s.' % (
-                ', '.join(extracted_codes) if extracted_codes else 'none'
+            'Vendor partner used: %s.' % (partner.id if partner else 'none'),
+            'Primary codes: %s.' % (
+                ', '.join(profile['primary_codes']) if profile['primary_codes'] else 'none'
             ),
+            'Secondary tokens: %s.' % (
+                ', '.join(profile['secondary_codes']) if profile['secondary_codes'] else 'none'
+            ),
+            'Ignored low-value tokens: %s.' % (
+                ', '.join(profile['ignored_low_value_tokens'])
+                if profile['ignored_low_value_tokens']
+                else 'none'
+            ),
+            'Supplierinfo candidates count: %s.' % len(supplierinfo_candidates),
+            'Supplierinfo exact matches: %s.' % len(supplierinfo_exact),
             'Product candidates found: %s.' % len(products),
             'Recognized values: supplier_product_code=%s; supplier_product_name=%s; quantity=%s; price_unit=%s; amount_untaxed=%s.'
             % (
@@ -971,7 +1407,7 @@ class ProductMatcher:
                 self._recognized_price_unit(line) or 'none',
                 self._recognized_subtotal(line) or 'none',
             ),
-            'Methods tried: supplierinfo code/name, default_code, barcode, product display/name, code-token substring, fuzzy/token name similarity.',
+            'Methods tried: supplierinfo code/name, default_code, barcode, primary code-token, meaningful secondary token boost, brand/dimension boosts, internal product penalties, fuzzy/token name similarity.',
         ]
         if not products:
             diagnostics.append('No product.product candidates were found.')
@@ -1074,6 +1510,17 @@ class ProductMatcher:
                 partner,
                 product_name=supplier_name,
             ):
+                self._append_unique(sellers, seller)
+        return sellers
+
+    def _find_supplierinfos_by_codes(self, codes, partner):
+        sellers = []
+        for code in codes:
+            if self._is_low_value_code(code):
+                continue
+            for seller in self._search_supplierinfos_exact(partner, product_code=code):
+                self._append_unique(sellers, seller)
+            for seller in self._search_supplierinfos_code_like(code, partner):
                 self._append_unique(sellers, seller)
         return sellers
 
@@ -1219,6 +1666,163 @@ class ProductMatcher:
                 terms.extend(tokens[:3])
         terms.extend(self._line_codes(line))
         return list(dict.fromkeys(terms))
+
+    def _full_bill_search_terms(self, line, profile):
+        terms = list(profile['primary_codes'])
+        for value in self._line_name_terms(line):
+            for token in self._meaningful_tokens(value):
+                if token in self.GENERIC_NAME_TOKENS:
+                    continue
+                if self._is_low_value_code(token):
+                    continue
+                terms.append(token)
+        if not terms:
+            terms.extend(profile['secondary_codes'])
+        return list(dict.fromkeys(term for term in terms if term))
+
+    def _line_code_profile(self, line):
+        primary_codes = []
+        ignored_low_value_tokens = []
+
+        explicit_code = getattr(line, 'supplier_product_code', False)
+        if explicit_code:
+            for code in self._expand_code_tokens([explicit_code]):
+                self._add_profile_code(code, primary_codes, ignored_low_value_tokens)
+
+        if not primary_codes:
+            for value in (
+                getattr(line, 'supplier_product_name', False),
+                getattr(line, 'description', False),
+                getattr(line, 'note', False),
+                getattr(line, 'source_columns', False),
+            ):
+                leading_codes = self._extract_leading_codes(value)
+                if not leading_codes:
+                    continue
+                for code in self._expand_code_tokens(leading_codes):
+                    self._add_profile_code(code, primary_codes, ignored_low_value_tokens)
+                if primary_codes:
+                    break
+
+        primary_codes = self._unique_normalized_codes(primary_codes)
+        primary_normalized = {
+            self._normalize_code(code)
+            for code in primary_codes
+            if self._normalize_code(code)
+        }
+        secondary_codes = []
+        for code in self._line_codes(line):
+            normalized = self._normalize_code(code)
+            if not normalized or normalized in primary_normalized:
+                continue
+            if self._is_low_value_code(code):
+                ignored_low_value_tokens.append(code)
+                continue
+            secondary_codes.append(code)
+
+        return {
+            'primary_codes': primary_codes,
+            'secondary_codes': self._unique_normalized_codes(secondary_codes),
+            'ignored_low_value_tokens': self._unique_normalized_codes(ignored_low_value_tokens),
+        }
+
+    def _add_profile_code(self, code, codes, ignored_low_value_tokens):
+        if not code:
+            return
+        if self._is_low_value_code(code):
+            ignored_low_value_tokens.append(code)
+            return
+        codes.append(code)
+
+    def _is_low_value_code(self, code):
+        normalized = self._normalize_code(code)
+        if not normalized:
+            return True
+        if len(normalized) < 4:
+            return True
+        if normalized.isdigit():
+            return True
+        if normalized in self.LOW_VALUE_CODE_TOKENS:
+            return True
+        for pattern in self.LOW_VALUE_CODE_PATTERNS:
+            if pattern.match(normalized):
+                return True
+        text_normalized = self._normalize_text(code)
+        return text_normalized in self.GENERIC_NAME_TOKENS
+
+    def _meaningful_tokens(self, value):
+        tokens = set()
+        for token in self._normalize_text(value).split():
+            if len(token) < 3:
+                continue
+            if token.isdigit():
+                continue
+            if token in self.GENERIC_NAME_TOKENS:
+                continue
+            if self._is_low_value_code(token):
+                continue
+            tokens.add(token)
+        return tokens
+
+    def _ocr_line_text(self, line):
+        return ' '.join(
+            str(value)
+            for value in (
+                getattr(line, 'supplier_product_code', False),
+                getattr(line, 'supplier_product_name', False),
+                getattr(line, 'description', False),
+                getattr(line, 'note', False),
+                getattr(line, 'source_columns', False),
+            )
+            if value
+        )
+
+    def _product_text(self, product):
+        return ' '.join(
+            str(value)
+            for value in (
+                getattr(product, 'default_code', False),
+                getattr(product, 'barcode', False),
+                getattr(product, 'display_name', False),
+                getattr(product, 'name', False),
+            )
+            if value
+        )
+
+    def _extract_dimension_numbers(self, value):
+        value = str(value or '').lower()
+        numbers = []
+        dimension_blocks = re.findall(
+            r'\d+(?:[,.]\d+)?(?:\s*[xх×]\s*\d+(?:[,.]\d+)?){1,3}\s*(?:мм|mm)?',
+            value,
+            flags=re.U,
+        )
+        for block in dimension_blocks:
+            numbers.extend(self._numbers_from_text(block))
+        numbers.extend(
+            self._numbers_from_text(match)
+            for match in re.findall(r'\d+(?:[,.]\d+)?\s*(?:мм|mm)', value, flags=re.U)
+        )
+        flattened = []
+        for number in numbers:
+            if isinstance(number, list):
+                flattened.extend(number)
+            else:
+                flattened.append(number)
+        return list(dict.fromkeys(
+            round(number, 2)
+            for number in flattened
+            if self._is_number(number) and number > 0
+        ))
+
+    def _numbers_from_text(self, value):
+        result = []
+        for match in re.findall(r'\d+(?:[,.]\d+)?', str(value or '')):
+            try:
+                result.append(float(match.replace(',', '.')))
+            except ValueError:
+                continue
+        return result
 
     def _extract_bracket_codes(self, value):
         return [
