@@ -53,10 +53,20 @@ class AccountMove(models.Model):
                 'Спочатку завантажте PDF або зображення рахунку постачальника у вкладення документа.'
             ))
 
+        product_lines = self._get_gemini_digitization_product_lines()
+        if product_lines:
+            mode = 'partial_bill'
+            name_template = _('Gemini OCR: Partial Vendor Bill %s')
+        else:
+            if not self.partner_id:
+                raise UserError(_('Спочатку оберіть постачальника в рахунку.'))
+            mode = 'full_bill'
+            name_template = _('Gemini OCR: Full Vendor Bill %s')
+
         document_name = self.name if self.name and self.name != '/' else self.id
         job = self.env['account.gemini.digitization.job'].create({
-            'name': _('Gemini OCR: Vendor Bill %s') % document_name,
-            'mode': 'partial_bill',
+            'name': name_template % document_name,
+            'mode': mode,
             'state': 'draft',
             'move_id': self.id,
             'res_model': 'account.move',
@@ -67,6 +77,31 @@ class AccountMove(models.Model):
             'attachment_id': attachment.id,
         })
         return self._get_gemini_digitization_job_form_action(job)
+
+    def _get_gemini_digitization_product_lines(self):
+        self.ensure_one()
+        invoice_lines = self.invoice_line_ids.filtered(
+            lambda line: self._is_gemini_digitization_product_line(line)
+        )
+        if invoice_lines:
+            return invoice_lines
+        return self.line_ids.filtered(
+            lambda line: self._is_gemini_digitization_product_line(line)
+        )
+
+    def _is_gemini_digitization_product_line(self, line):
+        if not line.product_id:
+            return False
+        display_type = getattr(line, 'display_type', False)
+        if display_type and display_type != 'product':
+            return False
+        account = getattr(line, 'account_id', False)
+        account_type = getattr(account, 'account_type', False) if account else False
+        if account_type:
+            account_type = str(account_type).lower()
+            if 'receivable' in account_type or 'payable' in account_type:
+                return False
+        return True
 
     def _get_gemini_digitization_job_form_action(self, job):
         form_view = self.env.ref(
@@ -88,9 +123,14 @@ class AccountMove(models.Model):
             'account_gemini_digitization.action_account_gemini_digitization_job'
         )
         action['domain'] = [('move_id', '=', self.id)]
+        default_mode = (
+            'partial_bill'
+            if self._get_gemini_digitization_product_lines()
+            else 'full_bill'
+        )
         action['context'] = {
             'default_move_id': self.id,
-            'default_mode': 'partial_bill',
+            'default_mode': default_mode,
         }
         if self.gemini_digitization_job_count == 1:
             job = self.gemini_digitization_job_ids

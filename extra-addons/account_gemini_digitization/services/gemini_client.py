@@ -547,6 +547,17 @@ Do not match products.
 Do not apply data to account.move.
 Do not change or create invoice lines.
 """
+        if mode == 'full_bill':
+            return """
+full_bill:
+The document is a supplier/vendor bill uploaded to an empty vendor bill in Odoo.
+Extract invoice number, invoice date, vendor, currency, products, quantities, prices, VAT, and totals.
+Extract every product or service line needed to create vendor bill lines after human review.
+Do not match products.
+Do not create products.
+Do not apply data to account.move.
+Do not create invoice lines.
+"""
         if mode == 'full_purchase':
             return """
 full_purchase:

@@ -33,6 +33,7 @@
                                     <field
                                         name="move_line_id"
                                         domain="[('move_id', '=', parent.move_id), ('product_id', '!=', False)]"
+                                        readonly="parent.mode == 'full_bill'"
                                     />
                                     <field name="matched_product_id"/>
                                     <field name="match_status" readonly="1"/>
@@ -72,6 +73,7 @@
                                             <field
                                                 name="move_line_id"
                                                 domain="[('move_id', '=', parent.move_id), ('product_id', '!=', False)]"
+                                                readonly="parent.mode == 'full_bill'"
                                             />
                                             <field name="matched_product_id"/>
                                             <field name="match_status" readonly="1"/>
@@ -79,9 +81,9 @@
                                             <field name="match_method" readonly="1"/>
                                             <field name="match_note" readonly="1"/>
                                             <field name="supplier_product_code" readonly="1"/>
-                                            <field name="supplier_product_name" readonly="1"/>
-                                            <field name="description" readonly="1"/>
-                                            <field name="quantity" readonly="1"/>
+                                            <field name="supplier_product_name" readonly="parent.mode == 'partial_bill'"/>
+                                            <field name="description" readonly="parent.mode == 'partial_bill'"/>
+                                            <field name="quantity" readonly="parent.mode == 'partial_bill'"/>
                                             <field name="uom_name" readonly="1"/>
                                         </group>
                                         <group>

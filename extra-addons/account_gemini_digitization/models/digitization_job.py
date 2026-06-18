@@ -26,6 +26,7 @@ class AccountGeminiDigitizationJob(models.Model):
 
     MODE_SELECTION = [
         ('partial_bill', 'Partial Vendor Bill Recognition'),
+        ('full_bill', 'Full Vendor Bill Recognition'),
         ('full_purchase', 'Full Purchase Order Recognition'),
     ]
 

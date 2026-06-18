@@ -31,8 +31,11 @@ class ProductMatcher:
 
     def match_job(self, job):
         job.ensure_one()
+        self._repair_job_partner(job)
         if job.mode == 'partial_bill':
             self._match_partial_bill(job)
+        elif job.mode == 'full_bill':
+            self._match_full_bill(job)
         elif job.mode == 'full_purchase':
             self._match_full_purchase(job)
         else:
@@ -66,16 +69,43 @@ class ProductMatcher:
                 self._write_line_error(line, error)
 
     def _match_full_purchase(self, job):
+        partner = self._get_job_partner(job)
         for line in job.line_ids:
             try:
-                products = self._find_full_purchase_products(line, job.partner_id)
+                products = self._find_full_purchase_products(line, partner)
                 candidates = [
-                    self._score_product(line, product, job.partner_id)
+                    self._score_product(line, product, partner)
                     for product in products
                 ]
                 self._write_match_result(line, candidates, include_move_lines=False)
             except Exception as error:
                 _logger.exception('Gemini full purchase matching failed.')
+                self._write_line_error(line, error)
+
+    def _match_full_bill(self, job):
+        partner = self._get_job_partner(job)
+        for line in job.line_ids:
+            try:
+                products = self._find_full_bill_products(line, partner)
+                candidates = [
+                    self._score_product(line, product, partner)
+                    for product in products
+                ]
+                diagnostics = self._build_product_diagnostics(
+                    line,
+                    job,
+                    products,
+                    candidates,
+                    mode_label='Full vendor bill',
+                )
+                self._write_match_result(
+                    line,
+                    candidates,
+                    include_move_lines=False,
+                    diagnostics=diagnostics,
+                )
+            except Exception as error:
+                _logger.exception('Gemini full bill matching failed.')
                 self._write_line_error(line, error)
 
     def _get_move_product_lines(self, job):
@@ -144,8 +174,15 @@ class ProductMatcher:
         return (
             getattr(job, 'partner_id', False)
             or getattr(getattr(job, 'move_id', False), 'partner_id', False)
+            or getattr(getattr(job, 'purchase_order_id', False), 'partner_id', False)
             or False
         )
+
+    def _repair_job_partner(self, job):
+        partner = self._get_job_partner(job)
+        if partner and not getattr(job, 'partner_id', False):
+            job.write({'partner_id': partner.id})
+        return partner
 
     def _get_move_invoice_lines(self, job):
         move = job.move_id
@@ -180,6 +217,9 @@ class ProductMatcher:
             for seller in self._search_supplierinfos_like(term, partner):
                 self._append_unique(products, self._seller_product(seller))
         return products
+
+    def _find_full_bill_products(self, line, partner):
+        return self._find_full_purchase_products(line, partner)
 
     def _score_move_line(self, line, move_line, partner):
         product = move_line.product_id
@@ -218,12 +258,22 @@ class ProductMatcher:
 
     def _score_product(self, line, product, partner):
         score, method, notes = self._score_product_identity(line, product, partner)
+        score, method, notes = self._score_product_code_match(
+            line,
+            product,
+            partner,
+            score,
+            method,
+            notes,
+        )
         return {
             'product': product,
             'move_line': False,
             'score': self._clamp_score(score),
             'method': method,
             'notes': notes,
+            'extracted_codes': self._line_codes(line),
+            'candidate_codes': self._product_candidate_codes(product, partner),
         }
 
     def _score_product_identity(self, line, product, partner):
@@ -262,6 +312,51 @@ class ProductMatcher:
 
         if score:
             notes.append('Identity score %.2f by %s.' % (score, method))
+        return score, method, notes
+
+    def _score_product_code_match(self, line, product, partner, score, method, notes):
+        candidate_codes = self._product_candidate_codes(product, partner)
+        for code in self._line_codes(line):
+            exact_token = self._find_code_exact_token(code, candidate_codes)
+            if exact_token:
+                score, method = self._choose_score(
+                    score,
+                    method,
+                    1.0,
+                    'product_code_token_exact',
+                )
+                notes.append(
+                    'Exact code-token match: %s equals product token %s.'
+                    % (code, exact_token)
+                )
+                continue
+
+            prefix_token = self._find_code_prefix_token(code, candidate_codes)
+            if prefix_token:
+                score, method = self._choose_score(
+                    score,
+                    method,
+                    0.92,
+                    'product_code_prefix',
+                )
+                notes.append(
+                    'Code prefix/substring match: %s found in product token %s.'
+                    % (code, prefix_token)
+                )
+                continue
+
+            for target, target_method in self._product_code_targets(product, partner):
+                if not self._code_in_text(code, target):
+                    continue
+                score, method = self._choose_score(
+                    score,
+                    method,
+                    0.92,
+                    target_method,
+                )
+                notes.append(
+                    'Product code match: %s found in %s.' % (code, target_method)
+                )
         return score, method, notes
 
     def _score_partial_code_match(self, line, move_line, partner, score, method, notes):
@@ -333,9 +428,36 @@ class ProductMatcher:
                     targets.append((value, method))
         return targets
 
+    def _product_code_targets(self, product, partner):
+        targets = []
+        for value, method in (
+            (getattr(product, 'default_code', False), 'default_code_partial'),
+            (getattr(product, 'barcode', False), 'barcode_partial'),
+            (getattr(product, 'display_name', False), 'product_display_name_partial'),
+            (getattr(product, 'name', False), 'product_name_partial'),
+        ):
+            if value:
+                targets.append((value, method))
+        for seller in self._product_sellers(product, partner):
+            for field_name, method in (
+                ('product_code', 'supplier_code_partial'),
+                ('product_name', 'supplier_name_partial'),
+                ('name', 'supplierinfo_name_partial'),
+            ):
+                value = getattr(seller, field_name, False)
+                if value:
+                    targets.append((value, method))
+        return targets
+
     def _candidate_codes(self, product, move_line, partner):
         codes = []
         for target, _method in self._partial_code_targets(product, move_line, partner):
+            codes.extend(self._extract_codes_from_text(target))
+        return self._unique_normalized_codes(codes)
+
+    def _product_candidate_codes(self, product, partner):
+        codes = []
+        for target, _method in self._product_code_targets(product, partner):
             codes.extend(self._extract_codes_from_text(target))
         return self._unique_normalized_codes(codes)
 
@@ -822,6 +944,105 @@ class ProductMatcher:
             values.append('  why: %s' % '; '.join(candidate['notes']))
         return values
 
+    def _build_product_diagnostics(
+        self,
+        line,
+        job,
+        products,
+        candidates,
+        mode_label='Product',
+    ):
+        partner = self._get_job_partner(job)
+        extracted_codes = self._line_codes(line)
+        diagnostics = [
+            '%s matching diagnostics:' % mode_label,
+            'Job mode: %s.' % job.mode,
+            'Move ID: %s.' % (job.move_id.id if getattr(job, 'move_id', False) else 'none'),
+            'Partner ID: %s.' % (partner.id if partner else 'none'),
+            'Extracted supplier/internal codes: %s.' % (
+                ', '.join(extracted_codes) if extracted_codes else 'none'
+            ),
+            'Product candidates found: %s.' % len(products),
+            'Recognized values: supplier_product_code=%s; supplier_product_name=%s; quantity=%s; price_unit=%s; amount_untaxed=%s.'
+            % (
+                getattr(line, 'supplier_product_code', False) or 'none',
+                getattr(line, 'supplier_product_name', False) or 'none',
+                getattr(line, 'quantity', False) or 'none',
+                self._recognized_price_unit(line) or 'none',
+                self._recognized_subtotal(line) or 'none',
+            ),
+            'Methods tried: supplierinfo code/name, default_code, barcode, product display/name, code-token substring, fuzzy/token name similarity.',
+        ]
+        if not products:
+            diagnostics.append('No product.product candidates were found.')
+            return diagnostics
+
+        best = max(candidates, key=lambda candidate: candidate.get('score') or 0.0, default=False)
+        if best and best.get('score'):
+            product = best.get('product')
+            product_name = (
+                getattr(product, 'display_name', False)
+                or getattr(product, 'name', False)
+                or getattr(product, 'id', False)
+            )
+            diagnostics.append(
+                'Best score before threshold: %.2f by %s for %s.'
+                % (
+                    best.get('score') or 0.0,
+                    best.get('method') or 'unknown',
+                    product_name,
+                )
+            )
+        else:
+            diagnostics.append('Best score before threshold: 0.00.')
+
+        diagnostics.append('Checked product details:')
+        for candidate in candidates:
+            diagnostics.extend(self._format_product_candidate_diagnostics(candidate))
+        return diagnostics
+
+    def _format_product_candidate_diagnostics(self, candidate):
+        product = candidate.get('product')
+        if not product:
+            return ['- Empty product candidate.']
+
+        score = candidate.get('score') or 0.0
+        if score >= self.MATCHED_THRESHOLD:
+            decision = 'accepted/confident'
+        elif score >= self.CANDIDATE_THRESHOLD:
+            decision = 'candidate/manual review'
+        else:
+            decision = 'rejected below threshold'
+
+        values = [
+            '- product_id=%s; score=%.2f; method=%s; decision=%s.'
+            % (
+                product.id,
+                score,
+                candidate.get('method') or 'none',
+                decision,
+            ),
+            '  product_display_name=%s' % (
+                getattr(product, 'display_name', False)
+                or getattr(product, 'name', False)
+                or ''
+            ),
+            '  product_default_code=%s; barcode=%s'
+            % (
+                getattr(product, 'default_code', False) or '',
+                getattr(product, 'barcode', False) or '',
+            ),
+            '  extracted candidate tokens/codes=%s'
+            % (
+                ', '.join(candidate.get('candidate_codes') or [])
+                if candidate.get('candidate_codes')
+                else 'none'
+            ),
+        ]
+        if candidate.get('notes'):
+            values.append('  why: %s' % '; '.join(candidate['notes']))
+        return values
+
     def _candidate_product_ids(self, candidates):
         return self._unique_ids(candidate['product'] for candidate in candidates)
 
@@ -907,8 +1128,10 @@ class ProductMatcher:
             return []
         return list(self.env['product.product'].search([
             '|',
+            '|',
             ('default_code', 'ilike', normalized_code),
             ('barcode', 'ilike', normalized_code),
+            ('name', 'ilike', code),
         ], limit=100))
 
     def _supplier_code_matches(self, product, partner, code):
