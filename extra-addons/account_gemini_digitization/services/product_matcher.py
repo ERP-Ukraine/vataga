@@ -40,19 +40,19 @@ class ProductMatcher:
         return True
 
     def _match_partial_bill(self, job):
-        all_invoice_lines = self._get_move_invoice_lines(job)
-        move_lines = self._get_move_product_lines(job)
+        line_source = self._get_partial_bill_line_source(job)
+        move_lines = line_source['product_lines']
+        partner = self._get_job_partner(job)
         for line in job.line_ids:
             try:
                 candidates = [
-                    self._score_move_line(line, move_line, job.partner_id)
+                    self._score_move_line(line, move_line, partner)
                     for move_line in move_lines
                 ]
                 diagnostics = self._build_partial_diagnostics(
                     line,
                     job,
-                    all_invoice_lines,
-                    move_lines,
+                    line_source,
                     candidates,
                 )
                 self._write_match_result(
@@ -79,21 +79,85 @@ class ProductMatcher:
                 self._write_line_error(line, error)
 
     def _get_move_product_lines(self, job):
+        return self._get_partial_bill_line_source(job)['product_lines']
+
+    def _get_partial_bill_line_source(self, job):
         move = job.move_id
         if not move:
-            return []
-        return [
+            return {
+                'source': 'none',
+                'product_lines': [],
+                'invoice_lines': [],
+                'invoice_product_lines': [],
+                'line_ids': [],
+                'line_product_lines': [],
+            }
+
+        invoice_lines = list(getattr(move, 'invoice_line_ids', []))
+        invoice_product_lines = [
             line
-            for line in self._get_move_invoice_lines(job)
-            if getattr(line, 'product_id', False)
-            and not getattr(line, 'display_type', False)
+            for line in invoice_lines
+            if self._is_move_product_line(line)
         ]
+        line_ids = list(getattr(move, 'line_ids', []))
+        line_product_lines = [
+            line
+            for line in line_ids
+            if self._is_move_product_line(line)
+        ]
+
+        if invoice_product_lines:
+            source = 'invoice_line_ids'
+            product_lines = invoice_product_lines
+        else:
+            source = 'line_ids fallback'
+            product_lines = line_product_lines
+
+        return {
+            'source': source,
+            'product_lines': product_lines,
+            'invoice_lines': invoice_lines,
+            'invoice_product_lines': invoice_product_lines,
+            'line_ids': line_ids,
+            'line_product_lines': line_product_lines,
+        }
+
+    def _is_move_product_line(self, line):
+        if not getattr(line, 'product_id', False):
+            return False
+
+        display_type = getattr(line, 'display_type', False)
+        if display_type and display_type != 'product':
+            return False
+
+        account = getattr(line, 'account_id', False)
+        account_type = getattr(account, 'account_type', False) if account else False
+        if account_type and self._is_receivable_or_payable_account_type(account_type):
+            return False
+        return True
+
+    def _is_receivable_or_payable_account_type(self, account_type):
+        account_type = str(account_type or '').lower()
+        return 'receivable' in account_type or 'payable' in account_type
+
+    def _get_job_partner(self, job):
+        return (
+            getattr(job, 'partner_id', False)
+            or getattr(getattr(job, 'move_id', False), 'partner_id', False)
+            or False
+        )
 
     def _get_move_invoice_lines(self, job):
         move = job.move_id
         if not move:
             return []
-        return list(move.invoice_line_ids)
+        return list(getattr(move, 'invoice_line_ids', []))
+
+    def _get_move_line_ids(self, job):
+        move = job.move_id
+        if not move:
+            return []
+        return list(getattr(move, 'line_ids', []))
 
     def _find_full_purchase_products(self, line, partner):
         products = []
@@ -620,10 +684,14 @@ class ProductMatcher:
         self,
         line,
         job,
-        all_invoice_lines,
-        move_lines,
+        line_source,
         candidates,
     ):
+        invoice_lines = line_source['invoice_lines']
+        invoice_product_lines = line_source['invoice_product_lines']
+        line_ids = line_source['line_ids']
+        line_product_lines = line_source['line_product_lines']
+        move_lines = line_source['product_lines']
         extracted_codes = self._line_codes(line)
         diagnostics = [
             'Partial bill matching diagnostics:',
@@ -632,8 +700,12 @@ class ProductMatcher:
             'Extracted supplier/internal codes: %s.' % (
                 ', '.join(extracted_codes) if extracted_codes else 'none'
             ),
-            'Invoice lines total: %s.' % len(all_invoice_lines),
-            'Invoice lines with product after filter: %s.' % len(move_lines),
+            'invoice_line_ids total: %s.' % len(invoice_lines),
+            'invoice_line_ids product lines: %s.' % len(invoice_product_lines),
+            'line_ids total: %s.' % len(line_ids),
+            'line_ids product lines: %s.' % len(line_product_lines),
+            'Line source used: %s.' % line_source['source'],
+            self._format_line_source_reason(line_source),
             'Recognized values: supplier_product_code=%s; supplier_product_name=%s; quantity=%s; price_unit=%s; amount_untaxed=%s.'
             % (
                 getattr(line, 'supplier_product_code', False) or 'none',
@@ -647,7 +719,7 @@ class ProductMatcher:
         ]
         if not move_lines:
             diagnostics.append(
-                'No product invoice lines are available on the vendor bill after filtering product_id and display lines.'
+                'No product invoice lines are available on the vendor bill after checking invoice_line_ids and line_ids fallback.'
             )
             return diagnostics
 
@@ -676,6 +748,22 @@ class ProductMatcher:
         for candidate in candidates:
             diagnostics.extend(self._format_partial_candidate_diagnostics(candidate))
         return diagnostics
+
+    def _format_line_source_reason(self, line_source):
+        if line_source['source'] == 'invoice_line_ids':
+            return (
+                'Used invoice_line_ids with %s product lines.'
+                % len(line_source['invoice_product_lines'])
+            )
+        if line_source['source'] == 'line_ids fallback':
+            return (
+                'invoice_line_ids returned %s product lines, used line_ids fallback with %s product lines.'
+                % (
+                    len(line_source['invoice_product_lines']),
+                    len(line_source['line_product_lines']),
+                )
+            )
+        return 'No move line source was available.'
 
     def _format_partial_candidate_diagnostics(self, candidate):
         move_line = candidate.get('move_line')
@@ -711,6 +799,12 @@ class ProductMatcher:
                 getattr(product, 'barcode', False) or '',
             ),
             '  move_line.name=%s' % (getattr(move_line, 'name', False) or ''),
+            '  display_type=%s; account_id=%s; account_type=%s'
+            % (
+                getattr(move_line, 'display_type', False) or '',
+                getattr(getattr(move_line, 'account_id', False), 'id', False) or '',
+                getattr(getattr(move_line, 'account_id', False), 'account_type', False) or '',
+            ),
             '  quantity=%s; price_unit=%s; price_subtotal=%s'
             % (
                 getattr(move_line, 'quantity', False),
