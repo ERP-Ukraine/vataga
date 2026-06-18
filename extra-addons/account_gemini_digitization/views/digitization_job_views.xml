@@ -40,6 +40,12 @@
                         invisible="state != 'review'"
                     />
                     <button
+                        name="action_run_matching"
+                        string="Re-run Matching"
+                        type="object"
+                        invisible="state != 'review'"
+                    />
+                    <button
                         name="action_cancel"
                         string="Cancel"
                         type="object"
@@ -112,6 +118,7 @@
                                     <field name="match_method"/>
                                     <field name="move_line_id"/>
                                     <field name="candidate_move_line_ids" widget="many2many_tags"/>
+                                    <field name="match_note"/>
                                     <field name="confidence"/>
                                     <field name="currency_id" column_invisible="True"/>
                                     <field name="company_id" column_invisible="True"/>

@@ -40,6 +40,7 @@ class ProductMatcher:
         return True
 
     def _match_partial_bill(self, job):
+        all_invoice_lines = self._get_move_invoice_lines(job)
         move_lines = self._get_move_product_lines(job)
         for line in job.line_ids:
             try:
@@ -49,6 +50,8 @@ class ProductMatcher:
                 ]
                 diagnostics = self._build_partial_diagnostics(
                     line,
+                    job,
+                    all_invoice_lines,
                     move_lines,
                     candidates,
                 )
@@ -81,10 +84,16 @@ class ProductMatcher:
             return []
         return [
             line
-            for line in move.invoice_line_ids
+            for line in self._get_move_invoice_lines(job)
             if getattr(line, 'product_id', False)
             and not getattr(line, 'display_type', False)
         ]
+
+    def _get_move_invoice_lines(self, job):
+        move = job.move_id
+        if not move:
+            return []
+        return list(move.invoice_line_ids)
 
     def _find_full_purchase_products(self, line, partner):
         products = []
@@ -121,6 +130,7 @@ class ProductMatcher:
         )
         score, method = self._score_move_line_text(line, move_line, score, method)
         score, notes = self._apply_partial_consistency(line, move_line, score, notes)
+        had_code_or_text_match = score >= 0.92
         score, method, notes, numeric_strong = self._apply_partial_numeric_fallback(
             line,
             move_line,
@@ -128,6 +138,9 @@ class ProductMatcher:
             method,
             notes,
         )
+        if had_code_or_text_match and numeric_strong:
+            score = max(score, 0.97)
+            notes.append('Code/name match plus quantity/price/subtotal consistency.')
         return {
             'product': product,
             'move_line': move_line,
@@ -136,6 +149,7 @@ class ProductMatcher:
             'notes': notes,
             'numeric_strong': numeric_strong,
             'extracted_codes': self._line_codes(line),
+            'candidate_codes': self._candidate_codes(product, move_line, partner),
         }
 
     def _score_product(self, line, product, partner):
@@ -188,7 +202,36 @@ class ProductMatcher:
 
     def _score_partial_code_match(self, line, move_line, partner, score, method, notes):
         product = move_line.product_id
+        candidate_codes = self._candidate_codes(product, move_line, partner)
         for code in self._line_codes(line):
+            exact_token = self._find_code_exact_token(code, candidate_codes)
+            if exact_token:
+                score, method = self._choose_score(
+                    score,
+                    method,
+                    1.0,
+                    'candidate_code_token_exact',
+                )
+                notes.append(
+                    'Exact code-token match: %s equals candidate token %s.'
+                    % (code, exact_token)
+                )
+                continue
+
+            prefix_token = self._find_code_prefix_token(code, candidate_codes)
+            if prefix_token:
+                score, method = self._choose_score(
+                    score,
+                    method,
+                    0.92,
+                    'candidate_code_prefix',
+                )
+                notes.append(
+                    'Code prefix/substring match: %s found in candidate token %s.'
+                    % (code, prefix_token)
+                )
+                continue
+
             for target, target_method in self._partial_code_targets(product, move_line, partner):
                 if not self._code_in_text(code, target):
                     continue
@@ -226,6 +269,32 @@ class ProductMatcher:
                     targets.append((value, method))
         return targets
 
+    def _candidate_codes(self, product, move_line, partner):
+        codes = []
+        for target, _method in self._partial_code_targets(product, move_line, partner):
+            codes.extend(self._extract_codes_from_text(target))
+        return self._unique_normalized_codes(codes)
+
+    def _find_code_exact_token(self, code, candidate_codes):
+        for candidate_code in candidate_codes:
+            if self._code_equals(code, candidate_code):
+                return candidate_code
+        return False
+
+    def _find_code_prefix_token(self, code, candidate_codes):
+        code_normalized = self._normalize_code(code)
+        if len(code_normalized) < 4:
+            return False
+        for candidate_code in candidate_codes:
+            candidate_normalized = self._normalize_code(candidate_code)
+            if not candidate_normalized:
+                continue
+            if candidate_normalized.startswith(code_normalized):
+                return candidate_code
+            if code_normalized in candidate_normalized:
+                return candidate_code
+        return False
+
     def _score_move_line_text(self, line, move_line, score, method):
         for query in self._line_name_terms(line):
             candidate_score = self._score_text_match(query, getattr(move_line, 'name', False))
@@ -255,16 +324,17 @@ class ProductMatcher:
                 ))
 
         comparisons = [
-            ('price_unit', getattr(line, 'price_unit', False), getattr(move_line, 'price_unit', False)),
-            ('amount_untaxed', getattr(line, 'amount_untaxed', False), getattr(move_line, 'price_subtotal', False)),
-            ('amount_total', getattr(line, 'amount_total', False), getattr(move_line, 'price_total', False)),
+            ('price_unit', self._recognized_price_unit(line), getattr(move_line, 'price_unit', False)),
+            ('amount_untaxed', self._recognized_subtotal(line), getattr(move_line, 'price_subtotal', False)),
+            ('amount_total', self._recognized_total(line), getattr(move_line, 'price_total', False)),
         ]
+        currency = getattr(line, 'currency_id', False)
         for label, recognized_value, move_value in comparisons:
             recognized_value = self._to_float(recognized_value)
             move_value = self._to_float(move_value)
             if not self._is_number(recognized_value) or not self._is_number(move_value):
                 continue
-            if self._amounts_close(recognized_value, move_value):
+            if self._amounts_close(recognized_value, move_value, currency=currency):
                 score += 0.02
                 notes.append('%s matches.' % label)
             else:
@@ -291,9 +361,8 @@ class ProductMatcher:
             fallback_method = 'quantity_price'
             notes.append('Numeric fallback: quantity and price_unit match.')
         elif checks['quantity_match'] and checks['amount_match_count']:
-            numeric_strong = True
-            fallback_score = 0.88
-            fallback_method = checks['best_amount_method']
+            fallback_score = 0.74
+            fallback_method = 'quantity_amount'
             notes.append(
                 'Numeric fallback: quantity and %s match.'
                 % checks['best_amount_label']
@@ -320,10 +389,11 @@ class ProductMatcher:
     def _get_partial_numeric_checks(self, line, move_line):
         quantity = self._to_float(getattr(line, 'quantity', False))
         move_quantity = self._to_float(getattr(move_line, 'quantity', False))
+        currency = getattr(line, 'currency_id', False)
         quantity_match = (
             self._is_number(quantity)
             and self._is_number(move_quantity)
-            and self._numbers_close(quantity, move_quantity, tolerance=0.01)
+            and self._numbers_close(quantity, move_quantity, tolerance=0.0001)
         )
 
         amount_checks = []
@@ -332,19 +402,19 @@ class ProductMatcher:
             (
                 'price_unit',
                 'quantity_price',
-                getattr(line, 'price_unit', False),
+                self._recognized_price_unit(line),
                 getattr(move_line, 'price_unit', False),
             ),
             (
                 'subtotal',
                 'quantity_subtotal',
-                getattr(line, 'amount_untaxed', False),
+                self._recognized_subtotal(line),
                 getattr(move_line, 'price_subtotal', False),
             ),
             (
                 'total',
                 'quantity_total',
-                getattr(line, 'amount_total', False),
+                self._recognized_total(line),
                 getattr(move_line, 'price_total', False),
             ),
         ):
@@ -353,7 +423,7 @@ class ProductMatcher:
             matched = (
                 self._is_number(recognized_value)
                 and self._is_number(move_value)
-                and self._amounts_close(recognized_value, move_value)
+                and self._amounts_close(recognized_value, move_value, currency=currency)
             )
             amount_checks.append((label, method, matched))
             matched_by_label[label] = matched
@@ -375,6 +445,24 @@ class ProductMatcher:
             'subtotal_match': matched_by_label.get('subtotal', False),
             'total_match': matched_by_label.get('total', False),
         }
+
+    def _recognized_price_unit(self, line):
+        return self._first_number(
+            getattr(line, 'price_unit', False),
+            getattr(line, 'price_unit_without_tax', False),
+        )
+
+    def _recognized_subtotal(self, line):
+        return self._first_number(
+            getattr(line, 'amount_untaxed', False),
+            getattr(line, 'line_subtotal_without_tax', False),
+        )
+
+    def _recognized_total(self, line):
+        return self._first_number(
+            getattr(line, 'amount_total', False),
+            getattr(line, 'line_total_with_tax', False),
+        )
 
     def _write_match_result(
         self,
@@ -528,19 +616,39 @@ class ProductMatcher:
             lines.insert(0, _('Several product candidates require review.'))
         return '\n'.join(lines)
 
-    def _build_partial_diagnostics(self, line, move_lines, candidates):
+    def _build_partial_diagnostics(
+        self,
+        line,
+        job,
+        all_invoice_lines,
+        move_lines,
+        candidates,
+    ):
         extracted_codes = self._line_codes(line)
         diagnostics = [
             'Partial bill matching diagnostics:',
+            'Job mode: %s.' % job.mode,
+            'Move ID: %s.' % (job.move_id.id if job.move_id else 'none'),
             'Extracted supplier/internal codes: %s.' % (
                 ', '.join(extracted_codes) if extracted_codes else 'none'
             ),
-            'Invoice lines checked: %s.' % len(move_lines),
+            'Invoice lines total: %s.' % len(all_invoice_lines),
+            'Invoice lines with product after filter: %s.' % len(move_lines),
+            'Recognized values: supplier_product_code=%s; supplier_product_name=%s; quantity=%s; price_unit=%s; amount_untaxed=%s.'
+            % (
+                getattr(line, 'supplier_product_code', False) or 'none',
+                getattr(line, 'supplier_product_name', False) or 'none',
+                getattr(line, 'quantity', False) or 'none',
+                self._recognized_price_unit(line) or 'none',
+                self._recognized_subtotal(line) or 'none',
+            ),
             'Methods tried: supplier_product_code, supplier_product_name, default_code, barcode, product name, move_line.name, quantity, price, subtotal, total.',
             'Fields compared: quantity, price_unit, amount_untaxed/subtotal, amount_total, product/default/barcode/display names, supplierinfo code/name.',
         ]
         if not move_lines:
-            diagnostics.append('No product invoice lines are available on the vendor bill.')
+            diagnostics.append(
+                'No product invoice lines are available on the vendor bill after filtering product_id and display lines.'
+            )
             return diagnostics
 
         best = max(candidates, key=lambda candidate: candidate.get('score') or 0.0, default=False)
@@ -563,7 +671,62 @@ class ProductMatcher:
             )
         else:
             diagnostics.append('Best score before threshold: 0.00.')
+
+        diagnostics.append('Checked invoice line details:')
+        for candidate in candidates:
+            diagnostics.extend(self._format_partial_candidate_diagnostics(candidate))
         return diagnostics
+
+    def _format_partial_candidate_diagnostics(self, candidate):
+        move_line = candidate.get('move_line')
+        product = candidate.get('product')
+        if not move_line or not product:
+            return ['- Empty candidate.']
+
+        score = candidate.get('score') or 0.0
+        if score >= self.MATCHED_THRESHOLD:
+            decision = 'accepted/confident'
+        elif score >= self.CANDIDATE_THRESHOLD:
+            decision = 'candidate/manual review'
+        else:
+            decision = 'rejected below threshold'
+
+        values = [
+            '- move_line_id=%s; product_id=%s; score=%.2f; method=%s; decision=%s.'
+            % (
+                move_line.id,
+                product.id,
+                score,
+                candidate.get('method') or 'none',
+                decision,
+            ),
+            '  product_display_name=%s' % (
+                getattr(product, 'display_name', False)
+                or getattr(product, 'name', False)
+                or ''
+            ),
+            '  product_default_code=%s; barcode=%s'
+            % (
+                getattr(product, 'default_code', False) or '',
+                getattr(product, 'barcode', False) or '',
+            ),
+            '  move_line.name=%s' % (getattr(move_line, 'name', False) or ''),
+            '  quantity=%s; price_unit=%s; price_subtotal=%s'
+            % (
+                getattr(move_line, 'quantity', False),
+                getattr(move_line, 'price_unit', False),
+                getattr(move_line, 'price_subtotal', False),
+            ),
+            '  extracted candidate tokens/codes=%s'
+            % (
+                ', '.join(candidate.get('candidate_codes') or [])
+                if candidate.get('candidate_codes')
+                else 'none'
+            ),
+        ]
+        if candidate.get('notes'):
+            values.append('  why: %s' % '; '.join(candidate['notes']))
+        return values
 
     def _candidate_product_ids(self, candidates):
         return self._unique_ids(candidate['product'] for candidate in candidates)
@@ -753,7 +916,7 @@ class ProductMatcher:
         codes.extend(self._extract_bracket_codes(value))
         codes.extend(self._extract_leading_codes(value))
         codes.extend(self._extract_embedded_codes(value))
-        return codes
+        return self._expand_code_tokens(codes)
 
     def _extract_leading_codes(self, value):
         value = (value or '').strip()
@@ -782,6 +945,18 @@ class ProductMatcher:
                 if self._looks_like_code(code):
                     codes.append(code)
         return codes
+
+    def _expand_code_tokens(self, codes):
+        expanded = []
+        for code in codes:
+            if not code:
+                continue
+            expanded.append(code)
+            for part in re.split(r'[-/\s.]+', code):
+                part = part.strip()
+                if part and self._looks_like_code(part):
+                    expanded.append(part)
+        return expanded
 
     def _looks_like_code(self, value):
         normalized = self._normalize_code(value)
@@ -877,6 +1052,13 @@ class ProductMatcher:
         except (TypeError, ValueError):
             return False
 
+    def _first_number(self, *values):
+        for value in values:
+            number = self._to_float(value)
+            if self._is_number(number):
+                return number
+        return False
+
     def _is_number(self, value):
         return isinstance(value, (int, float)) and not isinstance(value, bool)
 
@@ -885,10 +1067,11 @@ class ProductMatcher:
             return False
         return abs(first - second) <= tolerance
 
-    def _amounts_close(self, first, second):
+    def _amounts_close(self, first, second, currency=False):
         if not self._is_number(first) or not self._is_number(second):
             return False
-        tolerance = max(0.05, abs(second) * 0.01)
+        rounding = getattr(currency, 'rounding', False) if currency else False
+        tolerance = max(rounding or 0.01, 0.01)
         return abs(first - second) <= tolerance
 
     def _clamp_score(self, score):

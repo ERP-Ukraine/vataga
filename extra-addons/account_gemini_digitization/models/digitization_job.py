@@ -190,6 +190,16 @@ class AccountGeminiDigitizationJob(models.Model):
             'target': 'new',
         }
 
+    def action_run_matching(self):
+        self.ensure_one()
+        if self.state != 'review':
+            raise UserError(_('Matching can be re-run only for jobs in Review state.'))
+        if not self.line_ids:
+            raise UserError(_('There are no recognized lines to match.'))
+
+        ProductMatcher(self.env).match_job(self)
+        return self._get_job_form_action()
+
     def action_cancel(self):
         self.write({'state': 'cancelled'})
         return True
