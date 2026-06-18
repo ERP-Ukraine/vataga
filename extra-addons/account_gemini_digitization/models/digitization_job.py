@@ -96,6 +96,9 @@ class AccountGeminiDigitizationJob(models.Model):
     error_message = fields.Text(
         copy=False,
     )
+    matching_message = fields.Text(
+        copy=False,
+    )
     confidence = fields.Float(
         copy=False,
     )
@@ -144,6 +147,7 @@ class AccountGeminiDigitizationJob(models.Model):
             self.write({
                 'state': 'processing',
                 'error_message': False,
+                'matching_message': False,
             })
             response = client.recognize(self)
             self.write({
@@ -199,6 +203,7 @@ class AccountGeminiDigitizationJob(models.Model):
             raise UserError(_('There are no recognized lines to match.'))
 
         ProductMatcher(self.env).match_job(self)
+        self._update_matching_message_after_matching()
         return self._get_job_form_action()
 
     def action_cancel(self):
@@ -209,6 +214,7 @@ class AccountGeminiDigitizationJob(models.Model):
         self.write({
             'state': 'draft',
             'error_message': False,
+            'matching_message': False,
         })
         return True
 
@@ -245,6 +251,7 @@ class AccountGeminiDigitizationJob(models.Model):
             'match_status': line.match_status,
             'match_score': line.match_score,
             'match_method': line.match_method,
+            'match_summary': line.match_summary,
             'match_note': line.match_note,
             'confidence': line.confidence,
             'source_columns': line.source_columns,
@@ -255,12 +262,13 @@ class AccountGeminiDigitizationJob(models.Model):
         self.ensure_one()
         try:
             ProductMatcher(self.env).match_job(self)
+            self._update_matching_message_after_matching()
         except Exception as error:
             _logger.exception('Gemini digitization product matching failed.')
             warning = _('Product matching warning: %s') % error
             self.write({
                 'state': 'review',
-                'error_message': self._append_error_message(warning),
+                'matching_message': warning,
             })
 
     def _get_job_form_action(self):
@@ -304,6 +312,64 @@ class AccountGeminiDigitizationJob(models.Model):
         if self.error_message:
             return '%s\n%s' % (self.error_message, message)
         return message
+
+    def _update_matching_message_after_matching(self):
+        self.ensure_one()
+        self.write({
+            'matching_message': self._compute_matching_message(),
+            'error_message': self._clean_matching_warning_from_error_message(),
+        })
+
+    def _compute_matching_message(self):
+        self.ensure_one()
+        if not self.line_ids:
+            return False
+
+        if self.mode == 'partial_bill':
+            problematic = self.line_ids.filtered(
+                lambda line: line.match_status not in ('matched', 'manual')
+                or not line.move_line_id
+            )
+            if problematic:
+                return _('Some OCR lines require manual vendor bill line review before Apply.')
+            return False
+
+        if self.mode == 'full_bill':
+            problematic = self.line_ids.filtered(
+                lambda line: line.match_status not in ('matched', 'manual')
+                or not line.matched_product_id
+            )
+            if problematic:
+                return _('Some OCR lines require manual product review before Apply.')
+            return False
+
+        if self.mode == 'full_purchase':
+            problematic = self.line_ids.filtered(
+                lambda line: line.match_status not in ('matched', 'manual')
+                or not line.matched_product_id
+            )
+            if problematic:
+                return _('Some OCR lines require manual product review before Apply.')
+            return False
+
+        return False
+
+    def _clean_matching_warning_from_error_message(self):
+        self.ensure_one()
+        if not self.error_message:
+            return False
+
+        matching_fragments = (
+            'Several product candidates require review',
+            'Some OCR lines require manual',
+            'Product matching warning:',
+        )
+        kept_lines = [
+            line
+            for line in str(self.error_message).splitlines()
+            if not any(fragment in line for fragment in matching_fragments)
+        ]
+        return '\n'.join(kept_lines).strip() or False
 
     def _format_json_for_display(self, value):
         if value in (False, None, ''):

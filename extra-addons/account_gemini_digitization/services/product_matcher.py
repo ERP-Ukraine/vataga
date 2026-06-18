@@ -1058,9 +1058,11 @@ class ProductMatcher:
             'match_score': best['score'] if best else 0.0,
             'match_method': best['method'] if best else False,
         }
+        winner_candidate = False
 
         if unique_numeric_match:
             winner = unique_numeric_match
+            winner_candidate = winner
             values.update({
                 'match_status': 'matched',
                 'matched_product_id': winner['product'].id,
@@ -1074,6 +1076,7 @@ class ProductMatcher:
             and visible_candidates[0]['score'] >= self.MATCHED_THRESHOLD
         ):
             winner = visible_candidates[0]
+            winner_candidate = winner
             values.update({
                 'match_status': 'matched',
                 'matched_product_id': winner['product'].id,
@@ -1082,6 +1085,7 @@ class ProductMatcher:
                 values['move_line_id'] = winner['move_line'].id
         elif self._can_match_best_gap(visible_candidates, allow_best_gap_match):
             winner = visible_candidates[0]
+            winner_candidate = winner
             values.update({
                 'match_status': 'matched',
                 'matched_product_id': winner['product'].id,
@@ -1101,6 +1105,13 @@ class ProductMatcher:
             visible_candidates,
             diagnostics=diagnostics,
             status=values['match_status'],
+        )
+        values['match_summary'] = self._build_match_summary(
+            line,
+            values,
+            winner_candidate,
+            best,
+            visible_candidates,
         )
         line.write(values)
 
@@ -1145,6 +1156,7 @@ class ProductMatcher:
             'move_line_id': False,
             'candidate_product_ids': [(6, 0, [])],
             'candidate_move_line_ids': [(6, 0, [])],
+            'match_summary': _('Error: product matching failed.'),
             'match_note': _('Matching error: %s') % error,
         })
 
@@ -1152,8 +1164,64 @@ class ProductMatcher:
         for line in job.line_ids:
             line.write({
                 'match_status': 'error',
+                'match_summary': _('Error: product matching failed.'),
                 'match_note': message,
             })
+
+    def _build_match_summary(
+        self,
+        line,
+        values,
+        winner_candidate,
+        best_candidate,
+        visible_candidates,
+    ):
+        status = values.get('match_status')
+        score = values.get('match_score') or 0.0
+        method = values.get('match_method') or 'unknown'
+        code = self._summary_line_code(line)
+
+        if status == 'matched':
+            product = winner_candidate.get('product') if winner_candidate else False
+            product_name = self._short_product_name(product)
+            return _('Matched: %(product)s by %(method)s %(code)s, score %(score).2f') % {
+                'product': product_name,
+                'method': method,
+                'code': code,
+                'score': score,
+            }
+        if status == 'ambiguous':
+            product = best_candidate.get('product') if best_candidate else False
+            product_name = self._short_product_name(product)
+            return _('Ambiguous: %(count)s candidates, best %(product)s, score %(score).2f') % {
+                'count': len(visible_candidates),
+                'product': product_name,
+                'score': score,
+            }
+        if status == 'not_found':
+            return _('Not found: no product matched %(code)s') % {'code': code or _('recognized line')}
+        if status == 'error':
+            return _('Error: product matching failed.')
+        if status == 'manual':
+            return _('Manual: selected by user')
+        return _('Draft: not matched yet')
+
+    def _summary_line_code(self, line):
+        profile = self._line_code_profile(line)
+        if profile['primary_codes']:
+            return profile['primary_codes'][0]
+        code = getattr(line, 'supplier_product_code', False)
+        if code:
+            return code
+        return getattr(line, 'supplier_product_name', False) or getattr(line, 'description', False) or ''
+
+    def _short_product_name(self, product, limit=90):
+        if not product:
+            return _('no product')
+        name = getattr(product, 'display_name', False) or getattr(product, 'name', False) or str(product.id)
+        if len(name) <= limit:
+            return name
+        return '%s...' % name[:limit - 3]
 
     def _build_match_note(
         self,
@@ -1196,7 +1264,7 @@ class ProductMatcher:
             if candidate.get('notes'):
                 parts.append('; '.join(candidate['notes']))
             lines.append(' | '.join(parts))
-        if visible_candidates and len(visible_candidates) > 1:
+        if status == 'ambiguous' and visible_candidates and len(visible_candidates) > 1:
             lines.insert(0, _('Several product candidates require review.'))
         return '\n'.join(lines)
 

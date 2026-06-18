@@ -84,6 +84,10 @@ class AccountGeminiDigitizationLine(models.Model):
     )
     match_score = fields.Float()
     match_method = fields.Char()
+    match_summary = fields.Char(
+        string='Match Summary',
+        copy=False,
+    )
     move_line_id = fields.Many2one(
         comodel_name='account.move.line',
         string='Vendor Bill Line',

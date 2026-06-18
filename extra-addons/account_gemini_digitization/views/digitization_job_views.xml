@@ -116,9 +116,9 @@
                                     <field name="match_status"/>
                                     <field name="match_score"/>
                                     <field name="match_method"/>
+                                    <field name="match_summary"/>
                                     <field name="move_line_id"/>
                                     <field name="candidate_move_line_ids" widget="many2many_tags"/>
-                                    <field name="match_note"/>
                                     <field name="confidence"/>
                                     <field name="currency_id" column_invisible="True"/>
                                     <field name="company_id" column_invisible="True"/>
@@ -150,6 +150,7 @@
                                             <field name="match_status"/>
                                             <field name="match_score"/>
                                             <field name="match_method"/>
+                                            <field name="match_summary"/>
                                             <field name="move_line_id"/>
                                             <field name="candidate_move_line_ids" widget="many2many_tags"/>
                                             <field name="confidence"/>
@@ -158,6 +159,8 @@
                                     <group>
                                         <field name="source_columns"/>
                                         <field name="note"/>
+                                    </group>
+                                    <group string="Matching Diagnostics">
                                         <field name="match_note"/>
                                     </group>
                                 </form>
@@ -170,6 +173,7 @@
                             </group>
                         </page>
                         <page string="Errors">
+                            <field name="matching_message"/>
                             <field name="error_message"/>
                         </page>
                     </notebook>

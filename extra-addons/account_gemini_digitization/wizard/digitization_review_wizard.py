@@ -130,11 +130,13 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
             job.write({
                 'state': 'review',
                 'error_message': self._format_warnings(warnings),
+                'matching_message': False,
             })
         else:
             job.write({
                 'state': 'done',
                 'error_message': False,
+                'matching_message': False,
             })
 
         return {
@@ -202,6 +204,7 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
                 'match_status': status,
                 'match_score': score,
                 'match_method': method,
+                'match_summary': wizard_line.match_summary,
                 'quantity': wizard_line.quantity,
                 'price_unit': wizard_line.price_unit,
                 'tax_rate': wizard_line.tax_rate,
@@ -223,6 +226,7 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
         job.write({
             'state': 'done',
             'error_message': self._format_warnings(warnings) if warnings else False,
+            'matching_message': False,
         })
 
         return {
@@ -439,6 +443,7 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
             'match_status': status,
             'match_score': match_score,
             'match_method': method,
+            'match_summary': line.match_summary,
             'price_unit': line.price_unit,
             'tax_rate': line.tax_rate,
             'tax_ids': [(6, 0, tax_ids.ids)] if tax_ids else [(6, 0, [])],
@@ -585,6 +590,9 @@ class AccountGeminiDigitizationReviewLineWizard(models.TransientModel):
     )
     match_score = fields.Float()
     match_method = fields.Char()
+    match_summary = fields.Char(
+        readonly=True,
+    )
     confidence = fields.Float()
     source_columns = fields.Text()
     note = fields.Text()
@@ -604,6 +612,9 @@ class AccountGeminiDigitizationReviewLineWizard(models.TransientModel):
                 line.match_status = 'manual'
                 line.match_method = 'manual_move_line'
                 line.match_score = 1.0
+                line.match_summary = _('Manual: selected vendor bill line %s') % (
+                    line.move_line_id.display_name
+                )
 
     @api.onchange('matched_product_id')
     def _onchange_matched_product_id(self):
@@ -616,6 +627,9 @@ class AccountGeminiDigitizationReviewLineWizard(models.TransientModel):
                 line.match_status = 'manual'
                 line.match_method = 'manual_product'
                 line.match_score = 1.0
+                line.match_summary = _('Manual: selected product %s') % (
+                    line.matched_product_id.display_name
+                )
 
     def _is_manual_selection(self):
         self.ensure_one()
