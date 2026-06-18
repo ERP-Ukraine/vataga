@@ -112,11 +112,6 @@ class ResponseParser:
         evidence = self._clean_string(line.get('evidence'))
         context_text = self._build_context_text(source_columns, evidence)
 
-        tax_rate = self._get_effective_tax_rate(
-            self._to_float(line.get('tax_rate')),
-            header_tax_rate,
-        )
-
         price_unit_without_tax = self._to_float(line.get('price_unit_without_tax'))
         price_unit_with_tax = self._to_float(line.get('price_unit_with_tax'))
         legacy_price_unit = self._to_float(line.get('unit_price'))
@@ -136,6 +131,15 @@ class ResponseParser:
             line.get('tax_amount'),
         )
         line_total_with_tax = self._to_float(line.get('line_total_with_tax'))
+        tax_rate, tax_rate_warning = self._normalize_tax_rate(
+            self._to_float(line.get('tax_rate')),
+            header_tax_rate=header_tax_rate,
+            context_text=context_text,
+            line_subtotal_without_tax=line_subtotal_without_tax,
+            line_tax_amount=line_tax_amount,
+        )
+        if tax_rate_warning:
+            warnings.append(tax_rate_warning)
 
         legacy_line_total = self._to_float(line.get('line_total'))
         if not self._is_number(line_subtotal_without_tax) and not self._is_number(
@@ -248,7 +252,7 @@ class ResponseParser:
 
     def _compute_header_tax_rate(self, header, lines):
         explicit_rates = {
-            self._round_rate(self._to_float(line.get('tax_rate')))
+            self._normalize_tax_rate_number(self._to_float(line.get('tax_rate')))
             for line in lines
             if isinstance(line, dict)
             and self._is_positive_number(self._to_float(line.get('tax_rate')))
@@ -264,12 +268,62 @@ class ResponseParser:
             return False
         return self._round_amount(tax_amount / untaxed_amount * 100)
 
-    def _get_effective_tax_rate(self, line_tax_rate, header_tax_rate=False):
-        if self._is_positive_number(line_tax_rate):
-            return line_tax_rate
+    def _normalize_tax_rate(
+        self,
+        line_tax_rate,
+        header_tax_rate=False,
+        context_text=False,
+        line_subtotal_without_tax=False,
+        line_tax_amount=False,
+    ):
+        if self._is_number(line_tax_rate):
+            if line_tax_rate == 0:
+                if self._context_says_zero_tax(context_text):
+                    return 0.0, False
+                return False, 'Gemini returned tax_rate 0 without explicit zero-rated or VAT-exempt evidence.'
+            if line_tax_rate > 1:
+                return self._round_rate(line_tax_rate), False
+
+            normalized = self._round_rate(line_tax_rate * 100)
+            if self._fraction_rate_matches_amounts(
+                line_tax_rate,
+                line_subtotal_without_tax,
+                line_tax_amount,
+            ):
+                return normalized, False
+            if (
+                self._is_positive_number(header_tax_rate)
+                and self._rates_close(line_tax_rate, header_tax_rate / 100)
+            ):
+                return normalized, False
+            return normalized, (
+                'Gemini returned fractional tax_rate %.4g; interpreted as %.4g%%.'
+                % (line_tax_rate, normalized)
+            )
+
         if self._is_positive_number(header_tax_rate):
-            return header_tax_rate
-        return False
+            return self._round_rate(header_tax_rate), False
+        return False, False
+
+    def _normalize_tax_rate_number(self, value):
+        if not self._is_positive_number(value):
+            return False
+        if value <= 1:
+            return self._round_rate(value * 100)
+        return self._round_rate(value)
+
+    def _fraction_rate_matches_amounts(self, fraction_rate, amount_untaxed, amount_tax):
+        if not self._is_positive_number(amount_untaxed):
+            return False
+        if not self._is_number(amount_tax):
+            return False
+        actual_fraction = amount_tax / amount_untaxed
+        return self._rates_close(actual_fraction, fraction_rate)
+
+    def _rates_close(self, first, second, tolerance=0.0001):
+        if not self._is_number(first) or not self._is_number(second):
+            return False
+        return abs(first - second) <= tolerance
 
     def _compute_line_tax_amount(
         self,
@@ -432,6 +486,12 @@ class ResponseParser:
         return bool(re.search(
             r'((з|із|с)\s*(пдв|ндс)|with\s*(vat|tax)|incl\.?\s*(vat|tax)|gross)',
             context_text,
+        ))
+
+    def _context_says_zero_tax(self, context_text):
+        return bool(re.search(
+            r'(\b0\s*%|zero[-\s]?rated|vat[-\s]?exempt|tax[-\s]?exempt|no\s*vat)',
+            context_text or '',
         ))
 
     def _stringify_value(self, value):

@@ -1,3 +1,5 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_account_gemini_digitization_job_user,account.gemini.digitization.job.user,model_account_gemini_digitization_job,base.group_user,1,1,1,0
 access_account_gemini_digitization_line_user,account.gemini.digitization.line.user,model_account_gemini_digitization_line,base.group_user,1,1,1,0
+access_account_gemini_digitization_review_wizard_account_user,account.gemini.digitization.review.wizard.account.user,model_account_gemini_digitization_review_wizard,account.group_account_user,1,1,1,1
+access_account_gemini_digitization_review_line_wizard_account_user,account.gemini.digitization.review.line.wizard.account.user,model_account_gemini_digitization_review_line_wizard,account.group_account_user,1,1,1,1

@@ -475,6 +475,9 @@ Keep product lines in the same order as in the document.
 Return numbers as JSON numbers without currency symbols.
 Return dates in YYYY-MM-DD format.
 Return VAT separately as tax_rate and tax_amount.
+Return tax_rate as a percentage number, not as a fraction.
+For 20%% VAT return 20, not 0.2.
+For 7%% VAT return 7, not 0.07.
 Determine the meaning of each table column from its header and surrounding totals.
 If a column explicitly means price without VAT, return it as price_unit_without_tax.
 If a column explicitly means price with VAT, return it as price_unit_with_tax.

@@ -47,7 +47,17 @@ class ProductMatcher:
                     self._score_move_line(line, move_line, job.partner_id)
                     for move_line in move_lines
                 ]
-                self._write_match_result(line, candidates, include_move_lines=True)
+                diagnostics = self._build_partial_diagnostics(
+                    line,
+                    move_lines,
+                    candidates,
+                )
+                self._write_match_result(
+                    line,
+                    candidates,
+                    include_move_lines=True,
+                    diagnostics=diagnostics,
+                )
             except Exception as error:
                 _logger.exception('Gemini partial bill matching failed.')
                 self._write_line_error(line, error)
@@ -103,12 +113,20 @@ class ProductMatcher:
         score, method, notes = self._score_product_identity(line, product, partner)
         score, method = self._score_move_line_text(line, move_line, score, method)
         score, notes = self._apply_partial_consistency(line, move_line, score, notes)
+        score, method, notes, numeric_strong = self._apply_partial_numeric_fallback(
+            line,
+            move_line,
+            score,
+            method,
+            notes,
+        )
         return {
             'product': product,
             'move_line': move_line,
             'score': self._clamp_score(score),
             'method': method,
             'notes': notes,
+            'numeric_strong': numeric_strong,
         }
 
     def _score_product(self, line, product, partner):
@@ -209,7 +227,103 @@ class ProductMatcher:
                 ))
         return score, notes
 
-    def _write_match_result(self, line, candidates, include_move_lines=False):
+    def _apply_partial_numeric_fallback(self, line, move_line, score, method, notes):
+        checks = self._get_partial_numeric_checks(line, move_line)
+        numeric_strong = False
+
+        if checks['quantity_match'] and checks['amount_match_count']:
+            numeric_strong = True
+            fallback_score = 0.88
+            fallback_method = checks['best_amount_method']
+            notes.append(
+                'Numeric fallback: quantity and %s match.'
+                % checks['best_amount_label']
+            )
+        elif checks['quantity_match']:
+            fallback_score = 0.72
+            fallback_method = 'quantity_only'
+            notes.append('Numeric fallback: quantity matches, amount/price did not match.')
+        elif checks['amount_match_count']:
+            fallback_score = 0.66
+            fallback_method = checks['best_amount_method']
+            notes.append(
+                'Numeric fallback: %s matches but quantity did not match.'
+                % checks['best_amount_label']
+            )
+        else:
+            return score, method, notes, numeric_strong
+
+        if fallback_score > (score or 0.0):
+            score = fallback_score
+            method = fallback_method
+        return score, method, notes, numeric_strong
+
+    def _get_partial_numeric_checks(self, line, move_line):
+        quantity = self._to_float(getattr(line, 'quantity', False))
+        move_quantity = self._to_float(getattr(move_line, 'quantity', False))
+        quantity_match = (
+            self._is_number(quantity)
+            and self._is_number(move_quantity)
+            and self._numbers_close(quantity, move_quantity, tolerance=0.01)
+        )
+
+        amount_checks = []
+        for label, method, recognized_value, move_value in (
+            (
+                'price_unit',
+                'quantity_price',
+                getattr(line, 'price_unit', False),
+                getattr(move_line, 'price_unit', False),
+            ),
+            (
+                'subtotal',
+                'quantity_subtotal',
+                getattr(line, 'amount_untaxed', False),
+                getattr(move_line, 'price_subtotal', False),
+            ),
+            (
+                'total',
+                'quantity_total',
+                getattr(line, 'amount_total', False),
+                getattr(move_line, 'price_total', False),
+            ),
+        ):
+            recognized_value = self._to_float(recognized_value)
+            move_value = self._to_float(move_value)
+            matched = (
+                self._is_number(recognized_value)
+                and self._is_number(move_value)
+                and self._amounts_close(recognized_value, move_value)
+            )
+            amount_checks.append((label, method, matched))
+
+        matched_amounts = [
+            (label, method)
+            for label, method, matched in amount_checks
+            if matched
+        ]
+        best_amount_label, best_amount_method = (
+            matched_amounts[0] if matched_amounts else (False, False)
+        )
+        return {
+            'quantity_match': quantity_match,
+            'amount_match_count': len(matched_amounts),
+            'best_amount_label': best_amount_label,
+            'best_amount_method': best_amount_method,
+        }
+
+    def _write_match_result(
+        self,
+        line,
+        candidates,
+        include_move_lines=False,
+        diagnostics=False,
+    ):
+        if include_move_lines:
+            unique_numeric_match = self._promote_unique_partial_numeric_match(candidates)
+        else:
+            unique_numeric_match = False
+
         candidates = [
             candidate
             for candidate in candidates
@@ -230,10 +344,19 @@ class ProductMatcher:
             'candidate_move_line_ids': [(6, 0, self._candidate_move_line_ids(visible_candidates))],
             'match_score': best['score'] if best else 0.0,
             'match_method': best['method'] if best else False,
-            'match_note': self._build_match_note(candidates, visible_candidates),
         }
 
-        if (
+        if unique_numeric_match:
+            winner = unique_numeric_match
+            values.update({
+                'match_status': 'matched',
+                'matched_product_id': winner['product'].id,
+                'match_score': winner['score'],
+                'match_method': winner['method'],
+            })
+            if winner.get('move_line'):
+                values['move_line_id'] = winner['move_line'].id
+        elif (
             len(visible_candidates) == 1
             and visible_candidates[0]['score'] >= self.MATCHED_THRESHOLD
         ):
@@ -248,7 +371,34 @@ class ProductMatcher:
             values['match_status'] = 'ambiguous'
         else:
             values['match_status'] = 'not_found'
+        values['match_note'] = self._build_match_note(
+            candidates,
+            visible_candidates,
+            diagnostics=diagnostics,
+            status=values['match_status'],
+        )
         line.write(values)
+
+    def _promote_unique_partial_numeric_match(self, candidates):
+        strong_candidates = [
+            candidate
+            for candidate in candidates
+            if candidate.get('numeric_strong') and candidate.get('move_line')
+        ]
+        if len(strong_candidates) != 1:
+            return False
+
+        winner = strong_candidates[0]
+        winner['score'] = max(winner.get('score') or 0.0, 0.92)
+        if winner.get('method'):
+            if not winner['method'].endswith('_unique'):
+                winner['method'] = '%s_unique' % winner['method']
+        else:
+            winner['method'] = 'quantity_price_unique'
+        winner.setdefault('notes', []).append(
+            'Unique partial bill numeric match among checked invoice lines.'
+        )
+        return winner
 
     def _write_line_error(self, line, error):
         line.write({
@@ -269,10 +419,32 @@ class ProductMatcher:
                 'match_note': message,
             })
 
-    def _build_match_note(self, candidates, visible_candidates):
+    def _build_match_note(
+        self,
+        candidates,
+        visible_candidates,
+        diagnostics=False,
+        status=False,
+    ):
+        lines = list(diagnostics or [])
+        if status == 'not_found':
+            if candidates:
+                lines.append(
+                    'Status reason: best score is below %.2f candidate threshold.'
+                    % self.CANDIDATE_THRESHOLD
+                )
+            else:
+                lines.append('Status reason: no scored candidates were found.')
+        elif status == 'ambiguous':
+            lines.append('Status reason: several candidates require manual review.')
+        elif status == 'matched':
+            lines.append('Status reason: one confident candidate was selected.')
+
         if not candidates:
-            return _('No product candidates found.')
-        lines = []
+            lines.append(_('No product candidates found.'))
+            return '\n'.join(lines)
+
+        lines.append('Top candidates:')
         for candidate in candidates[:5]:
             product = candidate['product']
             product_name = getattr(product, 'display_name', False) or getattr(product, 'name', False)
@@ -291,6 +463,38 @@ class ProductMatcher:
         if visible_candidates and len(visible_candidates) > 1:
             lines.insert(0, _('Several product candidates require review.'))
         return '\n'.join(lines)
+
+    def _build_partial_diagnostics(self, line, move_lines, candidates):
+        diagnostics = [
+            'Partial bill matching diagnostics:',
+            'Invoice lines checked: %s.' % len(move_lines),
+            'Methods tried: supplier_product_code, supplier_product_name, default_code, barcode, product name, move_line.name, quantity, price, subtotal, total.',
+        ]
+        if not move_lines:
+            diagnostics.append('No product invoice lines are available on the vendor bill.')
+            return diagnostics
+
+        best = max(candidates, key=lambda candidate: candidate.get('score') or 0.0, default=False)
+        if best and best.get('score'):
+            product = best.get('product')
+            product_name = (
+                getattr(product, 'display_name', False)
+                or getattr(product, 'name', False)
+                or getattr(product, 'id', False)
+            )
+            move_line = best.get('move_line')
+            diagnostics.append(
+                'Best score before threshold: %.2f by %s%s for %s.'
+                % (
+                    best.get('score') or 0.0,
+                    best.get('method') or 'unknown',
+                    ' on move_line_id=%s' % move_line.id if move_line else '',
+                    product_name,
+                )
+            )
+        else:
+            diagnostics.append('Best score before threshold: 0.00.')
+        return diagnostics
 
     def _candidate_product_ids(self, candidates):
         return self._unique_ids(candidate['product'] for candidate in candidates)
