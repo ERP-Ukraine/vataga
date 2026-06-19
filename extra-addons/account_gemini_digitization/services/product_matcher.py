@@ -246,14 +246,15 @@ class ProductMatcher:
             self._append_unique(products, self._seller_product(seller))
 
         for code in self._line_codes(line):
-            for product in self._search_products_exact('default_code', code):
-                self._append_unique(products, product)
-            for product in self._search_products_exact('barcode', code):
-                self._append_unique(products, product)
-            for product in self._search_products_code_like(code):
-                self._append_unique(products, product)
-            for seller in self._search_supplierinfos_code_like(code, partner):
-                self._append_unique(products, self._seller_product(seller))
+            for search_code in self._code_search_variants(code):
+                for product in self._search_products_exact('default_code', search_code):
+                    self._append_unique(products, product)
+                for product in self._search_products_exact('barcode', search_code):
+                    self._append_unique(products, product)
+                for product in self._search_products_code_like(search_code):
+                    self._append_unique(products, product)
+                for seller in self._search_supplierinfos_code_like(search_code, partner):
+                    self._append_unique(products, self._seller_product(seller))
 
         for term in self._line_search_terms(line):
             for product in self._search_products_like(term):
@@ -276,14 +277,15 @@ class ProductMatcher:
         for code in search_codes:
             if self._is_low_value_code(code):
                 continue
-            for product in self._search_products_exact('default_code', code):
-                self._append_unique(products, product)
-            for product in self._search_products_exact('barcode', code):
-                self._append_unique(products, product)
-            for product in self._search_products_code_like(code):
-                self._append_unique(products, product)
-            for seller in self._search_supplierinfos_code_like(code, partner):
-                self._append_unique(products, self._seller_product(seller))
+            for search_code in self._code_search_variants(code):
+                for product in self._search_products_exact('default_code', search_code):
+                    self._append_unique(products, product)
+                for product in self._search_products_exact('barcode', search_code):
+                    self._append_unique(products, product)
+                for product in self._search_products_code_like(search_code):
+                    self._append_unique(products, product)
+                for seller in self._search_supplierinfos_code_like(search_code, partner):
+                    self._append_unique(products, self._seller_product(seller))
 
         for term in self._full_bill_search_terms(line, profile):
             for product in self._search_products_like(term):
@@ -463,6 +465,9 @@ class ProductMatcher:
 
         if not score:
             method = method or False
+        bundle_note = self._bundle_product_note(line, product)
+        if bundle_note:
+            notes.append(bundle_note)
         notes.extend('Boost: %s.' % boost for boost in boosts)
         notes.extend('Penalty: %s.' % penalty for penalty in penalties)
         if base_score:
@@ -541,7 +546,7 @@ class ProductMatcher:
                 score, method = self._choose_score(
                     score,
                     method,
-                    0.89,
+                    0.92,
                     'product_primary_code_token_exact',
                 )
                 notes.append(
@@ -555,7 +560,7 @@ class ProductMatcher:
                 score, method = self._choose_score(
                     score,
                     method,
-                    0.88,
+                    0.90,
                     'product_primary_code_prefix',
                 )
                 notes.append(
@@ -570,7 +575,7 @@ class ProductMatcher:
                 score, method = self._choose_score(
                     score,
                     method,
-                    0.86,
+                    0.89,
                     'primary_%s' % target_method,
                 )
                 notes.append(
@@ -640,7 +645,7 @@ class ProductMatcher:
     def _brand_boost(self, line, product):
         line_text = self._normalize_text(self._ocr_line_text(line))
         product_text = self._normalize_text(self._product_text(product))
-        for brand in ('gainta',):
+        for brand in ('gainta', 'holybro'):
             if brand in line_text and brand in product_text:
                 return 0.04
         return 0.0
@@ -687,6 +692,45 @@ class ProductMatcher:
             if term_normalized and term_normalized in product_text and term_normalized not in line_text:
                 penalty += 0.05
         return min(0.15, penalty)
+
+    def _bundle_product_note(self, line, product):
+        raw_product_text = ' '.join(
+            str(value)
+            for value in (
+                getattr(product, 'display_name', False),
+                getattr(product, 'name', False),
+            )
+            if value
+        )
+        product_text = self._normalize_text(raw_product_text)
+        if not (
+            '+' in raw_product_text
+            or 'комплект' in product_text
+            or 'набір' in product_text
+            or 'набор' in product_text
+            or 'bundle' in product_text
+            or 'kit' in product_text
+        ):
+            return False
+
+        line_tokens = self._meaningful_tokens(self._ocr_line_text(line))
+        line_tokens.update(
+            self._normalize_code(code)
+            for code in self._line_codes(line)
+            if self._normalize_code(code) and not self._is_low_value_code(code)
+        )
+        product_tokens = self._meaningful_tokens(raw_product_text)
+        product_tokens.update(
+            self._normalize_code(code)
+            for code in self._product_candidate_codes(product, partner=False)
+            if self._normalize_code(code) and not self._is_low_value_code(code)
+        )
+        overlap = sorted(token for token in line_tokens & product_tokens if token)
+        if not overlap:
+            return False
+        return 'Possible bundle product found; shared tokens: %s. Review merge action manually.' % (
+            ', '.join(overlap[:6])
+        )
 
     def _score_product_code_match(self, line, product, partner, score, method, notes):
         candidate_codes = self._product_candidate_codes(product, partner)
@@ -1586,10 +1630,11 @@ class ProductMatcher:
         for code in codes:
             if self._is_low_value_code(code):
                 continue
-            for seller in self._search_supplierinfos_exact(partner, product_code=code):
-                self._append_unique(sellers, seller)
-            for seller in self._search_supplierinfos_code_like(code, partner):
-                self._append_unique(sellers, seller)
+            for search_code in self._code_search_variants(code):
+                for seller in self._search_supplierinfos_exact(partner, product_code=search_code):
+                    self._append_unique(sellers, seller)
+                for seller in self._search_supplierinfos_code_like(search_code, partner):
+                    self._append_unique(sellers, seller)
         return sellers
 
     def _search_supplierinfos_exact(self, partner, product_code=False, product_name=False):
@@ -1613,12 +1658,12 @@ class ProductMatcher:
         ], limit=100))
 
     def _search_supplierinfos_code_like(self, code, partner):
-        normalized_code = self._normalize_code(code)
-        if not normalized_code or not partner:
+        code = str(code or '').strip()
+        if not self._normalize_code(code) or not partner:
             return []
         return list(self.env['product.supplierinfo'].search([
             ('partner_id', '=', partner.id),
-            ('product_code', 'ilike', normalized_code),
+            ('product_code', 'ilike', code),
         ], limit=100))
 
     def _search_products_exact(self, field_name, value):
@@ -1638,14 +1683,14 @@ class ProductMatcher:
         ], limit=100))
 
     def _search_products_code_like(self, code):
-        normalized_code = self._normalize_code(code)
-        if not normalized_code:
+        code = str(code or '').strip()
+        if not self._normalize_code(code):
             return []
         return list(self.env['product.product'].search([
             '|',
             '|',
-            ('default_code', 'ilike', normalized_code),
-            ('barcode', 'ilike', normalized_code),
+            ('default_code', 'ilike', code),
+            ('barcode', 'ilike', code),
             ('name', 'ilike', code),
         ], limit=100))
 
@@ -1744,8 +1789,11 @@ class ProductMatcher:
                 if self._is_low_value_code(token):
                     continue
                 terms.append(token)
-        if not terms:
-            terms.extend(profile['secondary_codes'])
+        terms.extend(
+            code
+            for code in profile['secondary_codes']
+            if not self._is_low_value_code(code)
+        )
         return list(dict.fromkeys(term for term in terms if term))
 
     def _line_code_profile(self, line):
@@ -1914,6 +1962,15 @@ class ProductMatcher:
         bracket_match = re.match(r'^\[([^\]]+)\]', value)
         if bracket_match:
             return [bracket_match.group(1).strip()]
+        technical_match = re.match(
+            r'^([A-Za-z]{1,12}[-/\s]*\d+[A-Za-zА-Яа-яІіЇїЄєҐґ]*(?:[-/]\d+[A-Za-zА-Яа-яІіЇїЄєҐґ]*)*)',
+            value,
+            flags=re.U,
+        )
+        if technical_match:
+            code = technical_match.group(1).strip(':-.,; ')
+            if self._looks_like_code(code):
+                return [code]
         match = re.match(r'^([^\W_][\w./-]{1,40})', value, flags=re.U)
         if not match:
             return []
@@ -1925,7 +1982,8 @@ class ProductMatcher:
     def _extract_embedded_codes(self, value):
         codes = []
         patterns = (
-            r'\b[^\W_\d]{1,12}\d[\w/-]{1,30}\b',
+            r'\b[A-Za-z]{1,12}[-/\s]*\d+[A-Za-zА-Яа-яІіЇїЄєҐґ]*(?:[-/]\d+[A-Za-zА-Яа-яІіЇїЄєҐґ]*)*\b',
+            r'\b[^\W_\d]{1,12}\d[\w/-]{0,30}\b',
             r'\b\d[\w/-]*[-/]\d[\w/-]*\b',
         )
         for pattern in patterns:
@@ -1940,12 +1998,34 @@ class ProductMatcher:
         for code in codes:
             if not code:
                 continue
-            expanded.append(code)
+            expanded.extend(self._code_search_variants(code))
             for part in re.split(r'[-/\s.]+', code):
                 part = part.strip()
                 if part and self._looks_like_code(part):
                     expanded.append(part)
         return expanded
+
+    def _code_search_variants(self, code):
+        code = str(code or '').strip()
+        if not code:
+            return []
+        variants = [code]
+        collapsed_spaces = re.sub(r'\s+', ' ', code).strip()
+        variants.append(collapsed_spaces)
+        variants.append(re.sub(r'\s+', '-', collapsed_spaces))
+        variants.append(re.sub(r'[-\s]+', '', collapsed_spaces))
+        variants.append(re.sub(r'[-/\s]+', '', collapsed_spaces))
+        if '/' in collapsed_spaces or '-' in collapsed_spaces or ' ' in collapsed_spaces:
+            variants.append(re.sub(r'[-\s]+', '-', collapsed_spaces))
+        result = []
+        seen = set()
+        for variant in variants:
+            variant = variant.strip()
+            key = variant.lower()
+            if variant and key not in seen:
+                seen.add(key)
+                result.append(variant)
+        return result
 
     def _looks_like_code(self, value):
         normalized = self._normalize_code(value)

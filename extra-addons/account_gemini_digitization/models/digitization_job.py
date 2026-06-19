@@ -182,6 +182,20 @@ class AccountGeminiDigitizationJob(models.Model):
                 for line in self.line_ids.sorted('sequence')
             ],
         })
+        wizard_lines_by_job_line = {
+            wizard_line.job_line_id.id: wizard_line
+            for wizard_line in wizard.line_ids
+            if wizard_line.job_line_id
+        }
+        for wizard_line in wizard.line_ids:
+            if not wizard_line.job_line_id:
+                continue
+            target_job_line = wizard_line.job_line_id.merge_target_line_id
+            if not target_job_line:
+                continue
+            target_wizard_line = wizard_lines_by_job_line.get(target_job_line.id)
+            if target_wizard_line:
+                wizard_line.merge_target_line_id = target_wizard_line.id
         wizard._autofill_line_taxes()
         form_view = self.env.ref(
             'account_gemini_digitization.view_account_gemini_digitization_review_wizard_form'
@@ -254,6 +268,7 @@ class AccountGeminiDigitizationJob(models.Model):
             'match_method': line.match_method,
             'match_summary': line.match_summary,
             'match_note': line.match_note,
+            'apply_action': line.apply_action or 'create_line',
             'confidence': line.confidence,
             'source_columns': line.source_columns,
             'note': line.note,

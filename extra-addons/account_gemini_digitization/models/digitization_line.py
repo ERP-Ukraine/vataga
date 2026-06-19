@@ -14,6 +14,11 @@ class AccountGeminiDigitizationLine(models.Model):
         ('manual', 'Manual'),
         ('error', 'Error'),
     ]
+    APPLY_ACTION_SELECTION = [
+        ('create_line', 'Create Invoice Line'),
+        ('merge_into', 'Merge Into Another Line'),
+        ('skip', 'Skip'),
+    ]
 
     job_id = fields.Many2one(
         comodel_name='account.gemini.digitization.job',
@@ -99,6 +104,17 @@ class AccountGeminiDigitizationLine(models.Model):
         column1='line_id',
         column2='move_line_id',
         string='Vendor Bill Line Candidates',
+    )
+    apply_action = fields.Selection(
+        selection=APPLY_ACTION_SELECTION,
+        default='create_line',
+        copy=False,
+    )
+    merge_target_line_id = fields.Many2one(
+        comodel_name='account.gemini.digitization.line',
+        string='Merge Target OCR Line',
+        ondelete='set null',
+        copy=False,
     )
     source_columns = fields.Text()
     note = fields.Text()
