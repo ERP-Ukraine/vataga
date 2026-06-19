@@ -109,6 +109,7 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
         move = job.move_id
         self._validate_partial_bill_apply(job, move)
         self._validate_review_lines()
+        apply_plans = self._prepare_partial_bill_apply_plan(move)
 
         existing_line_ids = set(move.invoice_line_ids.ids)
         warnings = []
@@ -121,9 +122,24 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
         if header_values:
             move.write(header_values)
 
-        for line in self.line_ids.sorted('sequence'):
-            line_warnings = self._apply_review_line(line, move)
+        for plan in apply_plans:
+            line_warnings = self._apply_review_line(plan, move)
             warnings.extend(line_warnings)
+
+        for skipped_line in self.line_ids.filtered(lambda line: line.apply_action == 'skip'):
+            skipped_line.job_line_id.write({
+                'apply_action': 'skip',
+                'merge_target_line_id': False,
+                'move_line_id': False,
+                'match_status': 'manual',
+                'match_score': skipped_line.match_score or 1.0,
+                'match_method': 'manual_skip',
+                'match_summary': _('Skipped: manually excluded from vendor bill update'),
+                'note': self._append_text(
+                    skipped_line.job_line_id.note,
+                    _('Skipped during partial bill apply.'),
+                ),
+            })
 
         if set(move.invoice_line_ids.ids) != existing_line_ids:
             raise UserError(_('Apply must not create or delete vendor bill lines.'))
@@ -233,7 +249,8 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
                 merged_line.job_line_id.write({
                     'apply_action': 'merge_into',
                     'merge_target_line_id': wizard_line.job_line_id.id,
-                    'move_line_id': False,
+                    'move_line_id': created_line.id,
+                    'matched_product_id': wizard_line.matched_product_id.id,
                     'match_status': 'manual',
                     'match_score': merged_line.match_score or 1.0,
                     'match_method': 'manual_merge',
@@ -286,6 +303,8 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
             if not move:
                 continue
             for line in wizard.line_ids:
+                if line.apply_action in ('merge_into', 'skip'):
+                    continue
                 if line.tax_ids:
                     continue
                 tax_ids, tax_warning = wizard._get_line_taxes(
@@ -343,9 +362,34 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
 
         incomplete = []
         invalid = []
+        invalid_action = []
+        missing_merge_target = []
+        invalid_merge_target = []
         missing_price = []
+        create_lines = self.line_ids.filtered(lambda line: (line.apply_action or 'create_line') == 'create_line')
+
+        if not create_lines:
+            raise UserError(_('At least one OCR line must update a vendor bill line.'))
+
         for line in self.line_ids:
             label = line._display_label()
+            action = line.apply_action or 'create_line'
+            if action not in ('create_line', 'merge_into', 'skip'):
+                invalid_action.append(label)
+                continue
+            if action == 'skip':
+                continue
+            if action == 'merge_into':
+                if not line.merge_target_line_id:
+                    missing_merge_target.append(label)
+                    continue
+                if (
+                    line.merge_target_line_id == line
+                    or line.merge_target_line_id.wizard_id != self
+                    or line.merge_target_line_id.apply_action != 'create_line'
+                ):
+                    invalid_merge_target.append(label)
+                continue
             if not line.move_line_id:
                 incomplete.append(label)
                 continue
@@ -357,11 +401,17 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
             if not self._is_positive_number(line.price_unit):
                 missing_price.append(label)
 
+        if invalid_action:
+            raise UserError(_('Some OCR lines have unsupported apply actions. Lines: %s') % ', '.join(invalid_action))
         if incomplete:
             raise UserError(_(
                 'Не всі рядки зіставлено з рядками рахунку. '
                 'Перевірте Review. Рядки: %s'
             ) % ', '.join(incomplete))
+        if missing_merge_target:
+            raise UserError(_('Some OCR lines are marked as merge_into but have no target line. Lines: %s') % ', '.join(missing_merge_target))
+        if invalid_merge_target:
+            raise UserError(_('Some OCR lines have invalid merge targets. Target must be a create_line in the same Review. Lines: %s') % ', '.join(invalid_merge_target))
         if invalid:
             raise UserError(_(
                 'Lines with matching errors cannot be applied. Lines: %s'
@@ -371,6 +421,51 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
                 'Not all recognized lines have a positive unit price. '
                 'Please check Review. Lines: %s'
             ) % ', '.join(missing_price))
+
+    def _prepare_partial_bill_apply_plan(self, move):
+        errors = []
+        apply_plans = []
+        create_lines = self.line_ids.filtered(
+            lambda line: (line.apply_action or 'create_line') == 'create_line'
+        )
+        for line in create_lines.sorted('sequence'):
+            try:
+                merged_lines = self.line_ids.filtered(
+                    lambda child: child.apply_action == 'merge_into'
+                    and child.merge_target_line_id == line
+                ).sorted('sequence')
+                final_tax_rate = self._get_full_bill_plan_tax_rate(line, merged_lines)
+                quantity, price_unit, amount_untaxed = self._get_full_bill_plan_values(
+                    line,
+                    merged_lines,
+                )
+                tax_ids, _tax_warning = self._get_line_taxes(
+                    line,
+                    move,
+                    strict=True,
+                    tax_rate_override=final_tax_rate,
+                )
+                amount_tax, amount_total = self._get_full_bill_plan_tax_amounts(
+                    amount_untaxed,
+                    final_tax_rate,
+                )
+                apply_plans.append({
+                    'line': line,
+                    'merged_lines': merged_lines,
+                    'tax_ids': tax_ids,
+                    'tax_rate': final_tax_rate,
+                    'quantity': quantity,
+                    'price_unit': price_unit,
+                    'amount_untaxed': amount_untaxed,
+                    'amount_tax': amount_tax,
+                    'amount_total': amount_total,
+                })
+            except UserError as error:
+                errors.append(self._get_error_message(error))
+
+        if errors:
+            raise UserError('\n'.join(errors))
+        return apply_plans
 
     def _validate_full_bill_review_lines(self):
         if not self.line_ids:
@@ -708,8 +803,11 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
                 return False
         return True
 
-    def _apply_review_line(self, line, move):
+    def _apply_review_line(self, plan, move):
         warnings = []
+        line = plan['line']
+        merged_lines = plan.get('merged_lines') or self.env['account.gemini.digitization.review.line.wizard']
+        tax_ids = plan['tax_ids']
         move_line = line.move_line_id
         if move_line.move_id != move:
             raise UserError(_(
@@ -723,13 +821,11 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
                 'The existing vendor bill product was kept.'
             ) % line._display_label())
 
-        tax_ids, tax_warning = self._get_line_taxes(line, move)
-        if tax_warning:
-            warnings.append(tax_warning)
-
         values = {
-            'price_unit': line.price_unit,
+            'price_unit': plan['price_unit'],
         }
+        if merged_lines:
+            values['quantity'] = plan['quantity']
         if tax_ids:
             values['tax_ids'] = [(6, 0, tax_ids.ids)]
         move_line.write(values)
@@ -742,28 +838,54 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
         match_score = line.match_score
         if status == 'manual' and not match_score:
             match_score = 1.0
+        note = self._append_text(
+            line.job_line_id.note,
+            _('Applied to vendor bill line %s.') % move_line.display_name,
+        )
+        if merged_lines:
+            note = self._append_text(
+                note,
+                _('Merged OCR lines: %s.') % ', '.join(
+                    merged_line._display_label() for merged_line in merged_lines
+                ),
+            )
 
         line.job_line_id.write({
             'move_line_id': move_line.id,
             'matched_product_id': matched_product.id,
+            'apply_action': 'create_line',
+            'merge_target_line_id': False,
             'match_status': status,
             'match_score': match_score,
             'match_method': method,
             'match_summary': line.match_summary,
-            'price_unit': line.price_unit,
-            'tax_rate': line.tax_rate,
+            'quantity': plan['quantity'],
+            'price_unit': plan['price_unit'],
+            'tax_rate': plan['tax_rate'],
             'tax_ids': [(6, 0, tax_ids.ids)] if tax_ids else [(6, 0, [])],
-            'amount_untaxed': line.amount_untaxed,
-            'amount_tax': line.amount_tax,
-            'amount_total': line.amount_total,
-            'line_subtotal_without_tax': line.line_subtotal_without_tax,
-            'line_tax_amount': line.line_tax_amount,
-            'line_total_with_tax': line.line_total_with_tax,
-            'note': self._append_text(
-                line.job_line_id.note,
-                _('Applied to vendor bill line %s.') % move_line.display_name,
-            ),
+            'amount_untaxed': plan['amount_untaxed'],
+            'amount_tax': plan['amount_tax'],
+            'amount_total': plan['amount_total'],
+            'line_subtotal_without_tax': plan['amount_untaxed'],
+            'line_tax_amount': plan['amount_tax'],
+            'line_total_with_tax': plan['amount_total'],
+            'note': note,
         })
+        for merged_line in merged_lines:
+            merged_line.job_line_id.write({
+                'apply_action': 'merge_into',
+                'merge_target_line_id': line.job_line_id.id,
+                'move_line_id': move_line.id,
+                'matched_product_id': matched_product.id,
+                'match_status': 'manual',
+                'match_score': merged_line.match_score or 1.0,
+                'match_method': 'manual_merge',
+                'match_summary': _('Merged into: %s') % line._display_label(),
+                'note': self._append_text(
+                    merged_line.job_line_id.note,
+                    _('Merged into vendor bill line %s.') % move_line.display_name,
+                ),
+            })
         return warnings
 
     def _get_line_taxes(self, line, move, strict=False, tax_rate_override=None):
