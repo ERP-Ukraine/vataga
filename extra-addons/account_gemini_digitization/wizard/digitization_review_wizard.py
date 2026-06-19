@@ -254,6 +254,9 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
                 if tax_ids:
                     line.tax_ids = [(6, 0, tax_ids.ids)]
                 if tax_warning:
+                    line.note = wizard._append_text(line.note, tax_warning)
+                    if not tax_ids:
+                        line.match_summary = wizard._get_tax_review_summary(line, tax_warning)
                     warnings.append(tax_warning)
             if warnings:
                 wizard.note = wizard._append_text(
@@ -535,6 +538,14 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
             return taxes, False
 
         if strict:
+            if tax_rate > 0:
+                raise UserError(_(
+                    'Для рядка "%(line)s" оберіть податок ПДВ %(rate).4g%% у Review перед Apply. %(details)s'
+                ) % {
+                    'line': line._display_label(),
+                    'rate': tax_rate,
+                    'details': warning or '',
+                })
             raise UserError(warning)
         return self.env['account.tax'], warning
 
@@ -543,14 +554,18 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
         if not self._is_number(tax_rate):
             return self.env['account.tax'], False
 
+        company_domain = []
+        if company:
+            company_domain = [
+                '|',
+                ('company_id', '=', company.id),
+                ('company_id', '=', False),
+            ]
         taxes = self.env['account.tax'].search([
             ('active', '=', True),
             ('amount_type', '=', 'percent'),
             ('type_tax_use', 'in', ('purchase', 'none')),
-            '|',
-            ('company_id', '=', company.id),
-            ('company_id', '=', False),
-        ])
+        ] + company_domain)
         matching_taxes = taxes.filtered(
             lambda tax: abs((tax.amount or 0.0) - tax_rate) <= 0.0001
         )
@@ -559,15 +574,33 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
                 '%s: purchase tax %.4g%% was not found. Please select the correct tax before Apply.'
             ) % (line._display_label() if line else _('Line'), tax_rate)
 
-        selected_taxes = self._select_best_purchase_tax(matching_taxes, company, tax_rate)
+        selected_taxes = self._select_best_purchase_tax(
+            matching_taxes,
+            company,
+            tax_rate,
+            line=line,
+        )
         if selected_taxes:
             return selected_taxes, False
 
         return self.env['account.tax'], _(
-            '%s: several purchase taxes for %.4g%% were found. Please select the correct tax manually before Apply.'
-        ) % (line._display_label() if line else _('Line'), tax_rate)
+            '%(line)s: several purchase taxes for %(rate).4g%% were found. '
+            'Please select the correct tax manually before Apply. %(candidates)s'
+        ) % {
+            'line': line._display_label() if line else _('Line'),
+            'rate': tax_rate,
+            'candidates': self._format_tax_candidates(matching_taxes),
+        }
 
-    def _select_best_purchase_tax(self, taxes, company, tax_rate):
+    def _select_best_purchase_tax(self, taxes, company, tax_rate, line=False):
+        configured_tax = self._get_configured_purchase_vat_tax(tax_rate, company)
+        if configured_tax and configured_tax.id in taxes.ids:
+            return configured_tax
+
+        product_tax = self._get_product_supplier_tax(line, taxes, tax_rate)
+        if product_tax:
+            return product_tax
+
         purchase_taxes = taxes.filtered(lambda tax: tax.type_tax_use == 'purchase')
         if purchase_taxes:
             taxes = purchase_taxes
@@ -588,6 +621,46 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
             return taxes
         return self.env['account.tax']
 
+    def _get_configured_purchase_vat_tax(self, tax_rate, company):
+        if abs((tax_rate or 0.0) - 20.0) > 0.0001:
+            return self.env['account.tax']
+        tax_id = self.env['ir.config_parameter'].sudo().get_param(
+            'account_gemini_digitization.default_purchase_vat_20_tax_id'
+        )
+        if not tax_id:
+            return self.env['account.tax']
+        try:
+            tax_id = int(tax_id)
+        except (TypeError, ValueError):
+            return self.env['account.tax']
+        tax = self.env['account.tax'].browse(tax_id).exists()
+        if not tax:
+            return self.env['account.tax']
+        if not self._tax_matches_rate_and_scope(tax, tax_rate, company):
+            return self.env['account.tax']
+        return tax
+
+    def _get_product_supplier_tax(self, line, taxes, tax_rate):
+        product = getattr(line, 'matched_product_id', False) if line else False
+        if not product:
+            return self.env['account.tax']
+        product_taxes = (
+            getattr(product, 'supplier_taxes_id', False)
+            or getattr(getattr(product, 'product_tmpl_id', False), 'supplier_taxes_id', False)
+        )
+        if not product_taxes:
+            return self.env['account.tax']
+        matching_product_taxes = product_taxes.filtered(
+            lambda tax: tax.id in taxes.ids
+            and tax.amount_type == 'percent'
+            and abs((tax.amount or 0.0) - tax_rate) <= 0.0001
+            and tax.type_tax_use in ('purchase', 'none')
+            and getattr(tax, 'active', True)
+        )
+        if len(matching_product_taxes) == 1:
+            return matching_product_taxes
+        return self.env['account.tax']
+
     def _tax_name_matches_rate(self, tax, tax_rate):
         name = self._normalize_text(
             '%s %s' % (
@@ -602,7 +675,59 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
         if tax_rate == 0:
             return has_rate or 'без пдв' in name or 'без ндс' in name or 'no vat' in name
         has_vat_word = any(word in name for word in ('пдв', 'ндс', 'vat'))
-        return has_rate and has_vat_word
+        excluded_words = (
+            'імпорт',
+            'импорт',
+            'кориг',
+            'умов',
+            'услов',
+            'зворот',
+            'возврат',
+            'компенс',
+        )
+        has_excluded_word = any(word in name for word in excluded_words)
+        has_purchase_word = 'придбання' in name or 'приобрет' in name or 'purchase' in name
+        return has_rate and has_vat_word and has_purchase_word and not has_excluded_word
+
+    def _tax_matches_rate_and_scope(self, tax, tax_rate, company):
+        return (
+            getattr(tax, 'active', True)
+            and tax.amount_type == 'percent'
+            and tax.type_tax_use in ('purchase', 'none')
+            and abs((tax.amount or 0.0) - tax_rate) <= 0.0001
+            and (not tax.company_id or tax.company_id == company)
+        )
+
+    def _format_tax_candidates(self, taxes):
+        if not taxes:
+            return ''
+        parts = []
+        for tax in taxes[:10]:
+            company = getattr(tax, 'company_id', False)
+            parts.append(
+                '[id=%s %s; amount=%s; type=%s; company_id=%s; active=%s]'
+                % (
+                    tax.id,
+                    tax.display_name or tax.name,
+                    tax.amount,
+                    tax.type_tax_use,
+                    company.id if company else False,
+                    getattr(tax, 'active', True),
+                )
+            )
+        return _('Tax candidates: %s') % ', '.join(parts)
+
+    def _get_tax_review_summary(self, line, warning):
+        tax_rate = self._normalize_tax_rate(line.tax_rate)
+        if self._is_number(tax_rate):
+            if 'several purchase taxes' in str(warning):
+                return _('Tax review required: several %.4g%% purchase taxes found') % tax_rate
+            if 'was not found' in str(warning):
+                return _('Tax review required: no %.4g%% purchase tax found') % tax_rate
+            if tax_rate == 0:
+                return _('Tax review required: confirm 0%% VAT tax')
+            return _('Tax review required: select %.4g%% purchase tax') % tax_rate
+        return _('Tax review required: select purchase tax')
 
     def _validate_selected_taxes(self, line, taxes, tax_rate):
         if not self._is_number(tax_rate):
@@ -611,16 +736,22 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
             matching_taxes = taxes.filtered(
                 lambda tax: tax.amount_type == 'percent'
                 and abs((tax.amount or 0.0) - tax_rate) <= 0.0001
+                and tax.type_tax_use in ('purchase', 'none')
+                and getattr(tax, 'active', True)
             )
             if not matching_taxes:
                 raise UserError(_(
-                    '%s: selected tax does not match OCR tax rate %.4g%%. '
-                    'Please select a matching purchase VAT tax before Apply.'
-                ) % (line._display_label(), tax_rate))
+                    'Для рядка "%(line)s" вибраний податок не відповідає розпізнаній ставці %(rate).4g%%.'
+                ) % {
+                    'line': line._display_label(),
+                    'rate': tax_rate,
+                })
         if tax_rate == 0:
             matching_zero_taxes = taxes.filtered(
                 lambda tax: tax.amount_type == 'percent'
                 and abs(tax.amount or 0.0) <= 0.0001
+                and tax.type_tax_use in ('purchase', 'none')
+                and getattr(tax, 'active', True)
             )
             if not matching_zero_taxes:
                 raise UserError(_(
@@ -678,6 +809,9 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
         if existing_text:
             return '%s\n%s' % (existing_text, message)
         return message
+
+    def _is_tax_review_summary(self, summary):
+        return bool(summary and str(summary).startswith('Tax review required:'))
 
     def _is_positive_number(self, value):
         return isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0
@@ -814,6 +948,17 @@ class AccountGeminiDigitizationReviewLineWizard(models.TransientModel):
                 line.match_score = 1.0
                 line.match_summary = _('Manual: selected product %s') % (
                     line.matched_product_id.display_name
+                )
+
+    @api.onchange('tax_ids')
+    def _onchange_tax_ids(self):
+        for line in self:
+            if not line.tax_ids:
+                continue
+            if line.wizard_id._is_tax_review_summary(line.match_summary):
+                line.match_summary = (
+                    line.job_line_id.match_summary
+                    or _('Tax selected manually')
                 )
 
     def _is_manual_selection(self):

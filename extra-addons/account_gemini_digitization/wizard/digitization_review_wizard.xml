@@ -62,7 +62,6 @@
                                     <field name="description"/>
                                     <field name="candidate_product_ids" widget="many2many_tags" readonly="1"/>
                                     <field name="candidate_move_line_ids" widget="many2many_tags" readonly="1"/>
-                                    <field name="note" readonly="1"/>
                                     <field name="confidence"/>
                                     <field name="currency_id" column_invisible="True"/>
                                 </tree>
