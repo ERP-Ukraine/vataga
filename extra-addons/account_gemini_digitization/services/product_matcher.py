@@ -22,6 +22,18 @@ class ProductMatcher:
         'pc',
         'pvc',
     }
+    TECHNICAL_COLOR_TOKENS = {
+        'black',
+        'white',
+    }
+    TECHNICAL_MODEL_TOKEN_ALLOWLIST = {
+        'cm4',
+        'i0',
+        'io',
+        'm12',
+        'pm03d',
+        'rpi',
+    }
     GENERIC_NAME_TOKENS = {
         'aluminium',
         'box',
@@ -62,6 +74,31 @@ class ProductMatcher:
         'С': 'C', 'с': 'c',
         'Т': 'T', 'т': 't',
         'Х': 'X', 'х': 'x',
+    })
+
+    CYRILLIC_LATIN_LOOKALIKES.update(str.maketrans({
+        '\u0406': 'I', '\u0456': 'i',
+        '\u0407': 'I', '\u0457': 'i',
+        '\u0404': 'E', '\u0454': 'e',
+        '\u0410': 'A', '\u0430': 'a',
+        '\u0412': 'B', '\u0432': 'b',
+        '\u0415': 'E', '\u0435': 'e',
+        '\u041a': 'K', '\u043a': 'k',
+        '\u041c': 'M', '\u043c': 'm',
+        '\u041d': 'H', '\u043d': 'h',
+        '\u041e': 'O', '\u043e': 'o',
+        '\u0420': 'P', '\u0440': 'p',
+        '\u0421': 'C', '\u0441': 'c',
+        '\u0422': 'T', '\u0442': 't',
+        '\u0425': 'X', '\u0445': 'x',
+    }))
+    DASH_TRANSLATION = str.maketrans({
+        '\u2010': '-',
+        '\u2011': '-',
+        '\u2012': '-',
+        '\u2013': '-',
+        '\u2014': '-',
+        '\u2212': '-',
     })
 
     def __init__(self, env):
@@ -292,6 +329,9 @@ class ProductMatcher:
                 self._append_unique(products, product)
             for seller in self._search_supplierinfos_like(term, partner):
                 self._append_unique(products, self._seller_product(seller))
+
+        for history_line in self._find_historical_move_lines(line, partner):
+            self._append_unique(products, getattr(history_line, 'product_id', False))
         return products
 
     def _score_move_line(self, line, move_line, partner):
@@ -403,6 +443,20 @@ class ProductMatcher:
                 notes,
             )
 
+        technical_score, technical_method, technical_notes, technical_details = (
+            self._score_technical_product_match(line, product, partner)
+        )
+        if technical_score:
+            if technical_score > score:
+                score = technical_score
+                method = technical_method
+            elif score and technical_score >= 0.80:
+                boost = min(0.03, (technical_score - 0.80) * 0.15)
+                if boost > 0:
+                    score += boost
+                    boosts.append('technical_segments +%.2f' % boost)
+            notes.extend(technical_notes)
+
         base_score = score
         similarity_score = self._best_product_similarity(line, product)
         if not score and similarity_score >= self.CANDIDATE_THRESHOLD:
@@ -490,6 +544,7 @@ class ProductMatcher:
             'similarity_score': self._clamp_score(similarity_score),
             'boosts': boosts,
             'penalties': penalties,
+            'technical_details': technical_details,
         }
 
     def _score_product_identity(self, line, product, partner):
@@ -673,6 +728,504 @@ class ProductMatcher:
         if not partner:
             return 0.0
         return 0.03 if self._product_sellers(product, partner) else 0.0
+
+    def _score_technical_product_match(self, line, product, partner):
+        line_profile = self._line_technical_profile(line)
+        product_profile = self._product_technical_profile(product, partner)
+        product_score, product_method, product_notes, product_details = (
+            self._score_technical_profiles(
+                line_profile,
+                product_profile,
+                'product',
+            )
+        )
+
+        history_best = {
+            'score': 0.0,
+            'method': False,
+            'notes': [],
+            'details': {},
+        }
+        history_lines = self._find_historical_move_lines(line, partner, product=product)
+        for history_line in history_lines[:10]:
+            history_profile = self._technical_profile_from_values([
+                getattr(history_line, 'name', False),
+            ])
+            history_score, history_method, history_notes, history_details = (
+                self._score_technical_profiles(
+                    line_profile,
+                    history_profile,
+                    'historical account.move.line.name',
+                    historical=True,
+                )
+            )
+            if history_score:
+                same_partner = self._historical_line_partner_matches(history_line, partner)
+                if same_partner:
+                    history_score += 0.03
+                    history_notes.append('Historical line belongs to the same vendor partner.')
+                history_notes.append(
+                    'Historical account.move.line match: line_id=%s; name=%s.'
+                    % (
+                        getattr(history_line, 'id', False) or 'unknown',
+                        getattr(history_line, 'name', False) or '',
+                    )
+                )
+            if history_score > history_best['score']:
+                history_best = {
+                    'score': history_score,
+                    'method': history_method,
+                    'notes': history_notes,
+                    'details': history_details,
+                }
+
+        product_conflict_note = self._technical_model_conflict_note(
+            line_profile,
+            product_profile,
+        )
+        if product_conflict_note and history_best['score']:
+            history_best['notes'].append(
+                '%s Historical supplier text is the reason this product is still proposed.'
+                % product_conflict_note
+            )
+
+        if history_best['score'] > product_score:
+            notes = history_best['notes']
+            details = history_best['details']
+            details['historical_lines_checked'] = len(history_lines)
+            return (
+                self._clamp_score(history_best['score']),
+                history_best['method'],
+                notes,
+                details,
+            )
+
+        if product_conflict_note and product_score:
+            product_notes.append(product_conflict_note)
+
+        product_details['historical_lines_checked'] = len(history_lines)
+        return (
+            self._clamp_score(product_score),
+            product_method,
+            product_notes,
+            product_details,
+        )
+
+    def _score_technical_profiles(
+        self,
+        line_profile,
+        candidate_profile,
+        source_label,
+        historical=False,
+    ):
+        notes = []
+        details = {
+            'source': source_label,
+            'line_full_codes': line_profile['full_codes'],
+            'line_segments': line_profile['segments'],
+            'candidate_full_codes': candidate_profile['full_codes'],
+            'candidate_segments': candidate_profile['segments'],
+            'matched_segments': [],
+            'unmatched_segments': [],
+        }
+        if not line_profile['segments'] and not line_profile['full_codes']:
+            return 0.0, False, notes, details
+        if not candidate_profile['segments'] and not candidate_profile['full_codes']:
+            return 0.0, False, notes, details
+
+        full_exact = self._find_matching_technical_value(
+            line_profile['full_codes'],
+            candidate_profile['full_codes'],
+        )
+        if full_exact:
+            score = 0.96
+            method = 'historical_technical_full_code' if historical else 'technical_full_code'
+            details['matched_full_code'] = full_exact
+            notes.append(
+                'Full technical code match in %s: %s ~= %s.'
+                % (source_label, full_exact[0], full_exact[1])
+            )
+            score, notes = self._apply_technical_color_penalty(
+                line_profile,
+                candidate_profile,
+                score,
+                notes,
+            )
+            return score, method, notes, details
+
+        full_prefix = self._find_contained_technical_value(
+            line_profile['full_codes'],
+            candidate_profile['full_codes'],
+        )
+        if full_prefix:
+            score = 0.93
+            method = 'historical_technical_full_code_prefix' if historical else 'technical_full_code_prefix'
+            details['matched_full_code'] = full_prefix
+            notes.append(
+                'Full technical code prefix/contained match in %s: %s ~= %s.'
+                % (source_label, full_prefix[0], full_prefix[1])
+            )
+            score, notes = self._apply_technical_color_penalty(
+                line_profile,
+                candidate_profile,
+                score,
+                notes,
+            )
+            return score, method, notes, details
+
+        matched_segments = self._matching_technical_segments(
+            line_profile['segments'],
+            candidate_profile['segments'],
+        )
+        details['matched_segments'] = [match[0] for match in matched_segments]
+        details['unmatched_segments'] = [
+            segment
+            for segment in line_profile['important_segments']
+            if not any(self._technical_values_match(segment, match[0]) for match in matched_segments)
+        ]
+        base_match = self._find_matching_technical_value(
+            line_profile['base_models'],
+            candidate_profile['base_models'],
+        )
+        base_conflict = bool(
+            line_profile['base_models']
+            and candidate_profile['base_models']
+            and not base_match
+        )
+        important_matches = [
+            match
+            for match in matched_segments
+            if match[0] in line_profile['important_segments']
+            and self._normalize_code(match[0]) not in {
+                self._normalize_code(base)
+                for base in line_profile['base_models']
+            }
+        ]
+
+        score = 0.0
+        method = False
+        if base_match and len(important_matches) >= 2:
+            score = 0.93
+            method = 'technical_base_segments'
+            notes.append(
+                'Technical base model and multiple segments match in %s: base=%s; segments=%s.'
+                % (
+                    source_label,
+                    base_match[0],
+                    ', '.join(match[0] for match in important_matches[:5]),
+                )
+            )
+        elif base_match and important_matches:
+            score = 0.90
+            method = 'technical_base_segment'
+            notes.append(
+                'Technical base model and segment match in %s: base=%s; segment=%s.'
+                % (source_label, base_match[0], important_matches[0][0])
+            )
+        elif base_match:
+            score = 0.78
+            method = 'technical_base_model'
+            notes.append('Technical base model matches in %s: %s.' % (source_label, base_match[0]))
+        elif len(important_matches) >= 2:
+            score = 0.82 if not historical else 0.86
+            method = 'historical_technical_segments' if historical else 'technical_segments'
+            notes.append(
+                'Multiple technical segments match in %s: %s.'
+                % (source_label, ', '.join(match[0] for match in important_matches[:5]))
+            )
+        elif len(important_matches) == 1:
+            score = 0.55
+            method = 'technical_single_segment'
+            notes.append(
+                'Only one technical segment matches in %s: %s; not enough for confident match.'
+                % (source_label, important_matches[0][0])
+            )
+
+        if base_conflict and score and not historical:
+            score = min(score, 0.68)
+            notes.append(
+                'Warning: OCR base model %s differs from product base model %s; product fields alone are not confident.'
+                % (
+                    ', '.join(line_profile['base_models']),
+                    ', '.join(candidate_profile['base_models']),
+                )
+            )
+        elif base_conflict and historical:
+            notes.append(
+                'Warning: OCR base model differs from product base model, but historical supplier line matched.'
+            )
+
+        score, notes = self._apply_technical_color_penalty(
+            line_profile,
+            candidate_profile,
+            score,
+            notes,
+        )
+        return score, method, notes, details
+
+    def _apply_technical_color_penalty(self, line_profile, candidate_profile, score, notes):
+        if not score:
+            return score, notes
+        line_colors = set(line_profile['colors'])
+        candidate_colors = set(candidate_profile['colors'])
+        if line_colors and candidate_colors and not line_colors & candidate_colors:
+            score -= 0.03
+            notes.append(
+                'Small penalty: OCR color/variant %s differs from candidate %s.'
+                % (', '.join(sorted(line_colors)), ', '.join(sorted(candidate_colors)))
+            )
+        return score, notes
+
+    def _technical_model_conflict_note(self, line_profile, product_profile):
+        if not line_profile['base_models'] or not product_profile['base_models']:
+            return False
+        if self._find_matching_technical_value(
+            line_profile['base_models'],
+            product_profile['base_models'],
+        ):
+            return False
+        return (
+            'Warning: OCR base model %s differs from product base model %s.'
+            % (
+                ', '.join(line_profile['base_models']),
+                ', '.join(product_profile['base_models']),
+            )
+        )
+
+    def _line_technical_profile(self, line):
+        return self._technical_profile_from_values([
+            getattr(line, 'supplier_product_code', False),
+            getattr(line, 'supplier_product_name', False),
+            getattr(line, 'description', False),
+            getattr(line, 'note', False),
+            getattr(line, 'source_columns', False),
+        ])
+
+    def _product_technical_profile(self, product, partner):
+        values = [
+            getattr(product, 'default_code', False),
+            getattr(product, 'barcode', False),
+            getattr(product, 'display_name', False),
+            getattr(product, 'name', False),
+        ]
+        for seller in self._product_sellers(product, partner):
+            values.extend([
+                getattr(seller, 'product_code', False),
+                getattr(seller, 'product_name', False),
+                getattr(seller, 'name', False),
+            ])
+        return self._technical_profile_from_values(values)
+
+    def _technical_profile_from_values(self, values):
+        full_codes = []
+        segments = []
+        ignored = []
+        first_segments = []
+        for value in values:
+            prepared = self._prepare_code_text(value)
+            if not prepared:
+                continue
+            extracted_full_codes = self._extract_full_technical_codes(prepared)
+            full_codes.extend(extracted_full_codes)
+            for full_code in extracted_full_codes:
+                parts = [part for part in re.split(r'[-/\s.]+', full_code) if part]
+                if parts:
+                    first_segments.append(parts[0])
+                for part in parts:
+                    self._add_technical_segment(
+                        part,
+                        segments,
+                        ignored,
+                        allow_numeric_variant=True,
+                    )
+            for token in self._extract_technical_tokens(prepared):
+                self._add_technical_segment(token, segments, ignored)
+
+        full_codes = self._unique_technical_values(full_codes)
+        segments = self._unique_technical_values(segments)
+        ignored = self._unique_technical_values(ignored)
+        colors = [
+            segment
+            for segment in segments
+            if self._normalize_code(segment) in self.TECHNICAL_COLOR_TOKENS
+        ]
+        important_segments = [
+            segment
+            for segment in segments
+            if self._normalize_code(segment) not in self.TECHNICAL_COLOR_TOKENS
+        ]
+        base_models = self._unique_technical_values(
+            segment
+            for segment in first_segments + segments
+            if self._looks_like_base_model_segment(segment)
+        )
+        return {
+            'full_codes': full_codes,
+            'segments': segments,
+            'important_segments': important_segments,
+            'base_models': base_models,
+            'colors': colors,
+            'ignored': ignored,
+            'variant_keys': {
+                value: sorted(self._technical_variant_keys(value))
+                for value in full_codes + segments
+            },
+        }
+
+    def _extract_full_technical_codes(self, prepared_text):
+        codes = []
+        pattern = r'\b[A-Z]{1,12}\d[A-Z0-9]*(?:[-/][A-Z0-9]+){1,8}\b'
+        for match in re.findall(pattern, prepared_text or ''):
+            code = match.strip(':-.,;')
+            if self._looks_like_code(code):
+                codes.append(code)
+        return codes
+
+    def _extract_technical_tokens(self, prepared_text):
+        tokens = []
+        patterns = (
+            r'\b[A-Z]{1,12}\d[A-Z0-9]*\b',
+            r'\b(?:RPI|CM4|PM03D|BLACK|WHITE|I0|IO|M12)\b',
+        )
+        for pattern in patterns:
+            for match in re.findall(pattern, prepared_text or ''):
+                token = match.strip(':-.,;')
+                if token:
+                    tokens.append(token)
+        return tokens
+
+    def _add_technical_segment(
+        self,
+        segment,
+        segments,
+        ignored,
+        allow_numeric_variant=False,
+    ):
+        if not segment:
+            return
+        normalized = self._normalize_code(segment)
+        if (
+            normalized in ('10', 'i0', 'io')
+            and allow_numeric_variant
+        ):
+            segments.append(segment)
+            return
+        if self._is_low_value_technical_segment(segment):
+            ignored.append(segment)
+            return
+        segments.append(segment)
+
+    def _is_low_value_technical_segment(self, segment):
+        normalized = self._normalize_code(segment)
+        if not normalized:
+            return True
+        if normalized in self.TECHNICAL_MODEL_TOKEN_ALLOWLIST:
+            return False
+        if normalized in self.TECHNICAL_COLOR_TOKENS:
+            return False
+        if normalized in self.LOW_VALUE_CODE_TOKENS:
+            return True
+        if normalized.isdigit():
+            return True
+        for pattern in self.LOW_VALUE_CODE_PATTERNS:
+            if pattern.match(normalized):
+                return True
+        has_alpha = any(char.isalpha() for char in normalized)
+        has_digit = any(char.isdigit() for char in normalized)
+        if has_alpha and has_digit and len(normalized) >= 3:
+            return False
+        return len(normalized) < 4
+
+    def _looks_like_base_model_segment(self, segment):
+        normalized = self._normalize_code(segment).upper()
+        if len(normalized) < 5:
+            return False
+        if not any(char.isalpha() for char in normalized):
+            return False
+        if not any(char.isdigit() for char in normalized):
+            return False
+        if normalized in {'ADF16KM', 'ADF28K', 'PM03D'}:
+            return False
+        if normalized.startswith(('ADF', 'PM')):
+            return False
+        return True
+
+    def _prepare_code_text(self, value):
+        if not value:
+            return ''
+        value = str(value).translate(self.CYRILLIC_LATIN_LOOKALIKES)
+        value = value.translate(self.DASH_TRANSLATION)
+        value = re.sub(r'\s+', ' ', value)
+        return value.upper().strip()
+
+    def _unique_technical_values(self, values):
+        result = []
+        seen = set()
+        for value in values:
+            for key in self._technical_variant_keys(value):
+                normalized = key
+                break
+            else:
+                normalized = self._normalize_code(value).upper()
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                result.append(value)
+        return result
+
+    def _technical_variant_keys(self, value):
+        normalized = self._normalize_code(value).upper()
+        if not normalized:
+            return set()
+        variants = {normalized}
+        changed = True
+        while changed:
+            changed = False
+            for variant in list(variants):
+                for source, target in (
+                    ('I0', '10'),
+                    ('IO', '10'),
+                    ('10', 'I0'),
+                    ('10', 'IO'),
+                ):
+                    if source in variant:
+                        new_variant = variant.replace(source, target)
+                        if new_variant not in variants:
+                            variants.add(new_variant)
+                            changed = True
+        return variants
+
+    def _technical_values_match(self, left, right):
+        return bool(self._technical_variant_keys(left) & self._technical_variant_keys(right))
+
+    def _find_matching_technical_value(self, left_values, right_values):
+        for left in left_values:
+            for right in right_values:
+                if self._technical_values_match(left, right):
+                    return left, right
+        return False
+
+    def _find_contained_technical_value(self, left_values, right_values):
+        for left in left_values:
+            left_keys = self._technical_variant_keys(left)
+            for right in right_values:
+                right_keys = self._technical_variant_keys(right)
+                if any(
+                    left_key in right_key or right_key in left_key
+                    for left_key in left_keys
+                    for right_key in right_keys
+                    if len(left_key) >= 5 and len(right_key) >= 5
+                ):
+                    return left, right
+        return False
+
+    def _matching_technical_segments(self, line_segments, candidate_segments):
+        matches = []
+        for line_segment in line_segments:
+            for candidate_segment in candidate_segments:
+                if self._technical_values_match(line_segment, candidate_segment):
+                    matches.append((line_segment, candidate_segment))
+                    break
+        return matches
 
     def _internal_product_penalty(self, line, product):
         product_text = self._normalize_text(
@@ -1480,6 +2033,8 @@ class ProductMatcher:
     ):
         partner = self._get_job_partner(job)
         profile = self._line_code_profile(line)
+        technical_profile = self._line_technical_profile(line)
+        historical_lines = self._find_historical_move_lines(line, partner)
         supplierinfo_candidates = self._find_supplierinfos_by_codes(
             profile['primary_codes'],
             partner,
@@ -1500,6 +2055,21 @@ class ProductMatcher:
             'Primary codes: %s.' % (
                 ', '.join(profile['primary_codes']) if profile['primary_codes'] else 'none'
             ),
+            'Technical full codes: %s.' % (
+                ', '.join(technical_profile['full_codes'])
+                if technical_profile['full_codes']
+                else 'none'
+            ),
+            'Technical segments: %s.' % (
+                ', '.join(technical_profile['segments'])
+                if technical_profile['segments']
+                else 'none'
+            ),
+            'Technical base models: %s.' % (
+                ', '.join(technical_profile['base_models'])
+                if technical_profile['base_models']
+                else 'none'
+            ),
             'Secondary tokens: %s.' % (
                 ', '.join(profile['secondary_codes']) if profile['secondary_codes'] else 'none'
             ),
@@ -1510,6 +2080,7 @@ class ProductMatcher:
             ),
             'Supplierinfo candidates count: %s.' % len(supplierinfo_candidates),
             'Supplierinfo exact matches: %s.' % len(supplierinfo_exact),
+            'Historical account.move.line candidates count: %s.' % len(historical_lines),
             'Product candidates found: %s.' % len(products),
             'Recognized values: supplier_product_code=%s; supplier_product_name=%s; quantity=%s; price_unit=%s; amount_untaxed=%s.'
             % (
@@ -1519,7 +2090,7 @@ class ProductMatcher:
                 self._recognized_price_unit(line) or 'none',
                 self._recognized_subtotal(line) or 'none',
             ),
-            'Methods tried: supplierinfo code/name, default_code, barcode, primary code-token, meaningful secondary token boost, brand/dimension boosts, internal product penalties, fuzzy/token name similarity.',
+            'Methods tried: supplierinfo code/name, default_code, barcode, primary code-token, technical full code/segment combinations, historical account.move.line.name, meaningful secondary token boost, brand/dimension boosts, internal product penalties, fuzzy/token name similarity.',
         ]
         if not products:
             diagnostics.append('No product.product candidates were found.')
@@ -1587,6 +2158,30 @@ class ProductMatcher:
                 else 'none'
             ),
         ]
+        technical_details = candidate.get('technical_details') or {}
+        if technical_details:
+            values.extend([
+                '  technical_source=%s; historical_lines_checked=%s'
+                % (
+                    technical_details.get('source') or 'none',
+                    technical_details.get('historical_lines_checked') or 0,
+                ),
+                '  OCR technical full codes=%s; OCR segments=%s'
+                % (
+                    ', '.join(technical_details.get('line_full_codes') or []) or 'none',
+                    ', '.join(technical_details.get('line_segments') or []) or 'none',
+                ),
+                '  candidate technical full codes=%s; candidate segments=%s'
+                % (
+                    ', '.join(technical_details.get('candidate_full_codes') or []) or 'none',
+                    ', '.join(technical_details.get('candidate_segments') or []) or 'none',
+                ),
+                '  matched technical segments=%s; unmatched OCR segments=%s'
+                % (
+                    ', '.join(technical_details.get('matched_segments') or []) or 'none',
+                    ', '.join(technical_details.get('unmatched_segments') or []) or 'none',
+                ),
+            ])
         if candidate.get('notes'):
             values.append('  why: %s' % '; '.join(candidate['notes']))
         return values
@@ -1610,6 +2205,73 @@ class ProductMatcher:
                 seen.add(record_id)
                 ids.append(record_id)
         return ids
+
+    def _find_historical_move_lines(self, line, partner, product=False):
+        terms = self._historical_search_terms(line)
+        if not terms:
+            return []
+
+        history_lines = []
+        for term in terms:
+            for search_term in self._code_search_variants(term):
+                for history_line in self._search_historical_move_lines(
+                    search_term,
+                    partner=partner,
+                    product=product,
+                ):
+                    self._append_unique(history_lines, history_line)
+                if partner:
+                    for history_line in self._search_historical_move_lines(
+                        search_term,
+                        partner=False,
+                        product=product,
+                    ):
+                        self._append_unique(history_lines, history_line)
+        return history_lines[:100]
+
+    def _historical_search_terms(self, line):
+        profile = self._line_code_profile(line)
+        technical_profile = self._line_technical_profile(line)
+        terms = []
+        terms.extend(technical_profile['full_codes'])
+        terms.extend(profile['primary_codes'])
+        terms.extend(
+            segment
+            for segment in technical_profile['important_segments']
+            if not self._is_low_value_technical_segment(segment)
+        )
+        terms.extend(
+            code
+            for code in profile['secondary_codes']
+            if not self._is_low_value_code(code)
+        )
+        return self._unique_normalized_codes(terms)[:12]
+
+    def _search_historical_move_lines(self, term, partner=False, product=False):
+        if not term or not self._normalize_code(term):
+            return []
+        domain = [
+            ('product_id', '!=', False),
+            ('move_id.move_type', 'in', ('in_invoice', 'in_refund')),
+            ('name', 'ilike', term),
+        ]
+        if partner:
+            domain.append(('partner_id', '=', partner.id))
+        if product:
+            domain.append(('product_id', '=', product.id))
+        return list(self.env['account.move.line'].search(domain, limit=50))
+
+    def _historical_line_partner_matches(self, history_line, partner):
+        if not partner:
+            return False
+        line_partner = (
+            getattr(history_line, 'partner_id', False)
+            or getattr(getattr(history_line, 'move_id', False), 'partner_id', False)
+        )
+        return bool(
+            line_partner
+            and getattr(line_partner, 'id', False) == getattr(partner, 'id', False)
+        )
 
     def _find_supplierinfos(self, line, partner):
         sellers = []
@@ -1820,6 +2482,12 @@ class ProductMatcher:
                 if primary_codes:
                     break
 
+        if not primary_codes:
+            for code in self._line_technical_profile(line)['full_codes']:
+                self._add_profile_code(code, primary_codes, ignored_low_value_tokens)
+                if primary_codes:
+                    break
+
         primary_codes = self._unique_normalized_codes(primary_codes)
         primary_normalized = {
             self._normalize_code(code)
@@ -1949,10 +2617,14 @@ class ProductMatcher:
 
     def _extract_codes_from_text(self, value):
         value = value or ''
+        prepared_value = self._prepare_code_text(value)
         codes = []
         codes.extend(self._extract_bracket_codes(value))
         codes.extend(self._extract_leading_codes(value))
         codes.extend(self._extract_embedded_codes(value))
+        if prepared_value and prepared_value != value:
+            codes.extend(self._extract_leading_codes(prepared_value))
+            codes.extend(self._extract_embedded_codes(prepared_value))
         return self._expand_code_tokens(codes)
 
     def _extract_leading_codes(self, value):
@@ -2009,19 +2681,22 @@ class ProductMatcher:
         code = str(code or '').strip()
         if not code:
             return []
-        variants = [code]
-        collapsed_spaces = re.sub(r'\s+', ' ', code).strip()
+        prepared_code = self._prepare_code_text(code)
+        variants = [code, prepared_code]
+        collapsed_spaces = re.sub(r'\s+', ' ', prepared_code or code).strip()
         variants.append(collapsed_spaces)
         variants.append(re.sub(r'\s+', '-', collapsed_spaces))
         variants.append(re.sub(r'[-\s]+', '', collapsed_spaces))
         variants.append(re.sub(r'[-/\s]+', '', collapsed_spaces))
         if '/' in collapsed_spaces or '-' in collapsed_spaces or ' ' in collapsed_spaces:
             variants.append(re.sub(r'[-\s]+', '-', collapsed_spaces))
+        for key in self._technical_variant_keys(collapsed_spaces):
+            variants.append(key)
         result = []
         seen = set()
         for variant in variants:
             variant = variant.strip()
-            key = variant.lower()
+            key = self._normalize_code(variant)
             if variant and key not in seen:
                 seen.add(key)
                 result.append(variant)
