@@ -219,7 +219,7 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
                 'match_summary': wizard_line.match_summary,
                 'quantity': plan['quantity'],
                 'price_unit': plan['price_unit'],
-                'tax_rate': wizard_line.tax_rate,
+                'tax_rate': plan['tax_rate'],
                 'tax_ids': [(6, 0, tax_ids.ids)] if tax_ids else [(6, 0, [])],
                 'amount_untaxed': plan['amount_untaxed'],
                 'amount_tax': plan['amount_tax'],
@@ -453,7 +453,7 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
                     lambda child: child.apply_action == 'merge_into'
                     and child.merge_target_line_id == line
                 ).sorted('sequence')
-                self._validate_merge_tax_rates(line, merged_lines)
+                final_tax_rate = self._get_full_bill_plan_tax_rate(line, merged_lines)
                 quantity, price_unit, amount_untaxed = self._get_full_bill_plan_values(
                     line,
                     merged_lines,
@@ -462,15 +462,17 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
                     line,
                     move,
                     strict=True,
+                    tax_rate_override=final_tax_rate,
                 )
                 amount_tax, amount_total = self._get_full_bill_plan_tax_amounts(
                     amount_untaxed,
-                    line.tax_rate,
+                    final_tax_rate,
                 )
                 create_plans.append({
                     'line': line,
                     'merged_lines': merged_lines,
                     'tax_ids': tax_ids,
+                    'tax_rate': final_tax_rate,
                     'quantity': quantity,
                     'price_unit': price_unit,
                     'amount_untaxed': amount_untaxed,
@@ -557,9 +559,48 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
         )
         return quantity_changed or price_changed
 
+    def _get_full_bill_plan_tax_rate(self, line, merged_lines):
+        target_rate = self._normalize_tax_rate(line.tax_rate)
+        child_rates = [
+            self._normalize_tax_rate(merged_line.tax_rate)
+            for merged_line in merged_lines
+            if self._is_number(self._normalize_tax_rate(merged_line.tax_rate))
+        ]
+        if not child_rates:
+            return target_rate
+
+        unique_child_rates = []
+        for child_rate in child_rates:
+            if not any(
+                self._numbers_close(child_rate, known_rate, tolerance=0.0001)
+                for known_rate in unique_child_rates
+            ):
+                unique_child_rates.append(child_rate)
+
+        if len(unique_child_rates) > 1:
+            raise UserError(_(
+                '%s: merged OCR lines have different tax rates. '
+                'Split them or correct tax rates before Apply.'
+            ) % line._display_label())
+
+        child_rate = unique_child_rates[0]
+        if not self._is_number(target_rate):
+            return child_rate
+        if not self._numbers_close(target_rate, child_rate, tolerance=0.0001):
+            raise UserError(_(
+                '%(line)s: merged OCR lines use %(child_rate).4g%% VAT, '
+                'but target line uses %(target_rate).4g%% VAT.'
+            ) % {
+                'line': line._display_label(),
+                'child_rate': child_rate,
+                'target_rate': target_rate,
+            })
+        return target_rate
+
     def _validate_merge_tax_rates(self, line, merged_lines):
         target_rate = self._normalize_tax_rate(line.tax_rate)
         if not self._is_number(target_rate):
+            self._get_full_bill_plan_tax_rate(line, merged_lines)
             return True
         for merged_line in merged_lines:
             merged_rate = self._normalize_tax_rate(merged_line.tax_rate)
@@ -725,8 +766,10 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
         })
         return warnings
 
-    def _get_line_taxes(self, line, move, strict=False):
-        tax_rate = self._normalize_tax_rate(line.tax_rate)
+    def _get_line_taxes(self, line, move, strict=False, tax_rate_override=None):
+        tax_rate = self._normalize_tax_rate(
+            line.tax_rate if tax_rate_override is None else tax_rate_override
+        )
         if line.tax_ids:
             if strict:
                 self._validate_selected_taxes(line, line.tax_ids, tax_rate)
@@ -758,6 +801,12 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
 
         taxes, warning = self._find_purchase_taxes(move.company_id, tax_rate, line=line)
         if taxes:
+            try:
+                self._validate_selected_taxes(line, taxes, tax_rate)
+            except UserError as error:
+                if strict:
+                    raise
+                return self.env['account.tax'], self._get_error_message(error)
             line.tax_ids = [(6, 0, taxes.ids)]
             return taxes, False
 
@@ -807,12 +856,19 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
         if selected_taxes:
             return selected_taxes, False
 
+        price_basis_warning = ''
+        if self._line_uses_price_without_tax(line):
+            price_basis_warning = _(
+                ' Preferred non-price-included purchase VAT tax was not selected automatically.'
+            )
+
         return self.env['account.tax'], _(
             '%(line)s: several purchase taxes for %(rate).4g%% were found. '
-            'Please select the correct tax manually before Apply. %(candidates)s'
+            'Please select the correct tax manually before Apply.%(price_basis_warning)s %(candidates)s'
         ) % {
             'line': line._display_label() if line else _('Line'),
             'rate': tax_rate,
+            'price_basis_warning': price_basis_warning,
             'candidates': self._format_tax_candidates(matching_taxes),
         }
 
@@ -832,6 +888,14 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
         company_taxes = taxes.filtered(lambda tax: tax.company_id == company)
         if company_taxes:
             taxes = company_taxes
+
+        price_basis_taxes = self._filter_taxes_for_line_price_basis(taxes, line)
+        if len(price_basis_taxes) == 1:
+            return price_basis_taxes
+        if price_basis_taxes:
+            taxes = price_basis_taxes
+        elif self._line_uses_price_without_tax(line):
+            return self.env['account.tax']
 
         preferred_by_name = taxes.filtered(
             lambda tax: self._tax_name_matches_rate(tax, tax_rate)
@@ -880,10 +944,21 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
             and abs((tax.amount or 0.0) - tax_rate) <= 0.0001
             and tax.type_tax_use in ('purchase', 'none')
             and getattr(tax, 'active', True)
+            and not (
+                self._line_uses_price_without_tax(line)
+                and self._tax_is_price_included(tax)
+            )
         )
         if len(matching_product_taxes) == 1:
             return matching_product_taxes
         return self.env['account.tax']
+
+    def _filter_taxes_for_line_price_basis(self, taxes, line):
+        if not taxes or not line:
+            return taxes
+        if self._line_uses_price_without_tax(line):
+            return taxes.filtered(lambda tax: not self._tax_is_price_included(tax))
+        return taxes
 
     def _tax_name_matches_rate(self, tax, tax_rate):
         name = self._normalize_text(
@@ -912,6 +987,65 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
         has_excluded_word = any(word in name for word in excluded_words)
         has_purchase_word = 'придбання' in name or 'приобрет' in name or 'purchase' in name
         return has_rate and has_vat_word and has_purchase_word and not has_excluded_word
+
+    def _tax_is_price_included(self, tax):
+        if getattr(tax, 'price_include', False):
+            return True
+        name = self._normalize_text(
+            '%s %s' % (
+                getattr(tax, 'name', False) or '',
+                getattr(tax, 'display_name', False) or '',
+            )
+        )
+        return any(
+            marker in name
+            for marker in (
+                'в т. ч.',
+                'в т.ч.',
+                'в т ч',
+                'в тч',
+                'у т. ч.',
+                'у т.ч.',
+                'у т ч',
+                'у тч',
+                'включ',
+                'included',
+                'include',
+                'including',
+            )
+        )
+
+    def _line_uses_price_without_tax(self, line):
+        if not line:
+            return False
+        if self._is_positive_number(self._to_float(getattr(line, 'price_unit_without_tax', False))):
+            return True
+        if self._is_positive_number(self._to_float(getattr(line, 'line_subtotal_without_tax', False))):
+            return True
+        text = self._normalize_text(' '.join(
+            str(value)
+            for value in (
+                getattr(line, 'source_columns', False),
+                getattr(line, 'note', False),
+                getattr(line, 'description', False),
+                getattr(line, 'supplier_product_name', False),
+            )
+            if value
+        ))
+        return any(
+            marker in text
+            for marker in (
+                'ціна без пдв',
+                'цiна без пдв',
+                'цена без ндс',
+                'price without vat',
+                'price without tax',
+                'without vat',
+                'without tax',
+                'сума без пдв',
+                'сумма без ндс',
+            )
+        )
 
     def _tax_matches_rate_and_scope(self, tax, tax_rate, company):
         return (
@@ -945,6 +1079,10 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
         tax_rate = self._normalize_tax_rate(line.tax_rate)
         if self._is_number(tax_rate):
             if 'several purchase taxes' in str(warning):
+                if 'non-price-included' in str(warning):
+                    return _(
+                        'Tax review required: several %.4g%% purchase taxes found; choose non-price-included VAT'
+                    ) % tax_rate
                 return _('Tax review required: several %.4g%% purchase taxes found') % tax_rate
             if 'was not found' in str(warning):
                 return _('Tax review required: no %.4g%% purchase tax found') % tax_rate
@@ -970,6 +1108,17 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
                     'line': line._display_label(),
                     'rate': tax_rate,
                 })
+            if self._line_uses_price_without_tax(line):
+                price_included_taxes = matching_taxes.filtered(
+                    lambda tax: self._tax_is_price_included(tax)
+                )
+                if price_included_taxes:
+                    raise UserError(_(
+                        'Для рядка "%(line)s" вибраний податок включено в ціну, '
+                        'але OCR розпізнав ціну без ПДВ. Оберіть податок без включення в ціну.'
+                    ) % {
+                        'line': line._display_label(),
+                    })
         if tax_rate == 0:
             matching_zero_taxes = taxes.filtered(
                 lambda tax: tax.amount_type == 'percent'
