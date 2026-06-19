@@ -182,6 +182,7 @@ class AccountGeminiDigitizationJob(models.Model):
                 for line in self.line_ids.sorted('sequence')
             ],
         })
+        wizard._autofill_line_taxes()
         form_view = self.env.ref(
             'account_gemini_digitization.view_account_gemini_digitization_review_wizard_form'
         )

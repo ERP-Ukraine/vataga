@@ -48,7 +48,7 @@
                                     <field
                                         name="tax_ids"
                                         widget="many2many_tags"
-                                        domain="[('type_tax_use', 'in', ('purchase', 'none'))]"
+                                        domain="[('active', '=', True), ('amount_type', '=', 'percent'), ('type_tax_use', 'in', ('purchase', 'none'))]"
                                     />
                                     <field name="amount_untaxed" readonly="1"/>
                                     <field name="amount_tax" readonly="1"/>
@@ -94,7 +94,7 @@
                                             <field
                                                 name="tax_ids"
                                                 widget="many2many_tags"
-                                                domain="[('type_tax_use', 'in', ('purchase', 'none'))]"
+                                                domain="[('active', '=', True), ('amount_type', '=', 'percent'), ('type_tax_use', 'in', ('purchase', 'none'))]"
                                             />
                                             <field name="line_subtotal_without_tax" readonly="1"/>
                                             <field name="line_tax_amount" readonly="1"/>

@@ -153,6 +153,7 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
         move = job.move_id
         self._validate_full_bill_apply(job, move)
         self._validate_full_bill_review_lines()
+        planned_lines = self._prepare_full_bill_tax_plan(move)
 
         warnings = []
         header_values = {}
@@ -163,14 +164,9 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
         if header_values:
             move.write(header_values)
 
-        planned_lines = []
         commands = []
         existing_line_ids = set(move.invoice_line_ids.ids)
-        for line in self.line_ids.sorted('sequence'):
-            tax_ids, tax_warning = self._get_line_taxes(line, move)
-            if tax_warning:
-                warnings.append(tax_warning)
-            planned_lines.append((line, tax_ids))
+        for line, tax_ids in planned_lines:
             commands.append((0, 0, self._prepare_full_bill_invoice_line_values(
                 line,
                 move,
@@ -240,6 +236,31 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
 
     def action_close(self):
         return {'type': 'ir.actions.act_window_close'}
+
+    def _autofill_line_taxes(self):
+        for wizard in self:
+            warnings = []
+            move = wizard.move_id
+            if not move:
+                continue
+            for line in wizard.line_ids:
+                if line.tax_ids:
+                    continue
+                tax_ids, tax_warning = wizard._get_line_taxes(
+                    line,
+                    move,
+                    strict=False,
+                )
+                if tax_ids:
+                    line.tax_ids = [(6, 0, tax_ids.ids)]
+                if tax_warning:
+                    warnings.append(tax_warning)
+            if warnings:
+                wizard.note = wizard._append_text(
+                    wizard.note,
+                    '\n'.join(str(warning) for warning in warnings),
+                )
+        return True
 
     def _validate_partial_bill_apply(self, job, move):
         if not job or job.state != 'review':
@@ -344,6 +365,24 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
                 'Please check Review. Lines: %s'
             ) % ', '.join(missing_price))
 
+    def _prepare_full_bill_tax_plan(self, move):
+        errors = []
+        planned_lines = []
+        for line in self.line_ids.sorted('sequence'):
+            try:
+                tax_ids, _tax_warning = self._get_line_taxes(
+                    line,
+                    move,
+                    strict=True,
+                )
+                planned_lines.append((line, tax_ids))
+            except UserError as error:
+                errors.append(self._get_error_message(error))
+
+        if errors:
+            raise UserError('\n'.join(errors))
+        return planned_lines
+
     def _prepare_full_bill_invoice_line_values(self, line, move, tax_ids):
         product = line.matched_product_id
         values = {
@@ -358,8 +397,7 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
         uom = getattr(product, 'uom_po_id', False) or getattr(product, 'uom_id', False)
         if uom:
             values['product_uom_id'] = uom.id
-        if tax_ids:
-            values['tax_ids'] = [(6, 0, tax_ids.ids)]
+        values['tax_ids'] = [(6, 0, tax_ids.ids)]
         return values
 
     def _get_full_bill_line_name(self, line, product):
@@ -460,32 +498,176 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
         })
         return warnings
 
-    def _get_line_taxes(self, line, move):
+    def _get_line_taxes(self, line, move, strict=False):
+        tax_rate = self._normalize_tax_rate(line.tax_rate)
         if line.tax_ids:
+            if strict:
+                self._validate_selected_taxes(line, line.tax_ids, tax_rate)
             return line.tax_ids, False
-        if not self._is_positive_number(line.tax_rate):
+
+        if not self._is_number(tax_rate):
             return self.env['account.tax'], False
 
-        taxes = self._find_purchase_taxes(move.company_id, line.tax_rate)
-        if len(taxes) == 1:
-            return taxes, False
-        if not taxes:
-            return self.env['account.tax'], _(
-                '%s: purchase tax %.4g%% was not found and was not applied.'
-            ) % (line._display_label(), line.tax_rate)
-        return self.env['account.tax'], _(
-            '%s: several purchase taxes for %.4g%% were found; tax was not applied automatically.'
-        ) % (line._display_label(), line.tax_rate)
+        if tax_rate == 0:
+            if not self._line_allows_zero_tax(line):
+                if strict:
+                    raise UserError(_(
+                        '%s: OCR tax rate is 0%%, but there is no explicit zero-rated/VAT-exempt evidence. '
+                        'Please select taxes manually or check OCR result.'
+                    ) % line._display_label())
+                return self.env['account.tax'], _(
+                    '%s: zero tax was not applied automatically because OCR did not provide explicit VAT-exempt evidence.'
+                ) % line._display_label()
+        elif tax_rate < 0:
+            if strict:
+                raise UserError(_('%s: invalid negative tax rate %.4g%%.') % (
+                    line._display_label(),
+                    tax_rate,
+                ))
+            return self.env['account.tax'], _('%s: invalid negative tax rate %.4g%%.') % (
+                line._display_label(),
+                tax_rate,
+            )
 
-    def _find_purchase_taxes(self, company, tax_rate):
+        taxes, warning = self._find_purchase_taxes(move.company_id, tax_rate, line=line)
+        if taxes:
+            line.tax_ids = [(6, 0, taxes.ids)]
+            return taxes, False
+
+        if strict:
+            raise UserError(warning)
+        return self.env['account.tax'], warning
+
+    def _find_purchase_taxes(self, company, tax_rate, line=False):
+        tax_rate = self._normalize_tax_rate(tax_rate)
+        if not self._is_number(tax_rate):
+            return self.env['account.tax'], False
+
         taxes = self.env['account.tax'].search([
+            ('active', '=', True),
             ('amount_type', '=', 'percent'),
             ('type_tax_use', 'in', ('purchase', 'none')),
             '|',
             ('company_id', '=', company.id),
             ('company_id', '=', False),
         ])
-        return taxes.filtered(lambda tax: abs((tax.amount or 0.0) - tax_rate) <= 0.0001)
+        matching_taxes = taxes.filtered(
+            lambda tax: abs((tax.amount or 0.0) - tax_rate) <= 0.0001
+        )
+        if not matching_taxes:
+            return self.env['account.tax'], _(
+                '%s: purchase tax %.4g%% was not found. Please select the correct tax before Apply.'
+            ) % (line._display_label() if line else _('Line'), tax_rate)
+
+        selected_taxes = self._select_best_purchase_tax(matching_taxes, company, tax_rate)
+        if selected_taxes:
+            return selected_taxes, False
+
+        return self.env['account.tax'], _(
+            '%s: several purchase taxes for %.4g%% were found. Please select the correct tax manually before Apply.'
+        ) % (line._display_label() if line else _('Line'), tax_rate)
+
+    def _select_best_purchase_tax(self, taxes, company, tax_rate):
+        purchase_taxes = taxes.filtered(lambda tax: tax.type_tax_use == 'purchase')
+        if purchase_taxes:
+            taxes = purchase_taxes
+
+        company_taxes = taxes.filtered(lambda tax: tax.company_id == company)
+        if company_taxes:
+            taxes = company_taxes
+
+        preferred_by_name = taxes.filtered(
+            lambda tax: self._tax_name_matches_rate(tax, tax_rate)
+        )
+        if len(preferred_by_name) == 1:
+            return preferred_by_name
+        if preferred_by_name:
+            taxes = preferred_by_name
+
+        if len(taxes) == 1:
+            return taxes
+        return self.env['account.tax']
+
+    def _tax_name_matches_rate(self, tax, tax_rate):
+        name = self._normalize_text(
+            '%s %s' % (
+                getattr(tax, 'name', False) or '',
+                getattr(tax, 'display_name', False) or '',
+            )
+        )
+        if not name:
+            return False
+        rate_text = str(int(tax_rate)) if abs(tax_rate - int(tax_rate)) <= 0.0001 else str(tax_rate)
+        has_rate = rate_text in name
+        if tax_rate == 0:
+            return has_rate or 'без пдв' in name or 'без ндс' in name or 'no vat' in name
+        has_vat_word = any(word in name for word in ('пдв', 'ндс', 'vat'))
+        return has_rate and has_vat_word
+
+    def _validate_selected_taxes(self, line, taxes, tax_rate):
+        if not self._is_number(tax_rate):
+            return True
+        if tax_rate > 0:
+            matching_taxes = taxes.filtered(
+                lambda tax: tax.amount_type == 'percent'
+                and abs((tax.amount or 0.0) - tax_rate) <= 0.0001
+            )
+            if not matching_taxes:
+                raise UserError(_(
+                    '%s: selected tax does not match OCR tax rate %.4g%%. '
+                    'Please select a matching purchase VAT tax before Apply.'
+                ) % (line._display_label(), tax_rate))
+        if tax_rate == 0:
+            matching_zero_taxes = taxes.filtered(
+                lambda tax: tax.amount_type == 'percent'
+                and abs(tax.amount or 0.0) <= 0.0001
+            )
+            if not matching_zero_taxes:
+                raise UserError(_(
+                    '%s: selected tax is not a 0%% tax, but OCR tax rate is 0%%.'
+                ) % line._display_label())
+        return True
+
+    def _normalize_tax_rate(self, tax_rate):
+        if not self._is_number(tax_rate):
+            return False
+        if 0 < tax_rate <= 1:
+            return tax_rate * 100
+        return tax_rate
+
+    def _line_allows_zero_tax(self, line):
+        text = self._normalize_text(' '.join(
+            str(value)
+            for value in (
+                line.supplier_product_name,
+                line.description,
+                line.source_columns,
+                line.note,
+            )
+            if value
+        ))
+        return any(
+            phrase in text
+            for phrase in (
+                'без пдв',
+                'без ндс',
+                'vat exempt',
+                'zero rated',
+                '0 пдв',
+                '0 ндс',
+                '0 vat',
+            )
+        )
+
+    def _normalize_text(self, value):
+        value = str(value or '').lower()
+        value = value.replace('%', ' ')
+        return ' '.join(value.split())
+
+    def _get_error_message(self, error):
+        if getattr(error, 'args', None):
+            return error.args[0]
+        return str(error)
 
     def _format_warnings(self, warnings):
         return '\n'.join(
@@ -499,6 +681,9 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
 
     def _is_positive_number(self, value):
         return isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0
+
+    def _is_number(self, value):
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 class AccountGeminiDigitizationReviewLineWizard(models.TransientModel):
