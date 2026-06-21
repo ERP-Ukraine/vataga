@@ -330,6 +330,12 @@ class ProductMatcher:
             for seller in self._search_supplierinfos_like(term, partner):
                 self._append_unique(products, self._seller_product(seller))
 
+        for product in self._find_full_bill_name_products(line):
+            self._append_unique(products, product)
+
+        for history_line in self._find_historical_name_move_lines(line, partner):
+            self._append_unique(products, getattr(history_line, 'product_id', False))
+
         for history_line in self._find_historical_move_lines(line, partner):
             self._append_unique(products, getattr(history_line, 'product_id', False))
         return products
@@ -457,6 +463,35 @@ class ProductMatcher:
                     boosts.append('technical_segments +%.2f' % boost)
             notes.extend(technical_notes)
 
+        name_score, name_method, name_notes, name_details = self._score_plain_product_name_match(
+            line,
+            product,
+        )
+        if name_score:
+            if name_score > score:
+                score = name_score
+                method = name_method
+            elif score and name_score >= 0.80:
+                boost = min(0.03, (name_score - 0.80) * 0.15)
+                if boost > 0:
+                    score += boost
+                    boosts.append('plain_name +%.2f' % boost)
+            notes.extend(name_notes)
+
+        history_name_score, history_name_method, history_name_notes, history_name_details = (
+            self._score_historical_name_product_match(line, product, partner)
+        )
+        if history_name_score:
+            if history_name_score > score:
+                score = history_name_score
+                method = history_name_method
+            elif score and history_name_score >= 0.80:
+                boost = min(0.03, (history_name_score - 0.80) * 0.15)
+                if boost > 0:
+                    score += boost
+                    boosts.append('historical_plain_name +%.2f' % boost)
+            notes.extend(history_name_notes)
+
         base_score = score
         similarity_score = self._best_product_similarity(line, product)
         if not score and similarity_score >= self.CANDIDATE_THRESHOLD:
@@ -545,6 +580,8 @@ class ProductMatcher:
             'boosts': boosts,
             'penalties': penalties,
             'technical_details': technical_details,
+            'name_details': name_details,
+            'history_name_details': history_name_details,
         }
 
     def _score_product_identity(self, line, product, partner):
@@ -661,6 +698,107 @@ class ProductMatcher:
             for target, _target_method in self._product_name_targets(product):
                 best = max(best, self._score_text_match(query, target))
         return best
+
+    def _score_plain_product_name_match(self, line, product):
+        notes = []
+        details = {
+            'line_names': self._line_normalized_plain_names(line),
+            'product_names': self._product_normalized_plain_names(product),
+            'match_type': 'none',
+        }
+        if not details['line_names'] or not details['product_names']:
+            return 0.0, False, notes, details
+
+        for line_name in details['line_names']:
+            for product_name in details['product_names']:
+                if not line_name or not product_name:
+                    continue
+                if line_name == product_name:
+                    details['match_type'] = 'exact'
+                    notes.append(
+                        'Exact normalized product name match: "%s".' % line_name
+                    )
+                    return 0.95, 'product_name_exact', notes, details
+
+        best_substring = False
+        for line_name in details['line_names']:
+            for product_name in details['product_names']:
+                if not self._is_safe_plain_name_for_substring(line_name):
+                    continue
+                if line_name in product_name or product_name in line_name:
+                    best_substring = (line_name, product_name)
+                    break
+            if best_substring:
+                break
+
+        if best_substring:
+            details['match_type'] = 'substring'
+            notes.append(
+                'Normalized product name substring match: "%s" ~= "%s".'
+                % best_substring
+            )
+            return 0.90, 'product_name_substring', notes, details
+
+        return 0.0, False, notes, details
+
+    def _score_historical_name_product_match(self, line, product, partner):
+        notes = []
+        details = {
+            'line_names': self._line_normalized_plain_names(line),
+            'historical_lines_checked': 0,
+            'historical_line_ids': [],
+            'match_type': 'none',
+        }
+        if not details['line_names']:
+            return 0.0, False, notes, details
+
+        history_lines = self._find_historical_name_move_lines(line, partner, product=product)
+        details['historical_lines_checked'] = len(history_lines)
+        best_score = 0.0
+        best_line = False
+        best_match_type = False
+        for history_line in history_lines[:10]:
+            history_name = self._normalize_plain_name(getattr(history_line, 'name', False))
+            if not history_name:
+                continue
+            for line_name in details['line_names']:
+                if line_name == history_name:
+                    score = 0.90
+                    match_type = 'exact'
+                elif (
+                    self._is_safe_plain_name_for_substring(line_name)
+                    and (line_name in history_name or history_name in line_name)
+                ):
+                    score = 0.88
+                    match_type = 'substring'
+                else:
+                    continue
+                if self._historical_line_partner_matches(history_line, partner):
+                    score += 0.02
+                if score > best_score:
+                    best_score = score
+                    best_line = history_line
+                    best_match_type = match_type
+
+        if best_line:
+            details['match_type'] = best_match_type
+            details['historical_line_ids'] = [getattr(best_line, 'id', False)]
+            notes.append(
+                'Matched by historical bill line name: line_id=%s; name=%s.'
+                % (
+                    getattr(best_line, 'id', False) or 'unknown',
+                    getattr(best_line, 'name', False) or '',
+                )
+            )
+            return (
+                self._clamp_score(best_score),
+                'historical_line_name_exact'
+                if best_match_type == 'exact'
+                else 'historical_line_name_substring',
+                notes,
+                details,
+            )
+        return 0.0, False, notes, details
 
     def _secondary_token_boost(self, product, partner, secondary_codes):
         if not secondary_codes:
@@ -2035,6 +2173,8 @@ class ProductMatcher:
         profile = self._line_code_profile(line)
         technical_profile = self._line_technical_profile(line)
         historical_lines = self._find_historical_move_lines(line, partner)
+        name_search = self._product_name_search_snapshot(line)
+        historical_name_lines = self._find_historical_name_move_lines(line, partner)
         supplierinfo_candidates = self._find_supplierinfos_by_codes(
             profile['primary_codes'],
             partner,
@@ -2081,7 +2221,21 @@ class ProductMatcher:
             'Supplierinfo candidates count: %s.' % len(supplierinfo_candidates),
             'Supplierinfo exact matches: %s.' % len(supplierinfo_exact),
             'Historical account.move.line candidates count: %s.' % len(historical_lines),
+            'Historical account.move.line name candidates count: %s.' % len(historical_name_lines),
             'Product candidates found: %s.' % len(products),
+            'Product name fallback normalized names: %s.' % (
+                ', '.join(name_search['normalized_names'])
+                if name_search['normalized_names']
+                else 'none'
+            ),
+            'Tried exact normalized product name search: yes.',
+            'Product name search purchase_ok=True candidates: %s.' % name_search['purchase_ok_count'],
+            'Product name search fallback without purchase_ok candidates: %s.' % name_search['fallback_count'],
+            'Exact normalized product name candidates: %s.' % (
+                ', '.join(name_search['exact_candidate_names'])
+                if name_search['exact_candidate_names']
+                else 'none'
+            ),
             'Recognized values: supplier_product_code=%s; supplier_product_name=%s; quantity=%s; price_unit=%s; amount_untaxed=%s.'
             % (
                 getattr(line, 'supplier_product_code', False) or 'none',
@@ -2092,6 +2246,15 @@ class ProductMatcher:
             ),
             'Methods tried: supplierinfo code/name, default_code, barcode, primary code-token, technical full code/segment combinations, historical account.move.line.name, meaningful secondary token boost, brand/dimension boosts, internal product penalties, fuzzy/token name similarity.',
         ]
+        if (
+            not profile['primary_codes']
+            and not profile['secondary_codes']
+            and not technical_profile['full_codes']
+            and not technical_profile['segments']
+        ):
+            diagnostics.append(
+                'No supplier code/default_code/barcode/technical code found; plain product-name fallback is the main matching signal.'
+            )
         if not products:
             diagnostics.append('No product.product candidates were found.')
             return diagnostics
@@ -2182,6 +2345,26 @@ class ProductMatcher:
                     ', '.join(technical_details.get('unmatched_segments') or []) or 'none',
                 ),
             ])
+        name_details = candidate.get('name_details') or {}
+        if name_details:
+            values.append(
+                '  plain_name_match=%s; OCR names=%s; product names=%s'
+                % (
+                    name_details.get('match_type') or 'none',
+                    ', '.join(name_details.get('line_names') or []) or 'none',
+                    ', '.join(name_details.get('product_names') or []) or 'none',
+                )
+            )
+        history_name_details = candidate.get('history_name_details') or {}
+        if history_name_details:
+            values.append(
+                '  historical_name_match=%s; historical_lines_checked=%s; historical_line_ids=%s'
+                % (
+                    history_name_details.get('match_type') or 'none',
+                    history_name_details.get('historical_lines_checked') or 0,
+                    ', '.join(str(line_id) for line_id in history_name_details.get('historical_line_ids') or []) or 'none',
+                )
+            )
         if candidate.get('notes'):
             values.append('  why: %s' % '; '.join(candidate['notes']))
         return values
@@ -2205,6 +2388,84 @@ class ProductMatcher:
                 seen.add(record_id)
                 ids.append(record_id)
         return ids
+
+    def _find_full_bill_name_products(self, line):
+        terms = self._plain_name_search_terms(line)
+        if not terms:
+            return []
+
+        purchase_products = []
+        for term in terms:
+            for product in self._search_products_name_like(term, purchase_ok=True):
+                self._append_unique(purchase_products, product)
+        if purchase_products:
+            return purchase_products
+
+        fallback_products = []
+        for term in terms:
+            for product in self._search_products_name_like(term, purchase_ok=False):
+                self._append_unique(fallback_products, product)
+        return fallback_products
+
+    def _plain_name_search_terms(self, line):
+        terms = []
+        for name in self._line_plain_names(line):
+            normalized = self._normalize_plain_name(name)
+            if not self._is_safe_plain_name_for_search(normalized):
+                continue
+            terms.append(name)
+            terms.append(normalized)
+        return list(dict.fromkeys(term for term in terms if term))
+
+    def _product_name_search_snapshot(self, line):
+        terms = self._plain_name_search_terms(line)
+        purchase_products = []
+        fallback_products = []
+        for term in terms:
+            for product in self._search_products_name_like(term, purchase_ok=True):
+                self._append_unique(purchase_products, product)
+            for product in self._search_products_name_like(term, purchase_ok=False):
+                self._append_unique(fallback_products, product)
+
+        exact_products = []
+        for product in purchase_products or fallback_products:
+            score, _method, _notes, details = self._score_plain_product_name_match(line, product)
+            if score >= 0.95 and details.get('match_type') == 'exact':
+                self._append_unique(exact_products, product)
+
+        return {
+            'normalized_names': self._line_normalized_plain_names(line),
+            'purchase_ok_count': len(purchase_products),
+            'fallback_count': len(fallback_products),
+            'exact_candidate_names': [
+                self._short_product_name(product)
+                for product in exact_products[:10]
+            ],
+        }
+
+    def _find_historical_name_move_lines(self, line, partner, product=False):
+        terms = self._plain_name_search_terms(line)
+        if not terms:
+            return []
+
+        history_lines = []
+        for term in terms:
+            for history_line in self._search_historical_move_lines(
+                term,
+                partner=partner,
+                product=product,
+                normalize_as_name=True,
+            ):
+                self._append_unique(history_lines, history_line)
+            if partner:
+                for history_line in self._search_historical_move_lines(
+                    term,
+                    partner=False,
+                    product=product,
+                    normalize_as_name=True,
+                ):
+                    self._append_unique(history_lines, history_line)
+        return history_lines[:100]
 
     def _find_historical_move_lines(self, line, partner, product=False):
         terms = self._historical_search_terms(line)
@@ -2247,8 +2508,19 @@ class ProductMatcher:
         )
         return self._unique_normalized_codes(terms)[:12]
 
-    def _search_historical_move_lines(self, term, partner=False, product=False):
-        if not term or not self._normalize_code(term):
+    def _search_historical_move_lines(
+        self,
+        term,
+        partner=False,
+        product=False,
+        normalize_as_name=False,
+    ):
+        if not term:
+            return []
+        if normalize_as_name:
+            if not self._normalize_plain_name(term):
+                return []
+        elif not self._normalize_code(term):
             return []
         domain = [
             ('product_id', '!=', False),
@@ -2344,6 +2616,14 @@ class ProductMatcher:
             ('default_code', 'ilike', term),
         ], limit=100))
 
+    def _search_products_name_like(self, term, purchase_ok=True):
+        if not term:
+            return []
+        domain = [('name', 'ilike', term)]
+        if purchase_ok is True:
+            domain.insert(0, ('purchase_ok', '=', True))
+        return list(self.env['product.product'].search(domain, limit=100))
+
     def _search_products_code_like(self, code):
         code = str(code or '').strip()
         if not self._normalize_code(code):
@@ -2424,6 +2704,37 @@ class ProductMatcher:
             )
             if value
         ]
+
+    def _line_plain_names(self, line):
+        names = []
+        for value in (
+            getattr(line, 'supplier_product_name', False),
+            getattr(line, 'description', False),
+        ):
+            if value:
+                names.append(value)
+        return list(dict.fromkeys(names))
+
+    def _line_normalized_plain_names(self, line):
+        return list(dict.fromkeys(
+            name
+            for name in (
+                self._normalize_plain_name(value)
+                for value in self._line_plain_names(line)
+            )
+            if name
+        ))
+
+    def _product_normalized_plain_names(self, product):
+        names = []
+        for value in (
+            getattr(product, 'name', False),
+            getattr(product, 'display_name', False),
+        ):
+            normalized = self._normalize_plain_name(value)
+            if normalized:
+                names.append(normalized)
+        return list(dict.fromkeys(names))
 
     def _line_search_terms(self, line):
         terms = []
@@ -2767,6 +3078,43 @@ class ProductMatcher:
         value = re.sub(r'[^\w\s]', ' ', value, flags=re.U)
         value = value.replace('_', ' ')
         return re.sub(r'\s+', ' ', value).strip()
+
+    def _normalize_plain_name(self, value):
+        if not value:
+            return ''
+        value = str(value)
+        value = value.replace('\u0401', '\u0415').replace('\u0451', '\u0435')
+        value = value.translate(str.maketrans({
+            '\u2018': "'",
+            '\u2019': "'",
+            '\u201a': "'",
+            '\u201b': "'",
+            '\u02bc': "'",
+            '\u2032': "'",
+            '\u201c': '"',
+            '\u201d': '"',
+            '\u201e': '"',
+            '\u00ab': '"',
+            '\u00bb': '"',
+        }))
+        normalized = self._normalize_text(value)
+        normalized = re.sub(r'\b(?:\u0456\u0437|\u0437\u0456)\b', '\u0437', normalized)
+        normalized = re.sub(r'\s+', ' ', normalized).strip(' .,;:-')
+        return normalized
+
+    def _is_safe_plain_name_for_search(self, normalized_name):
+        if not normalized_name:
+            return False
+        tokens = normalized_name.split()
+        if len(normalized_name) >= 6 and len(tokens) >= 2:
+            return True
+        return len(normalized_name) >= 8
+
+    def _is_safe_plain_name_for_substring(self, normalized_name):
+        if not normalized_name:
+            return False
+        tokens = normalized_name.split()
+        return len(normalized_name) >= 8 and len(tokens) >= 2
 
     def _normalize_code(self, value):
         if not value:
