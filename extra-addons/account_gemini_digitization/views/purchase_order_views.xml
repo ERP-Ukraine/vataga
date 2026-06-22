@@ -29,6 +29,17 @@
                     />
                 </button>
             </xpath>
+            <xpath expr="//form/sheet/notebook" position="inside">
+                <page string="Gemini OCR" name="gemini_ocr">
+                    <group string="Файл для Gemini OCR">
+                        <field
+                            name="gemini_attachment_ids"
+                            widget="many2many_binary"
+                            options="{'accepted_file_extensions': '.pdf,.png,.jpg,.jpeg'}"
+                        />
+                    </group>
+                </page>
+            </xpath>
         </field>
     </record>
 </odoo>
