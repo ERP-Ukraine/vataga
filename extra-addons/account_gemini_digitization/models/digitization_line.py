@@ -15,7 +15,7 @@ class AccountGeminiDigitizationLine(models.Model):
         ('error', 'Error'),
     ]
     APPLY_ACTION_SELECTION = [
-        ('create_line', 'Create Invoice Line'),
+        ('create_line', 'Create Document Line'),
         ('merge_into', 'Merge Into Another Line'),
         ('skip', 'Skip'),
     ]
@@ -97,6 +97,12 @@ class AccountGeminiDigitizationLine(models.Model):
         comodel_name='account.move.line',
         string='Vendor Bill Line',
         ondelete='set null',
+    )
+    purchase_order_line_id = fields.Many2one(
+        comodel_name='purchase.order.line',
+        string='Purchase Order Line',
+        ondelete='set null',
+        copy=False,
     )
     candidate_move_line_ids = fields.Many2many(
         comodel_name='account.move.line',

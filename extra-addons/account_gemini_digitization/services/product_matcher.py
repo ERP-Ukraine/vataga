@@ -147,12 +147,30 @@ class ProductMatcher:
         partner = self._get_job_partner(job)
         for line in job.line_ids:
             try:
-                products = self._find_full_purchase_products(line, partner)
+                products = self._find_full_bill_products(line, partner)
                 candidates = [
-                    self._score_product(line, product, partner)
+                    self._score_product(
+                        line,
+                        product,
+                        partner,
+                        strict_code_profile=True,
+                    )
                     for product in products
                 ]
-                self._write_match_result(line, candidates, include_move_lines=False)
+                diagnostics = self._build_product_diagnostics(
+                    line,
+                    job,
+                    products,
+                    candidates,
+                    mode_label='Full purchase order',
+                )
+                self._write_match_result(
+                    line,
+                    candidates,
+                    include_move_lines=False,
+                    diagnostics=diagnostics,
+                    allow_best_gap_match=True,
+                )
             except Exception as error:
                 _logger.exception('Gemini full purchase matching failed.')
                 self._write_line_error(line, error)

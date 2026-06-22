@@ -123,6 +123,7 @@
                                     <field name="match_method"/>
                                     <field name="match_summary"/>
                                     <field name="move_line_id"/>
+                                    <field name="purchase_order_line_id"/>
                                     <field name="candidate_move_line_ids" widget="many2many_tags"/>
                                     <field name="confidence"/>
                                     <field name="currency_id" column_invisible="True"/>
@@ -162,6 +163,7 @@
                                             <field name="match_method"/>
                                             <field name="match_summary"/>
                                             <field name="move_line_id"/>
+                                            <field name="purchase_order_line_id"/>
                                             <field name="candidate_move_line_ids" widget="many2many_tags"/>
                                             <field name="confidence"/>
                                         </group>

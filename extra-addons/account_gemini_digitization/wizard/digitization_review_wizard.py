@@ -13,7 +13,7 @@ MATCH_STATUS_SELECTION = [
     ('error', 'Error'),
 ]
 APPLY_ACTION_SELECTION = [
-    ('create_line', 'Create Invoice Line'),
+    ('create_line', 'Create Document Line'),
     ('merge_into', 'Merge Into Another Line'),
     ('skip', 'Skip'),
 ]
@@ -34,6 +34,10 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
     )
     move_id = fields.Many2one(
         related='job_id.move_id',
+        readonly=True,
+    )
+    purchase_order_id = fields.Many2one(
+        related='job_id.purchase_order_id',
         readonly=True,
     )
     partner_id = fields.Many2one(
@@ -95,13 +99,11 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
         if self.mode == 'full_bill':
             return self._apply_full_bill()
         if self.mode == 'full_purchase':
-            raise UserError(_('Застосування для full_purchase буде реалізовано окремо.'))
+            return self._apply_full_purchase()
         raise UserError(_('Unsupported Gemini review mode: %s') % self.mode)
 
     def _apply_partial_bill(self):
         self.ensure_one()
-        if self.mode == 'full_purchase':
-            raise UserError(_('Застосування для full_purchase буде реалізовано окремо.'))
         if self.mode != 'partial_bill':
             raise UserError(_('Unsupported Gemini review mode: %s') % self.mode)
 
@@ -293,14 +295,131 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
             'target': 'current',
         }
 
+    def _apply_full_purchase(self):
+        self.ensure_one()
+        job = self.job_id
+        order = job.purchase_order_id
+        self._validate_full_purchase_apply(job, order)
+        self._validate_full_purchase_review_lines()
+        create_plans = self._prepare_full_purchase_apply_plan(order)
+
+        existing_line_ids = set(order.order_line.ids)
+        commands = [
+            (0, 0, self._prepare_full_purchase_order_line_values(plan, order))
+            for plan in create_plans
+        ]
+        if commands:
+            order.write({'order_line': commands})
+
+        created_lines = self.env['purchase.order.line'].search([
+            ('order_id', '=', order.id),
+            ('id', 'not in', list(existing_line_ids)),
+        ], order='id')
+        if len(created_lines) != len(create_plans):
+            raise UserError(_(
+                'Gemini full purchase apply could not safely identify created purchase order lines.'
+            ))
+
+        for created_line, plan in zip(created_lines, create_plans):
+            wizard_line = plan['line']
+            tax_ids = plan['tax_ids']
+            status = wizard_line.match_status
+            method = wizard_line.match_method
+            score = wizard_line.match_score
+            if wizard_line._is_manual_product_selection() or status not in ('matched', 'manual'):
+                status = 'manual'
+                method = 'manual_product'
+                score = score or 1.0
+
+            note = self._append_text(
+                wizard_line.job_line_id.note,
+                _('Created purchase order line %s.') % created_line.display_name,
+            )
+            if plan['merged_lines']:
+                note = self._append_text(
+                    note,
+                    _('Merged OCR lines: %s.') % ', '.join(
+                        merged_line._display_label() for merged_line in plan['merged_lines']
+                    ),
+                )
+
+            wizard_line.job_line_id.write({
+                'purchase_order_line_id': created_line.id,
+                'move_line_id': False,
+                'matched_product_id': wizard_line.matched_product_id.id,
+                'apply_action': 'create_line',
+                'merge_target_line_id': False,
+                'match_status': status,
+                'match_score': score,
+                'match_method': method,
+                'match_summary': wizard_line.match_summary,
+                'quantity': plan['quantity'],
+                'price_unit': plan['price_unit'],
+                'tax_rate': plan['tax_rate'],
+                'tax_ids': [(6, 0, tax_ids.ids)] if tax_ids else [(6, 0, [])],
+                'amount_untaxed': plan['amount_untaxed'],
+                'amount_tax': plan['amount_tax'],
+                'amount_total': plan['amount_total'],
+                'line_subtotal_without_tax': plan['amount_untaxed'],
+                'line_tax_amount': plan['amount_tax'],
+                'line_total_with_tax': plan['amount_total'],
+                'note': note,
+            })
+            for merged_line in plan['merged_lines']:
+                merged_line.job_line_id.write({
+                    'purchase_order_line_id': created_line.id,
+                    'move_line_id': False,
+                    'matched_product_id': wizard_line.matched_product_id.id,
+                    'apply_action': 'merge_into',
+                    'merge_target_line_id': wizard_line.job_line_id.id,
+                    'match_status': 'manual',
+                    'match_score': merged_line.match_score or 1.0,
+                    'match_method': 'manual_merge',
+                    'match_summary': _('Merged into: %s') % wizard_line._display_label(),
+                    'note': self._append_text(
+                        merged_line.job_line_id.note,
+                        _('Merged into purchase order line %s.') % created_line.display_name,
+                    ),
+                })
+
+        for skipped_line in self.line_ids.filtered(lambda line: line.apply_action == 'skip'):
+            skipped_line.job_line_id.write({
+                'purchase_order_line_id': False,
+                'move_line_id': False,
+                'apply_action': 'skip',
+                'merge_target_line_id': False,
+                'match_status': 'manual',
+                'match_score': skipped_line.match_score or 1.0,
+                'match_method': 'manual_skip',
+                'match_summary': _('Skipped: manually excluded from purchase order line creation'),
+                'note': self._append_text(
+                    skipped_line.job_line_id.note,
+                    _('Skipped during full purchase apply.'),
+                ),
+            })
+
+        job.write({
+            'state': 'done',
+            'error_message': False,
+            'matching_message': False,
+        })
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _('Purchase Order'),
+            'res_model': 'purchase.order',
+            'view_mode': 'form',
+            'res_id': order.id,
+            'target': 'current',
+        }
+
     def action_close(self):
         return {'type': 'ir.actions.act_window_close'}
 
     def _autofill_line_taxes(self):
         for wizard in self:
             warnings = []
-            move = wizard.move_id
-            if not move:
+            document = wizard.move_id or wizard.purchase_order_id
+            if not document:
                 continue
             for line in wizard.line_ids:
                 if line.apply_action in ('merge_into', 'skip'):
@@ -309,7 +428,7 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
                     continue
                 tax_ids, tax_warning = wizard._get_line_taxes(
                     line,
-                    move,
+                    document,
                     strict=False,
                 )
                 if tax_ids:
@@ -354,6 +473,24 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
         if self._get_move_product_lines(move):
             raise UserError(_(
                 'Vendor bill already contains product lines. Use partial bill recognition for existing lines.'
+            ))
+
+    def _validate_full_purchase_apply(self, job, order):
+        if not job or job.state != 'review':
+            raise UserError(_('Gemini job must be in Review state before apply.'))
+        if not order:
+            raise UserError(_('Gemini job is not linked to a purchase order.'))
+        if order.state not in ('draft', 'sent'):
+            raise UserError(_(
+                'Gemini full purchase apply is allowed only for draft or sent purchase orders.'
+            ))
+        if not (order.partner_id or job.partner_id):
+            raise UserError(_(
+                'Спочатку оберіть постачальника в замовленні на закупівлю.'
+            ))
+        if any(job_line.purchase_order_line_id for job_line in job.line_ids):
+            raise UserError(_(
+                'This Gemini full purchase job already has created purchase order lines and cannot be applied again.'
             ))
 
     def _validate_review_lines(self):
@@ -536,6 +673,84 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
                 'Please check Review. Lines: %s'
             ) % ', '.join(missing_price))
 
+    def _validate_full_purchase_review_lines(self):
+        if not self.line_ids:
+            raise UserError(_('There are no recognized lines to apply.'))
+
+        missing_product = []
+        invalid = []
+        missing_quantity = []
+        missing_price = []
+        invalid_action = []
+        missing_merge_target = []
+        invalid_merge_target = []
+        create_lines = self.line_ids.filtered(
+            lambda line: (line.apply_action or 'create_line') == 'create_line'
+        )
+        if not create_lines:
+            raise UserError(_('At least one OCR line must create a purchase order line.'))
+
+        for line in self.line_ids:
+            label = line._display_label()
+            action = line.apply_action or 'create_line'
+            if action not in ('create_line', 'merge_into', 'skip'):
+                invalid_action.append(label)
+                continue
+            if action == 'skip':
+                continue
+            if action == 'merge_into':
+                if not line.merge_target_line_id:
+                    missing_merge_target.append(label)
+                    continue
+                if (
+                    line.merge_target_line_id == line
+                    or line.merge_target_line_id.wizard_id != self
+                    or line.merge_target_line_id.apply_action != 'create_line'
+                ):
+                    invalid_merge_target.append(label)
+                continue
+            if line.match_status == 'error':
+                invalid.append(label)
+                continue
+            if not line.matched_product_id:
+                missing_product.append(label)
+            if not self._is_positive_number(line.quantity):
+                missing_quantity.append(label)
+            if not self._is_positive_number(line.price_unit):
+                missing_price.append(label)
+
+        if invalid_action:
+            raise UserError(_(
+                'Some OCR lines have unsupported apply actions. Lines: %s'
+            ) % ', '.join(invalid_action))
+        if invalid:
+            raise UserError(_(
+                'Lines with matching errors cannot be applied. Lines: %s'
+            ) % ', '.join(invalid))
+        if missing_merge_target:
+            raise UserError(_(
+                'Some OCR lines are marked as merge_into but have no target line. Lines: %s'
+            ) % ', '.join(missing_merge_target))
+        if invalid_merge_target:
+            raise UserError(_(
+                'Some OCR lines have invalid merge targets. Target must be a create_line in the same Review. Lines: %s'
+            ) % ', '.join(invalid_merge_target))
+        if missing_product:
+            raise UserError(_(
+                'Not all purchase order lines have an Odoo product selected. '
+                'Please check Review. Lines: %s'
+            ) % ', '.join(missing_product))
+        if missing_quantity:
+            raise UserError(_(
+                'Not all purchase order lines have a positive quantity. '
+                'Please check Review. Lines: %s'
+            ) % ', '.join(missing_quantity))
+        if missing_price:
+            raise UserError(_(
+                'Not all purchase order lines have a positive unit price. '
+                'Please check Review. Lines: %s'
+            ) % ', '.join(missing_price))
+
     def _prepare_full_bill_apply_plan(self, move):
         errors = []
         create_plans = []
@@ -581,7 +796,62 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
             raise UserError('\n'.join(errors))
         return create_plans
 
-    def _get_full_bill_plan_values(self, line, merged_lines):
+    def _prepare_full_purchase_apply_plan(self, order):
+        errors = []
+        create_plans = []
+        create_lines = self.line_ids.filtered(
+            lambda line: (line.apply_action or 'create_line') == 'create_line'
+        )
+        for line in create_lines.sorted('sequence'):
+            try:
+                merged_lines = self.line_ids.filtered(
+                    lambda child: child.apply_action == 'merge_into'
+                    and child.merge_target_line_id == line
+                ).sorted('sequence')
+                final_tax_rate = self._get_full_bill_plan_tax_rate(line, merged_lines)
+                quantity, price_unit, amount_untaxed = self._get_full_bill_plan_values(
+                    line,
+                    merged_lines,
+                    quantity_error_message=_(
+                        'Обʼєднані рядки мають різну кількість. '
+                        'Відредагуйте кількість і ціну цільового рядка вручну '
+                        'або не обʼєднуйте їх автоматично.'
+                    ),
+                )
+                tax_ids, _tax_warning = self._get_line_taxes(
+                    line,
+                    order,
+                    strict=True,
+                    tax_rate_override=final_tax_rate,
+                )
+                amount_tax, amount_total = self._get_full_bill_plan_tax_amounts(
+                    amount_untaxed,
+                    final_tax_rate,
+                )
+                create_plans.append({
+                    'line': line,
+                    'merged_lines': merged_lines,
+                    'tax_ids': tax_ids,
+                    'tax_rate': final_tax_rate,
+                    'quantity': quantity,
+                    'price_unit': price_unit,
+                    'amount_untaxed': amount_untaxed,
+                    'amount_tax': amount_tax,
+                    'amount_total': amount_total,
+                })
+            except UserError as error:
+                errors.append(self._get_error_message(error))
+
+        if errors:
+            raise UserError('\n'.join(errors))
+        return create_plans
+
+    def _get_full_bill_plan_values(
+        self,
+        line,
+        merged_lines,
+        quantity_error_message=False,
+    ):
         if not merged_lines:
             return (
                 line.quantity,
@@ -608,6 +878,8 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
                     line.price_unit,
                     self._line_subtotal(line) or line.quantity * line.price_unit,
                 )
+            if quantity_error_message:
+                raise UserError(quantity_error_message)
             raise UserError(_(
                 '%s: merged OCR lines have different quantities. '
                 'Set target quantity and price manually before Apply.'
@@ -747,6 +1019,29 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
             values['product_uom_id'] = uom.id
         values['tax_ids'] = [(6, 0, plan['tax_ids'].ids)]
         return values
+
+    def _prepare_full_purchase_order_line_values(self, plan, order):
+        line = plan['line']
+        product = line.matched_product_id
+        uom = getattr(product, 'uom_po_id', False) or getattr(product, 'uom_id', False)
+        if not uom:
+            raise UserError(_(
+                '%s: selected product does not have a purchase unit of measure.'
+            ) % line._display_label())
+        return {
+            'order_id': order.id,
+            'product_id': product.id,
+            'name': self._get_full_bill_line_name(
+                line,
+                product,
+                plan['merged_lines'],
+            ),
+            'product_qty': plan['quantity'],
+            'product_uom': uom.id,
+            'price_unit': plan['price_unit'],
+            'taxes_id': [(6, 0, plan['tax_ids'].ids)],
+            'date_planned': order.date_order or fields.Datetime.now(),
+        }
 
     def _get_full_bill_line_name(self, line, product, merged_lines=False):
         name = (
@@ -1404,6 +1699,11 @@ class AccountGeminiDigitizationReviewLineWizard(models.TransientModel):
         comodel_name='account.move.line',
         string='Vendor Bill Line',
     )
+    purchase_order_line_id = fields.Many2one(
+        comodel_name='purchase.order.line',
+        string='Purchase Order Line',
+        readonly=True,
+    )
     candidate_product_ids = fields.Many2many(
         comodel_name='product.product',
         relation='account_gemini_digitization_review_line_product_candidate_rel',
@@ -1463,7 +1763,7 @@ class AccountGeminiDigitizationReviewLineWizard(models.TransientModel):
     @api.onchange('matched_product_id')
     def _onchange_matched_product_id(self):
         for line in self:
-            if line.wizard_id.mode != 'full_bill':
+            if line.wizard_id.mode not in ('full_bill', 'full_purchase'):
                 continue
             if not line.matched_product_id:
                 continue
@@ -1495,7 +1795,10 @@ class AccountGeminiDigitizationReviewLineWizard(models.TransientModel):
                 line.match_status = 'manual'
                 line.match_method = 'manual_skip'
                 line.match_score = 1.0
-                line.match_summary = _('Skipped: will not create an invoice line')
+                if line.wizard_id.mode == 'full_purchase':
+                    line.match_summary = _('Skipped: will not create a purchase order line')
+                else:
+                    line.match_summary = _('Skipped: will not create an invoice line')
             elif line.apply_action == 'merge_into':
                 line.match_status = 'manual'
                 line.match_method = 'manual_merge'

@@ -46,6 +46,10 @@ class PurchaseOrder(models.Model):
             raise UserError(_(
                 'Gemini digitization is available only for draft or sent purchase orders.'
             ))
+        if not self.partner_id:
+            raise UserError(_(
+                'Спочатку оберіть постачальника в замовленні на закупівлю.'
+            ))
 
         attachment = self._get_latest_gemini_digitization_attachment()
         if not attachment:

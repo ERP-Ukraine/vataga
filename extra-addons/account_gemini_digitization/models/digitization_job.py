@@ -261,6 +261,7 @@ class AccountGeminiDigitizationJob(models.Model):
             'amount_total': line.amount_total,
             'matched_product_id': line.matched_product_id.id,
             'move_line_id': line.move_line_id.id,
+            'purchase_order_line_id': line.purchase_order_line_id.id,
             'candidate_product_ids': [(6, 0, line.candidate_product_ids.ids)],
             'candidate_move_line_ids': [(6, 0, line.candidate_move_line_ids.ids)],
             'match_status': line.match_status,
