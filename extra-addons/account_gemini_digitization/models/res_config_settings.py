@@ -27,7 +27,7 @@ class ResConfigSettings(models.TransientModel):
         config_parameter='account_gemini_digitization.gemini_min_confidence',
         groups='base.group_system',
     )
-    default_purchase_vat_20_tax_id = fields.Many2one(
+    gemini_purchase_vat_20_tax_id = fields.Many2one(
         comodel_name='account.tax',
         string='Default Gemini Purchase VAT 20% Tax',
         config_parameter='account_gemini_digitization.default_purchase_vat_20_tax_id',
