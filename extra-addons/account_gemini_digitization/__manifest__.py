@@ -24,5 +24,9 @@
         'views/purchase_order_views.xml',
         'wizard/digitization_review_wizard.xml',
     ],
-    'assets': {},
+    'assets': {
+        'web.assets_backend': [
+            'account_gemini_digitization/static/src/scss/gemini_digitization.scss',
+        ],
+    },
 }

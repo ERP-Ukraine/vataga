@@ -1,0 +1,137 @@
+.o_form_view .o_gemini_digitization_sheet {
+    width: calc(100% - 32px);
+    max-width: none !important;
+
+    .o_gemini_job_workspace {
+        display: grid;
+        grid-template-columns: minmax(0, 3fr) minmax(340px, 2fr);
+        gap: 20px;
+        align-items: start;
+        margin-bottom: 20px;
+    }
+
+    .o_gemini_job_details,
+    .o_gemini_document_panel {
+        min-width: 0;
+    }
+
+    .o_gemini_document_panel {
+        overflow: hidden;
+        border: 1px solid var(--border-color, #d8dadd);
+        border-radius: 6px;
+        background: var(--body-bg, #fff);
+    }
+
+    .o_gemini_document_header {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--border-color, #d8dadd);
+
+        h2 {
+            margin: 0;
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .btn {
+            flex: 0 0 auto;
+            white-space: normal;
+        }
+    }
+
+    .o_gemini_document_filename {
+        display: flex;
+        gap: 6px;
+        align-items: baseline;
+        padding: 8px 14px;
+        overflow-wrap: anywhere;
+        border-bottom: 1px solid var(--border-color, #d8dadd);
+        font-size: 0.875rem;
+    }
+
+    .o_gemini_document_preview {
+        display: flex;
+        min-height: 68vh;
+        align-items: center;
+        justify-content: center;
+        overflow: auto;
+        background: var(--light, #f8f9fa);
+
+        > .o_field_widget {
+            width: 100%;
+            min-height: 68vh;
+        }
+
+        .o_field_pdf_viewer,
+        .o_field_pdf_viewer iframe,
+        iframe,
+        object,
+        embed {
+            width: 100%;
+            min-height: 68vh;
+            border: 0;
+        }
+
+        .o_gemini_preview_image {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 12px;
+        }
+
+        .o_gemini_preview_image img {
+            width: auto;
+            max-width: 100%;
+            height: auto;
+            max-height: 68vh;
+            object-fit: contain;
+        }
+    }
+
+    .o_gemini_preview_message {
+        max-width: 34rem;
+        padding: 24px;
+        text-align: center;
+    }
+
+    .o_notebook .o_list_view {
+        font-size: 0.875rem;
+    }
+
+    textarea[name="raw_request_json_text"],
+    textarea[name="raw_response_json_text"],
+    .o_field_text[name="raw_request_json_text"],
+    .o_field_text[name="raw_response_json_text"] {
+        min-height: 18rem;
+        font-family: var(--font-monospace, monospace);
+        font-size: 0.8125rem;
+    }
+}
+
+@media (max-width: 991.98px) {
+    .o_form_view .o_gemini_digitization_sheet {
+        width: calc(100% - 16px);
+
+        .o_gemini_job_workspace {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .o_gemini_document_preview,
+        .o_gemini_document_preview > .o_field_widget,
+        .o_gemini_document_preview .o_field_pdf_viewer,
+        .o_gemini_document_preview .o_field_pdf_viewer iframe,
+        .o_gemini_document_preview iframe,
+        .o_gemini_document_preview object,
+        .o_gemini_document_preview embed {
+            min-height: 50vh;
+        }
+
+        .o_gemini_document_header {
+            align-items: flex-start;
+            flex-direction: column;
+        }
+    }
+}

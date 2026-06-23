@@ -75,6 +75,30 @@ class AccountGeminiDigitizationJob(models.Model):
         string='Source Attachment',
         ondelete='set null',
     )
+    attachment_name = fields.Char(
+        string='Attachment File Name',
+        related='attachment_id.name',
+        readonly=True,
+    )
+    attachment_mimetype = fields.Char(
+        string='Attachment MIME Type',
+        related='attachment_id.mimetype',
+        readonly=True,
+    )
+    attachment_preview_data = fields.Binary(
+        string='Document Preview',
+        related='attachment_id.datas',
+        readonly=True,
+    )
+    attachment_is_pdf = fields.Boolean(
+        compute='_compute_attachment_preview_type',
+    )
+    attachment_is_image = fields.Boolean(
+        compute='_compute_attachment_preview_type',
+    )
+    attachment_preview_supported = fields.Boolean(
+        compute='_compute_attachment_preview_type',
+    )
     raw_request_json = fields.Json(
         string='Raw Request JSON',
         copy=False,
@@ -136,6 +160,30 @@ class AccountGeminiDigitizationJob(models.Model):
             job.raw_response_json_text = self._format_json_for_display(
                 job.raw_response_json
             )
+
+    @api.depends('attachment_id', 'attachment_id.mimetype')
+    def _compute_attachment_preview_type(self):
+        for job in self:
+            mimetype = (job.attachment_mimetype or '').lower()
+            job.attachment_is_pdf = mimetype == 'application/pdf'
+            job.attachment_is_image = mimetype in (
+                'image/png',
+                'image/jpeg',
+                'image/jpg',
+            )
+            job.attachment_preview_supported = (
+                job.attachment_is_pdf or job.attachment_is_image
+            )
+
+    def action_open_source_attachment(self):
+        self.ensure_one()
+        if not self.attachment_id:
+            raise UserError(_('No source document is attached.'))
+        return {
+            'type': 'ir.actions.act_url',
+            'url': '/web/content/%s?download=false' % self.attachment_id.id,
+            'target': 'new',
+        }
 
     def action_process(self):
         self.ensure_one()
