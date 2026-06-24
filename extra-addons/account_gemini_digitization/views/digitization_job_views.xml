@@ -41,7 +41,7 @@
                     />
                     <button
                         name="action_apply"
-                        string="Apply"
+                        string="Застосувати"
                         type="object"
                         class="oe_highlight"
                         invisible="state != 'review'"

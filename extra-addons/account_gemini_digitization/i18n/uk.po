@@ -1277,6 +1277,30 @@ msgid "Apply completed with warnings:"
 msgstr "Застосування завершено з попередженнями:"
 
 #. module: account_gemini_digitization
+#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
+#, python-format
+msgid "Вибраний рядок рахунку не належить до рахунку, що обробляється: %s"
+msgstr "Вибраний рядок рахунку не належить до рахунку, що обробляється: %s"
+
+#. module: account_gemini_digitization
+#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
+#, python-format
+msgid "У вибраному рядку рахунку не вказано товар: %s"
+msgstr "У вибраному рядку рахунку не вказано товар: %s"
+
+#. module: account_gemini_digitization
+#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
+#, python-format
+msgid "Зіставлений товар не відповідає товару у вибраному рядку рахунку: %s"
+msgstr "Зіставлений товар не відповідає товару у вибраному рядку рахунку: %s"
+
+#. module: account_gemini_digitization
+#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
+#, python-format
+msgid "Кількість у розпізнаному документі не збігається з кількістю у рядку рахунку. Перевірте відповідність товару перед застосуванням. Рядок: %s"
+msgstr "Кількість у розпізнаному документі не збігається з кількістю у рядку рахунку. Перевірте відповідність товару перед застосуванням. Рядок: %s"
+
+#. module: account_gemini_digitization
 #: code:addons/account_gemini_digitization/services/gemini_client.py:0
 msgid "Gemini повернув невалідний JSON. Деталі збережено у вкладці Raw JSON."
 msgstr "Gemini повернув невалідний JSON. Деталі збережено у вкладці «Сирий JSON»."

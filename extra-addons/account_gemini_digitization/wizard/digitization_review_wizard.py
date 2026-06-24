@@ -117,6 +117,7 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
         self._validate_partial_bill_apply(job, move)
         self._validate_review_lines()
         apply_plans = self._prepare_partial_bill_apply_plan(move)
+        self._validate_partial_bill_apply_plans(apply_plans, move)
 
         existing_line_ids = set(move.invoice_line_ids.ids)
         warnings = []
@@ -608,6 +609,50 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
         if errors:
             raise UserError('\n'.join(errors))
         return apply_plans
+
+    def _validate_partial_bill_apply_plans(self, apply_plans, move):
+        errors = []
+        for plan in apply_plans:
+            line = plan['line']
+            move_line = line.move_line_id
+            label = line._display_label()
+            if not move_line or move_line.move_id != move:
+                errors.append(_(
+                    'Вибраний рядок рахунку не належить до рахунку, що обробляється: %s'
+                ) % label)
+                continue
+            if not move_line.product_id:
+                errors.append(_(
+                    'У вибраному рядку рахунку не вказано товар: %s'
+                ) % label)
+                continue
+            if (
+                line.matched_product_id
+                and line.matched_product_id != move_line.product_id
+            ):
+                errors.append(_(
+                    'Зіставлений товар не відповідає товару у вибраному рядку рахунку: %s'
+                ) % label)
+
+            source_lines = (line | plan['merged_lines']).sorted('sequence')
+            for source_line in source_lines:
+                recognized_quantity = self._to_float(source_line.quantity)
+                if not self._is_number(recognized_quantity):
+                    continue
+                if not self._numbers_close(
+                    recognized_quantity,
+                    move_line.quantity,
+                    tolerance=0.0001,
+                ):
+                    errors.append(_(
+                        'Кількість у розпізнаному документі не збігається '
+                        'з кількістю у рядку рахунку. Перевірте відповідність '
+                        'товару перед застосуванням. Рядок: %s'
+                    ) % source_line._display_label())
+
+        if errors:
+            raise UserError('\n'.join(errors))
+        return True
 
     def _validate_full_bill_review_lines(self):
         if not self.line_ids:
@@ -1124,8 +1169,6 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
         values = {
             'price_unit': plan['price_unit'],
         }
-        if merged_lines:
-            values['quantity'] = plan['quantity']
         if tax_ids:
             values['tax_ids'] = [(6, 0, tax_ids.ids)]
         move_line.write(values)
