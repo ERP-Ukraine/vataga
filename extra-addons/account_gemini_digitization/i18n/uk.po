@@ -251,13 +251,13 @@ msgstr "Вручну"
 #: model:ir.model.fields.selection,name:account_gemini_digitization.selection__account_gemini_digitization_line__apply_action__create_line
 #: model:ir.model.fields.selection,name:account_gemini_digitization.selection__account_gemini_digitization_review_line_wizard__apply_action__create_line
 msgid "Create Document Line"
-msgstr "Створити рядок документа"
+msgstr "Створити рядок"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields.selection,name:account_gemini_digitization.selection__account_gemini_digitization_line__apply_action__merge_into
 #: model:ir.model.fields.selection,name:account_gemini_digitization.selection__account_gemini_digitization_review_line_wizard__apply_action__merge_into
 msgid "Merge Into Another Line"
-msgstr "Об’єднати з іншим рядком"
+msgstr "Об’єднати з"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields.selection,name:account_gemini_digitization.selection__account_gemini_digitization_line__apply_action__skip
@@ -1246,19 +1246,35 @@ msgstr "JSON від Gemini не містить масиву рядків `lines`
 #: code:addons/account_gemini_digitization/models/account_move.py:0
 #, python-format
 msgid "Gemini OCR: Full Vendor Bill %s"
-msgstr "Gemini OCR: повний рахунок постачальника %s"
+msgstr "Gemini OCR: Повний рахунок постачальника %s"
 
 #. module: account_gemini_digitization
 #: code:addons/account_gemini_digitization/models/account_move.py:0
 #, python-format
 msgid "Gemini OCR: Partial Vendor Bill %s"
-msgstr "Gemini OCR: частковий рахунок постачальника %s"
+msgstr "Gemini OCR: Частковий рахунок постачальника %s"
 
 #. module: account_gemini_digitization
 #: code:addons/account_gemini_digitization/models/purchase_order.py:0
 #, python-format
 msgid "Gemini OCR: Purchase Order %s"
-msgstr "Gemini OCR: замовлення на закупівлю %s"
+msgstr "Gemini OCR: Повне замовлення на закупівлю %s"
+
+#. module: account_gemini_digitization
+#: code:addons/account_gemini_digitization/models/digitization_line.py:0
+#, python-format
+msgid "Matched manually: %s"
+msgstr "Зіставлено вручну: %s"
+
+#. module: account_gemini_digitization
+#: code:addons/account_gemini_digitization/models/digitization_line.py:0
+msgid "Manual product selection required"
+msgstr "Потрібен ручний вибір товару"
+
+#. module: account_gemini_digitization
+#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
+msgid "Apply completed with warnings:"
+msgstr "Застосування завершено з попередженнями:"
 
 #. module: account_gemini_digitization
 #: code:addons/account_gemini_digitization/services/gemini_client.py:0

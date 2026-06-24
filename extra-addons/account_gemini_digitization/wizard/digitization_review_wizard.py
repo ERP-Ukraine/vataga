@@ -1,7 +1,7 @@
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
-from ..services import AmountValidator
+from ..services import AmountValidator, DigitizationApplyService
 
 
 MATCH_STATUS_SELECTION = [
@@ -101,6 +101,11 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
         if self.mode == 'full_purchase':
             return self._apply_full_purchase()
         raise UserError(_('Unsupported Gemini review mode: %s') % self.mode)
+
+    @api.model
+    def apply_job_lines(self, job):
+        job.ensure_one()
+        return DigitizationApplyService(self.env, job).apply()
 
     def _apply_partial_bill(self):
         self.ensure_one()
@@ -522,7 +527,7 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
                     continue
                 if (
                     line.merge_target_line_id == line
-                    or line.merge_target_line_id.wizard_id != self
+                    or not self._is_line_in_apply_context(line.merge_target_line_id)
                     or line.merge_target_line_id.apply_action != 'create_line'
                 ):
                     invalid_merge_target.append(label)
@@ -634,7 +639,7 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
                     continue
                 if (
                     line.merge_target_line_id == line
-                    or line.merge_target_line_id.wizard_id != self
+                    or not self._is_line_in_apply_context(line.merge_target_line_id)
                     or line.merge_target_line_id.apply_action != 'create_line'
                 ):
                     invalid_merge_target.append(label)
@@ -704,7 +709,7 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
                     continue
                 if (
                     line.merge_target_line_id == line
-                    or line.merge_target_line_id.wizard_id != self
+                    or not self._is_line_in_apply_context(line.merge_target_line_id)
                     or line.merge_target_line_id.apply_action != 'create_line'
                 ):
                     invalid_merge_target.append(label)
@@ -1592,8 +1597,11 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
 
     def _format_warnings(self, warnings):
         return '\n'.join(
-            ['Apply completed with warnings:'] + [str(warning) for warning in warnings]
+            [_('Apply completed with warnings:')] + [str(warning) for warning in warnings]
         )
+
+    def _is_line_in_apply_context(self, line):
+        return bool(line and line.wizard_id == self)
 
     def _append_text(self, existing_text, message):
         if existing_text:

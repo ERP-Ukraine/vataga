@@ -4,7 +4,12 @@ import logging
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
-from ..services import GeminiClient, ProductMatcher, ResponseParser
+from ..services import (
+    DigitizationApplyService,
+    GeminiClient,
+    ProductMatcher,
+    ResponseParser,
+)
 
 
 _logger = logging.getLogger(__name__)
@@ -151,6 +156,18 @@ class AccountGeminiDigitizationJob(models.Model):
         copy=False,
     )
 
+    @api.model_create_multi
+    def create(self, vals_list):
+        for values in vals_list:
+            self._check_linked_document_values_access(values, 'write')
+        return super().create(vals_list)
+
+    def write(self, values):
+        for job in self:
+            job._check_linked_document_access('write')
+        self._check_linked_document_values_access(values, 'write')
+        return super().write(values)
+
     @api.depends('raw_request_json', 'raw_response_json')
     def _compute_raw_json_text(self):
         for job in self:
@@ -187,6 +204,7 @@ class AccountGeminiDigitizationJob(models.Model):
 
     def action_process(self):
         self.ensure_one()
+        self._check_linked_document_access('write')
         if self.state in ('done', 'cancelled'):
             raise UserError(_('Cannot process a done or cancelled digitization job.'))
 
@@ -220,6 +238,7 @@ class AccountGeminiDigitizationJob(models.Model):
 
     def action_open_review_wizard(self):
         self.ensure_one()
+        self._check_linked_document_access('write')
         if self.state != 'review':
             raise UserError(_('Gemini review can be opened only for jobs in Review state.'))
 
@@ -260,6 +279,7 @@ class AccountGeminiDigitizationJob(models.Model):
 
     def action_run_matching(self):
         self.ensure_one()
+        self._check_linked_document_access('write')
         if self.state != 'review':
             raise UserError(_('Matching can be re-run only for jobs in Review state.'))
         if not self.line_ids:
@@ -269,11 +289,20 @@ class AccountGeminiDigitizationJob(models.Model):
         self._update_matching_message_after_matching()
         return self._get_job_form_action()
 
+    def action_apply(self):
+        self.ensure_one()
+        self._check_linked_document_access('write')
+        return DigitizationApplyService(self.env, self).apply()
+
     def action_cancel(self):
+        for job in self:
+            job._check_linked_document_access('write')
         self.write({'state': 'cancelled'})
         return True
 
     def action_reset_to_draft(self):
+        for job in self:
+            job._check_linked_document_access('write')
         self.write({
             'state': 'draft',
             'error_message': False,
@@ -350,6 +379,31 @@ class AccountGeminiDigitizationJob(models.Model):
             'res_id': self.id,
             'target': 'current',
         }
+
+    def _check_linked_document_access(self, operation='read'):
+        self.ensure_one()
+        document = self.move_id or self.purchase_order_id
+        if not document:
+            return True
+        document.check_access_rights(operation)
+        document.check_access_rule(operation)
+        return True
+
+    def _check_linked_document_values_access(self, values, operation='read'):
+        document_specs = (
+            ('move_id', 'account.move'),
+            ('purchase_order_id', 'purchase.order'),
+        )
+        for field_name, model_name in document_specs:
+            document_id = values.get(field_name)
+            if not document_id:
+                continue
+            document = self.env[model_name].browse(document_id).exists()
+            if not document:
+                continue
+            document.check_access_rights(operation)
+            document.check_access_rule(operation)
+        return True
 
     def _save_processing_error(self, error, client):
         self.ensure_one()

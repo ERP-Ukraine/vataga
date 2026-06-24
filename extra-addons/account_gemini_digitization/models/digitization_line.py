@@ -1,4 +1,4 @@
-from odoo import fields, models
+from odoo import _, api, fields, models
 
 
 class AccountGeminiDigitizationLine(models.Model):
@@ -135,3 +135,144 @@ class AccountGeminiDigitizationLine(models.Model):
         store=True,
         readonly=True,
     )
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        job_ids = {
+            values.get('job_id')
+            for values in vals_list
+            if values.get('job_id')
+        }
+        for job in self.env['account.gemini.digitization.job'].browse(job_ids):
+            job._check_linked_document_access('write')
+        return super().create(vals_list)
+
+    def write(self, values):
+        for job in self.mapped('job_id'):
+            job._check_linked_document_access('write')
+        return super().write(values)
+
+    @property
+    def job_line_id(self):
+        """Compatibility alias used by the shared Apply implementation."""
+        return self
+
+    @api.onchange('move_line_id')
+    def _onchange_move_line_id(self):
+        for line in self:
+            if not line.move_line_id:
+                continue
+            line.matched_product_id = line.move_line_id.product_id
+            line.match_status = 'manual'
+            line.match_method = 'manual_move_line'
+            line.match_score = 1.0
+            line.match_summary = _('Matched manually: %s') % (
+                line.move_line_id.display_name
+            )
+
+    @api.onchange('matched_product_id')
+    def _onchange_matched_product_id(self):
+        for line in self:
+            if not line.matched_product_id:
+                continue
+            line.match_status = 'manual'
+            line.match_method = 'manual_product'
+            line.match_score = 1.0
+            line.match_summary = _('Matched manually: %s') % (
+                line.matched_product_id.display_name
+            )
+
+    @api.onchange('tax_ids')
+    def _onchange_tax_ids(self):
+        for line in self:
+            if (
+                line.tax_ids
+                and line.match_summary
+                and str(line.match_summary).startswith('Tax review required:')
+            ):
+                line.match_summary = _('Tax selected manually')
+
+    @api.onchange('apply_action')
+    def _onchange_apply_action(self):
+        for line in self:
+            if line.apply_action != 'merge_into':
+                line.merge_target_line_id = False
+            if line.apply_action == 'skip':
+                line.match_status = 'manual'
+                line.match_method = 'manual_skip'
+                line.match_score = 1.0
+                if line.job_id.mode == 'full_purchase':
+                    line.match_summary = _(
+                        'Skipped: will not create a purchase order line'
+                    )
+                else:
+                    line.match_summary = _('Skipped: will not create an invoice line')
+            elif line.apply_action == 'merge_into':
+                line.match_status = 'manual'
+                line.match_method = 'manual_merge'
+                line.match_score = line.match_score or 1.0
+                line.match_summary = (
+                    _('Merged into: %s') % line.merge_target_line_id._display_label()
+                    if line.merge_target_line_id
+                    else _('Merge: select target OCR line')
+                )
+            elif (
+                line.apply_action == 'create_line'
+                and line.match_method in ('manual_skip', 'manual_merge')
+            ):
+                if line.move_line_id:
+                    line.match_status = 'manual'
+                    line.match_method = 'manual_move_line'
+                    line.match_score = 1.0
+                    line.match_summary = _('Matched manually: %s') % (
+                        line.move_line_id.display_name
+                    )
+                elif line.matched_product_id:
+                    line.match_status = 'manual'
+                    line.match_method = 'manual_product'
+                    line.match_score = 1.0
+                    line.match_summary = _('Matched manually: %s') % (
+                        line.matched_product_id.display_name
+                    )
+                else:
+                    line.match_status = 'draft'
+                    line.match_method = False
+                    line.match_score = 0.0
+                    line.match_summary = _('Manual product selection required')
+
+    @api.onchange('merge_target_line_id')
+    def _onchange_merge_target_line_id(self):
+        for line in self:
+            if not line.merge_target_line_id:
+                continue
+            line.apply_action = 'merge_into'
+            line.match_status = 'manual'
+            line.match_method = 'manual_merge'
+            line.match_score = line.match_score or 1.0
+            line.match_summary = _('Merged into: %s') % (
+                line.merge_target_line_id._display_label()
+            )
+
+    def _is_manual_selection(self):
+        self.ensure_one()
+        return bool(
+            self.move_line_id
+            and (
+                self.match_status == 'manual'
+                or self.match_method == 'manual_move_line'
+            )
+        )
+
+    def _is_manual_product_selection(self):
+        self.ensure_one()
+        return bool(
+            self.matched_product_id
+            and (
+                self.match_status == 'manual'
+                or self.match_method == 'manual_product'
+            )
+        )
+
+    def _display_label(self):
+        self.ensure_one()
+        return self.supplier_product_name or self.description or str(self.sequence)
