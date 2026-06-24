@@ -300,14 +300,14 @@
     <menuitem
         id="menu_account_gemini_digitization_root"
         name="Gemini Digitization"
-        parent="account.menu_finance"
-        sequence="80"
+        parent="account.menu_finance_configuration"
+        sequence="90"
         groups="base.group_user"
     />
 
     <menuitem
         id="menu_account_gemini_digitization_jobs"
-        name="Digitization Jobs"
+        name="Gemini Digitization Jobs"
         parent="menu_account_gemini_digitization_root"
         action="action_account_gemini_digitization_job"
         sequence="10"
