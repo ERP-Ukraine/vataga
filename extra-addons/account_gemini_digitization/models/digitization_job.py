@@ -253,7 +253,7 @@ class AccountGeminiDigitizationJob(models.Model):
             }
 
         if self.state != 'review':
-            message = _('Оцифрування завершено, але деякі рядки потребують перевірки. Дані не були застосовані автоматично.')
+            message = self._get_automatic_manual_review_message()
             self._post_automatic_pipeline_message(message)
             return {
                 'status': 'manual_review',
@@ -265,7 +265,7 @@ class AccountGeminiDigitizationJob(models.Model):
         blocker = self._get_automatic_apply_blocker()
         if blocker:
             self._set_automatic_review_message(blocker)
-            message = _('Оцифрування завершено, але деякі рядки потребують перевірки. Дані не були застосовані автоматично.')
+            message = self._get_automatic_manual_review_message()
             self._post_automatic_pipeline_message(message)
             return {
                 'status': 'manual_review',
@@ -279,7 +279,7 @@ class AccountGeminiDigitizationJob(models.Model):
             DigitizationApplyService(self.env, self).apply()
         except UserError as error:
             self._set_automatic_review_message(self._get_error_message(error))
-            message = _('Оцифрування завершено, але деякі рядки потребують перевірки. Дані не були застосовані автоматично.')
+            message = self._get_automatic_manual_review_message()
             self._post_automatic_pipeline_message(message)
             return {
                 'status': 'manual_review',
@@ -290,7 +290,7 @@ class AccountGeminiDigitizationJob(models.Model):
         except Exception as error:
             _logger.exception('Gemini automatic apply failed.')
             self._set_automatic_review_message(str(error))
-            message = _('Оцифрування завершено, але деякі рядки потребують перевірки. Дані не були застосовані автоматично.')
+            message = self._get_automatic_manual_review_message()
             self._post_automatic_pipeline_message(message)
             return {
                 'status': 'manual_review',
@@ -406,7 +406,7 @@ class AccountGeminiDigitizationJob(models.Model):
 
     def _set_automatic_review_message(self, details=False):
         self.ensure_one()
-        message = _('Automatic Gemini apply requires manual review.')
+        message = self._get_automatic_manual_review_message()
         if details:
             message = '%s\n%s' % (message, details)
         values = {
@@ -415,6 +415,18 @@ class AccountGeminiDigitizationJob(models.Model):
         if self.state not in ('done', 'error', 'cancelled'):
             values['state'] = 'review'
         self.write(values)
+
+    def _get_automatic_manual_review_message(self):
+        self.ensure_one()
+        if self.mode == 'partial_bill':
+            return _(
+                'Оцифрування завершено, але не вдалося однозначно зіставити всі рядки '
+                'з товарами рахунку. Дані не були застосовані автоматично.'
+            )
+        return _(
+            'Оцифрування завершено, але деякі рядки потребують перевірки. '
+            'Дані не були застосовані автоматично.'
+        )
 
     def _get_automatic_success_message(self):
         self.ensure_one()
@@ -530,7 +542,7 @@ class AccountGeminiDigitizationJob(models.Model):
                 )
             )
             if problematic:
-                return _('Some OCR lines require manual vendor bill line review before Apply.')
+                return self._get_automatic_manual_review_message()
             return False
 
         if self.mode == 'full_bill':
