@@ -509,6 +509,9 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
         missing_merge_target = []
         invalid_merge_target = []
         missing_price = []
+        missing_quantity = []
+        duplicate_move_lines = []
+        used_move_line_ids = {}
         create_lines = self.line_ids.filtered(lambda line: (line.apply_action or 'create_line') == 'create_line')
 
         if not create_lines:
@@ -541,6 +544,12 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
                 continue
             if line.match_status not in ('matched', 'manual') and not line._is_manual_selection():
                 incomplete.append(label)
+            if line.move_line_id.id in used_move_line_ids:
+                duplicate_move_lines.append(label)
+            else:
+                used_move_line_ids[line.move_line_id.id] = line
+            if not self._is_positive_number(line.quantity):
+                missing_quantity.append(label)
             if not self._is_positive_number(line.price_unit):
                 missing_price.append(label)
 
@@ -559,6 +568,15 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
             raise UserError(_(
                 'Lines with matching errors cannot be applied. Lines: %s'
             ) % ', '.join(invalid))
+        if duplicate_move_lines:
+            raise UserError(_(
+                'One vendor bill line cannot be assigned to several OCR lines. Lines: %s'
+            ) % ', '.join(duplicate_move_lines))
+        if missing_quantity:
+            raise UserError(_(
+                'Not all recognized lines have a positive quantity. '
+                'Please check Review. Lines: %s'
+            ) % ', '.join(missing_quantity))
         if missing_price:
             raise UserError(_(
                 'Not all recognized lines have a positive unit price. '
@@ -612,6 +630,7 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
 
     def _validate_partial_bill_apply_plans(self, apply_plans, move):
         errors = []
+        used_move_line_ids = {}
         for plan in apply_plans:
             line = plan['line']
             move_line = line.move_line_id
@@ -634,7 +653,28 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
                     'Зіставлений товар не відповідає товару у вибраному рядку рахунку: %s'
                 ) % label)
 
-            source_lines = (line | plan['merged_lines']).sorted('sequence')
+            if move_line.id in used_move_line_ids:
+                errors.append(_(
+                    'One vendor bill line cannot be assigned to several OCR lines: %s'
+                ) % label)
+            else:
+                used_move_line_ids[move_line.id] = line
+
+            if not self._is_positive_number(plan['quantity']):
+                errors.append(_(
+                    '%s: OCR quantity must be greater than zero before Apply.'
+                ) % label)
+
+            for source_line in (line | plan['merged_lines']).sorted('sequence'):
+                if not self._is_partial_uom_compatible(source_line, move_line):
+                    errors.append(_(
+                        'Одиниця виміру в розпізнаному документі не збігається з одиницею виміру рядка рахунку. '
+                        'Перевірте відповідність товару перед застосуванням.'
+                    ))
+                    break
+
+            # Quantity mismatch is allowed in partial_bill; OCR quantity is applied after validation.
+            source_lines = []
             for source_line in source_lines:
                 recognized_quantity = self._to_float(source_line.quantity)
                 if not self._is_number(recognized_quantity):
@@ -1167,6 +1207,7 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
             ) % line._display_label())
 
         values = {
+            'quantity': plan['quantity'],
             'price_unit': plan['price_unit'],
         }
         if tax_ids:
@@ -1604,6 +1645,50 @@ class AccountGeminiDigitizationReviewWizard(models.TransientModel):
             return tax_rate * 100
         return tax_rate
 
+    def _is_partial_uom_compatible(self, line, move_line):
+        ocr_uom = self._normalize_partial_uom(getattr(line, 'uom_name', False))
+        if not ocr_uom:
+            return True
+        move_uom = (
+            getattr(move_line, 'product_uom_id', False)
+            or getattr(move_line, 'product_uom', False)
+        )
+        move_uom_name = (
+            getattr(move_uom, 'name', False)
+            or getattr(move_uom, 'display_name', False)
+            or False
+        )
+        normalized_move_uom = self._normalize_partial_uom(move_uom_name)
+        if not normalized_move_uom:
+            return True
+        return ocr_uom == normalized_move_uom
+
+    def _normalize_partial_uom(self, value):
+        if not value:
+            return False
+        normalized = self._normalize_text(value)
+        normalized = normalized.strip(' .,:;')
+        normalized = normalized.replace('.', '')
+        unit_aliases = {
+            'шт',
+            'штука',
+            'штуки',
+            'штук',
+            'од',
+            'одиниця',
+            'одиниці',
+            'одиниць',
+            'pc',
+            'pcs',
+            'piece',
+            'pieces',
+            'unit',
+            'units',
+        }
+        if normalized in unit_aliases:
+            return 'unit'
+        return normalized
+
     def _line_allows_zero_tax(self, line):
         text = self._normalize_text(' '.join(
             str(value)
@@ -1807,9 +1892,7 @@ class AccountGeminiDigitizationReviewLineWizard(models.TransientModel):
                 line.match_status = 'manual'
                 line.match_method = 'manual_move_line'
                 line.match_score = 1.0
-                line.match_summary = _('Manual: selected vendor bill line %s') % (
-                    line.move_line_id.display_name
-                )
+                line.match_summary = _('Рядок рахунку обрано вручну.')
 
     @api.onchange('matched_product_id')
     def _onchange_matched_product_id(self):
@@ -1824,9 +1907,7 @@ class AccountGeminiDigitizationReviewLineWizard(models.TransientModel):
                     line.match_status = 'manual'
                     line.match_method = 'manual_product_to_move_line_unique'
                     line.match_score = 1.0
-                    line.match_summary = _('Manual: selected vendor bill line %s') % (
-                        move_line.display_name
-                    )
+                    line.match_summary = _('Рядок рахунку обрано вручну.')
                 continue
             if line.wizard_id.mode not in ('full_bill', 'full_purchase'):
                 continue

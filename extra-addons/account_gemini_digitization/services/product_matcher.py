@@ -12,6 +12,11 @@ class ProductMatcher:
     MATCHED_THRESHOLD = 0.90
     CANDIDATE_THRESHOLD = 0.70
     BEST_GAP_MATCH_THRESHOLD = 0.05
+    PARTIAL_SAFE_ASSIGNMENT_THRESHOLD = 0.80
+    PARTIAL_AUTO_ASSIGNMENT_THRESHOLD = 0.90
+    PARTIAL_ASSIGNMENT_TIE_TOLERANCE = 0.02
+    PARTIAL_MAX_ASSIGNMENT_LINES = 8
+    PARTIAL_MAX_ASSIGNMENT_PAIRS = 80
     LOW_VALUE_CODE_PATTERNS = (
         re.compile(r'^ip\d{2,3}$', flags=re.I),
     )
@@ -119,42 +124,8 @@ class ProductMatcher:
 
     def _match_partial_bill(self, job):
         line_source = self._get_partial_bill_line_source(job)
-        move_lines = line_source['product_lines']
         partner = self._get_job_partner(job)
-        create_line_count = len(self._partial_create_lines(job))
-        for line in job.line_ids:
-            try:
-                candidates = [
-                    self._score_move_line(line, move_line, partner)
-                    for move_line in move_lines
-                ]
-                self._apply_single_line_partial_fallback(
-                    line,
-                    line_source,
-                    candidates,
-                    create_line_count,
-                )
-                diagnostics = self._build_partial_diagnostics(
-                    line,
-                    job,
-                    line_source,
-                    candidates,
-                )
-                self._write_match_result(
-                    line,
-                    candidates,
-                    include_move_lines=True,
-                    diagnostics=diagnostics,
-                )
-                self._sync_partial_bill_line_to_move_line(
-                    line,
-                    line_source,
-                    create_line_count,
-                    from_matching=True,
-                )
-            except Exception as error:
-                _logger.exception('Gemini partial bill matching failed.')
-                self._write_line_error(line, error)
+        self._assign_partial_bill_move_lines(job, line_source, partner)
 
     def sync_partial_bill_move_lines(self, job):
         """Fill concrete vendor bill lines for already matched partial OCR rows."""
@@ -162,13 +133,8 @@ class ProductMatcher:
         if job.mode != 'partial_bill':
             return True
         line_source = self._get_partial_bill_line_source(job)
-        create_line_count = len(self._partial_create_lines(job))
-        for line in job.line_ids:
-            self._sync_partial_bill_line_to_move_line(
-                line,
-                line_source,
-                create_line_count,
-            )
+        partner = self._get_job_partner(job)
+        self._assign_partial_bill_move_lines(job, line_source, partner)
         return True
 
     def _match_full_purchase(self, job):
@@ -322,6 +288,12 @@ class ProductMatcher:
         candidate = self._candidate_for_move_line(candidates, move_line)
         if not candidate:
             return False
+        if (candidate.get('score') or 0.0) < self.PARTIAL_SAFE_ASSIGNMENT_THRESHOLD:
+            candidate.setdefault('notes', []).append(
+                'Single-line bill fallback was not applied because candidate score is below %.2f.'
+                % self.PARTIAL_SAFE_ASSIGNMENT_THRESHOLD
+            )
+            return False
 
         quantity_state = self._partial_quantity_state(line, move_line)
         candidate['score'] = max(candidate.get('score') or 0.0, 0.95)
@@ -330,12 +302,12 @@ class ProductMatcher:
             'Single-line bill fallback: one create_line OCR row and one product line on the vendor bill.'
         )
         if quantity_state == 'match':
-            candidate['notes'].append('Single-line fallback quantity is compatible.')
+            candidate['notes'].append('Single-line fallback quantity already matches.')
         elif quantity_state == 'missing':
             candidate['notes'].append('Single-line fallback quantity is not available for comparison.')
         else:
             candidate['notes'].append(
-                'Single-line fallback selected the only vendor bill line, but quantity differs; Apply validation will block quantity changes.'
+                'Single-line fallback selected the only vendor bill line; OCR quantity will be applied after UoM validation.'
             )
         return True
 
@@ -437,7 +409,7 @@ class ProductMatcher:
         sync_note = reason
         if quantity_state == 'mismatch':
             sync_note = (
-                '%s Quantity differs; Apply validation will stop before changing the bill quantity.'
+                '%s Quantity differs; OCR quantity will be applied after UoM validation.'
                 % sync_note
             )
         values = {
@@ -624,6 +596,335 @@ class ProductMatcher:
             'Reason: %s' % reason,
         ])
 
+    def _assign_partial_bill_move_lines(self, job, line_source, partner):
+        move_lines = line_source['product_lines']
+        create_lines = self._partial_create_lines(job).sorted('sequence')
+        create_line_count = len(create_lines)
+        candidate_map = {}
+        diagnostics_map = {}
+
+        for line in create_lines:
+            try:
+                candidates = [
+                    self._score_move_line(line, move_line, partner)
+                    for move_line in move_lines
+                ]
+                self._apply_single_line_partial_fallback(
+                    line,
+                    line_source,
+                    candidates,
+                    create_line_count,
+                )
+                candidate_map[line.id] = candidates
+                diagnostics_map[line.id] = self._build_partial_diagnostics(
+                    line,
+                    job,
+                    line_source,
+                    candidates,
+                )
+            except Exception as error:
+                _logger.exception('Gemini partial bill matching failed.')
+                self._write_line_error(line, error)
+
+        locked_move_line_ids = {
+            line.move_line_id.id
+            for line in create_lines
+            if self._is_manual_partial_mapping(line)
+        }
+        assignment = self._compute_partial_global_assignment(
+            create_lines,
+            candidate_map,
+            line_source,
+            locked_move_line_ids,
+        )
+
+        for line in create_lines:
+            if line.id not in candidate_map:
+                continue
+            if self._is_manual_partial_mapping(line):
+                self._write_partial_locked_result(
+                    line,
+                    line_source,
+                    diagnostics_map.get(line.id),
+                    create_line_count,
+                )
+                continue
+            self._write_partial_assignment_result(
+                line,
+                candidate_map.get(line.id) or [],
+                diagnostics_map.get(line.id),
+                assignment,
+            )
+
+    def _is_manual_partial_mapping(self, line):
+        method = str(getattr(line, 'match_method', '') or '')
+        return bool(
+            line.move_line_id
+            and (
+                line.match_status == 'manual'
+                or method.startswith('manual_')
+            )
+        )
+
+    def _compute_partial_global_assignment(
+        self,
+        create_lines,
+        candidate_map,
+        line_source,
+        locked_move_line_ids,
+    ):
+        result = {
+            'assigned': {},
+            'ambiguous_line_ids': set(),
+            'conflict_message': False,
+            'global_method': 'global_one_to_one_assignment',
+            'global_applied': False,
+        }
+        unlocked_lines = [
+            line
+            for line in create_lines
+            if not self._is_manual_partial_mapping(line)
+            and line.id in candidate_map
+        ]
+        safe_candidates = {}
+        total_pairs = 0
+        for line in unlocked_lines:
+            candidates = [
+                candidate
+                for candidate in candidate_map.get(line.id, [])
+                if candidate.get('move_line')
+                and candidate['move_line'].id not in locked_move_line_ids
+                and (candidate.get('score') or 0.0) >= self.PARTIAL_SAFE_ASSIGNMENT_THRESHOLD
+            ]
+            candidates.sort(key=lambda candidate: candidate.get('score') or 0.0, reverse=True)
+            safe_candidates[line.id] = candidates
+            total_pairs += len(candidates)
+
+        assignment_lines = [
+            line for line in unlocked_lines if safe_candidates.get(line.id)
+        ]
+        if not assignment_lines:
+            return result
+
+        if (
+            len(assignment_lines) > self.PARTIAL_MAX_ASSIGNMENT_LINES
+            or total_pairs > self.PARTIAL_MAX_ASSIGNMENT_PAIRS
+        ):
+            result['ambiguous_line_ids'] = {line.id for line in assignment_lines}
+            result['conflict_message'] = (
+                'Global one-to-one assignment skipped because the candidate group is too large.'
+            )
+            return result
+
+        best_assignments = self._find_best_partial_assignments(
+            assignment_lines,
+            safe_candidates,
+        )
+        if not best_assignments:
+            result['ambiguous_line_ids'] = {line.id for line in assignment_lines}
+            result['conflict_message'] = (
+                'No complete one-to-one assignment is possible for the current candidates.'
+            )
+            return result
+
+        best_total, best_assignment = best_assignments[0]
+        if len(best_assignments) > 1:
+            second_total = best_assignments[1][0]
+            if abs(best_total - second_total) <= self.PARTIAL_ASSIGNMENT_TIE_TOLERANCE:
+                result['ambiguous_line_ids'] = {line.id for line in assignment_lines}
+                result['conflict_message'] = (
+                    'Several one-to-one assignments have almost the same score.'
+                )
+                return result
+
+        product_line_count = len(line_source['product_lines'])
+        equal_count_safe_fallback = (
+            len(create_lines) == product_line_count
+            and len(best_assignment) == len(create_lines)
+            and all(
+                candidate_map.get(line.id)
+                and any(
+                    candidate.get('move_line')
+                    and (candidate.get('score') or 0.0) >= self.PARTIAL_SAFE_ASSIGNMENT_THRESHOLD
+                    for candidate in candidate_map[line.id]
+                )
+                for line in create_lines
+            )
+        )
+        if equal_count_safe_fallback:
+            result['global_method'] = 'global_one_to_one_equal_count_fallback'
+
+        for line in assignment_lines:
+            candidate = best_assignment.get(line.id)
+            if not candidate:
+                continue
+            score = candidate.get('score') or 0.0
+            if score >= self.PARTIAL_AUTO_ASSIGNMENT_THRESHOLD or equal_count_safe_fallback:
+                result['assigned'][line.id] = candidate
+            else:
+                result['ambiguous_line_ids'].add(line.id)
+                result['conflict_message'] = (
+                    'Best one-to-one candidate is below automatic assignment threshold.'
+                )
+
+        if result['assigned']:
+            result['global_applied'] = True
+        return result
+
+    def _find_best_partial_assignments(self, assignment_lines, safe_candidates):
+        ordered_lines = sorted(
+            assignment_lines,
+            key=lambda line: (len(safe_candidates.get(line.id, [])), line.sequence, line.id),
+        )
+        complete_assignments = []
+
+        def _walk(index, used_move_line_ids, selected, total_score):
+            if index >= len(ordered_lines):
+                complete_assignments.append((total_score, dict(selected)))
+                return
+            line = ordered_lines[index]
+            for candidate in safe_candidates.get(line.id, []):
+                move_line = candidate.get('move_line')
+                if not move_line or move_line.id in used_move_line_ids:
+                    continue
+                selected[line.id] = candidate
+                used_move_line_ids.add(move_line.id)
+                _walk(
+                    index + 1,
+                    used_move_line_ids,
+                    selected,
+                    total_score + (candidate.get('score') or 0.0),
+                )
+                used_move_line_ids.remove(move_line.id)
+                selected.pop(line.id, None)
+
+        _walk(0, set(), {}, 0.0)
+        complete_assignments.sort(key=lambda item: item[0], reverse=True)
+        return complete_assignments[:2]
+
+    def _write_partial_locked_result(
+        self,
+        line,
+        line_source,
+        diagnostics,
+        create_line_count,
+    ):
+        move_line = line.move_line_id
+        product = move_line.product_id
+        line.write({
+            'matched_product_id': product.id,
+            'candidate_move_line_ids': [(6, 0, [move_line.id])],
+            'match_status': 'manual',
+            'match_score': line.match_score or 1.0,
+            'match_method': line.match_method or 'manual_move_line',
+            'match_summary': _('Рядок рахунку обрано вручну.'),
+            'match_note': self._append_text(
+                '\n'.join(diagnostics or []),
+                self._partial_sync_diagnostic_text(
+                    line,
+                    line_source,
+                    create_line_count,
+                    'Manual move_line_id is locked and was not changed automatically.',
+                    move_line=move_line,
+                ),
+            ),
+        })
+
+    def _write_partial_assignment_result(
+        self,
+        line,
+        candidates,
+        diagnostics,
+        assignment,
+    ):
+        candidates = [
+            candidate
+            for candidate in candidates
+            if candidate.get('product') and candidate.get('score', 0.0) > 0.0
+        ]
+        candidates.sort(key=lambda candidate: candidate['score'], reverse=True)
+        visible_candidates = [
+            candidate
+            for candidate in candidates
+            if candidate['score'] >= self.CANDIDATE_THRESHOLD
+        ]
+        best = candidates[0] if candidates else False
+        assigned = assignment['assigned'].get(line.id)
+        values = {
+            'move_line_id': False,
+            'matched_product_id': best['product'].id if best else False,
+            'candidate_product_ids': [(6, 0, self._candidate_product_ids(visible_candidates))],
+            'candidate_move_line_ids': [(6, 0, self._candidate_move_line_ids(visible_candidates))],
+            'match_score': best['score'] if best else 0.0,
+            'match_method': best['method'] if best else False,
+        }
+
+        if assigned:
+            move_line = assigned['move_line']
+            assigned.setdefault('notes', []).append(
+                'Global one-to-one assignment applied by %s.'
+                % assignment['global_method']
+            )
+            values.update({
+                'move_line_id': move_line.id,
+                'matched_product_id': move_line.product_id.id,
+                'match_status': 'matched',
+                'match_score': assigned.get('score') or 0.0,
+                'match_method': assigned.get('method') or assignment['global_method'],
+            })
+            winner_candidate = assigned
+        elif line.id in assignment['ambiguous_line_ids'] or visible_candidates:
+            values['match_status'] = 'ambiguous'
+            winner_candidate = False
+        else:
+            values['match_status'] = 'not_found'
+            winner_candidate = False
+
+        match_note = self._build_match_note(
+            candidates,
+            visible_candidates,
+            diagnostics=diagnostics,
+            status=values['match_status'],
+        )
+        if assignment.get('conflict_message') and (
+            line.id in assignment['ambiguous_line_ids']
+            or not assigned
+        ):
+            match_note = self._append_text(match_note, assignment['conflict_message'])
+        if assigned:
+            match_note = self._append_text(
+                match_note,
+                self._partial_assignment_diagnostic_text(line, assignment, assigned),
+            )
+        values['match_note'] = match_note
+        values['match_summary'] = self._build_match_summary(
+            line,
+            values,
+            winner_candidate,
+            best,
+            visible_candidates,
+        )
+        if assigned:
+            values['match_summary'] = _(
+                'Зіставлено з рядком рахунку %(line)s за методом %(method)s.'
+            ) % {
+                'line': assigned['move_line'].display_name,
+                'method': values['match_method'],
+            }
+        line.write(values)
+
+    def _partial_assignment_diagnostic_text(self, line, assignment, candidate):
+        move_line = candidate.get('move_line')
+        return '\n'.join([
+            'Partial bill global assignment:',
+            'OCR line: %s.' % line._display_label(),
+            'Global one-to-one applied: %s.' % ('yes' if assignment.get('global_applied') else 'no'),
+            'Assignment method: %s.' % assignment.get('global_method'),
+            'Selected move_line_id: %s.' % (move_line.id if move_line else 'none'),
+            'Score: %.2f.' % (candidate.get('score') or 0.0),
+            'Candidate method: %s.' % (candidate.get('method') or 'unknown'),
+        ])
+
     def _get_job_partner(self, job):
         return (
             getattr(job, 'partner_id', False)
@@ -716,6 +1017,14 @@ class ProductMatcher:
     def _score_move_line(self, line, move_line, partner):
         product = move_line.product_id
         score, method, notes = self._score_product_identity(line, product, partner)
+        if line.matched_product_id and line.matched_product_id == product:
+            score, method = self._choose_score(
+                score,
+                method,
+                0.95,
+                'manual_product_to_move_line_candidate',
+            )
+            notes.append('Matched product already selected on OCR line.')
         score, method, notes = self._score_partial_code_match(
             line,
             move_line,
@@ -1982,11 +2291,10 @@ class ProductMatcher:
         move_quantity = self._to_float(getattr(move_line, 'quantity', False))
         if self._is_number(quantity) and self._is_number(move_quantity):
             if self._numbers_close(quantity, move_quantity, tolerance=0.01):
-                score += 0.03
-                notes.append('Quantity matches.')
+                score += 0.01
+                notes.append('Quantity matches as a weak tie-breaker.')
             else:
-                score -= 0.08
-                notes.append('Quantity differs: recognized=%s document=%s.' % (
+                notes.append('Quantity differs and was ignored for matching score: recognized=%s document=%s.' % (
                     quantity,
                     move_quantity,
                 ))
@@ -2003,11 +2311,10 @@ class ProductMatcher:
             if not self._is_number(recognized_value) or not self._is_number(move_value):
                 continue
             if self._amounts_close(recognized_value, move_value, currency=currency):
-                score += 0.02
-                notes.append('%s matches.' % label)
+                score += 0.01
+                notes.append('%s matches as a weak tie-breaker.' % label)
             else:
-                score -= 0.04
-                notes.append('%s differs: recognized=%s document=%s.' % (
+                notes.append('%s differs and was ignored for matching score: recognized=%s document=%s.' % (
                     label,
                     recognized_value,
                     move_value,
@@ -2017,41 +2324,36 @@ class ProductMatcher:
     def _apply_partial_numeric_fallback(self, line, move_line, score, method, notes):
         checks = self._get_partial_numeric_checks(line, move_line)
         numeric_strong = False
+        if not score:
+            return score, method, notes, numeric_strong
 
         if checks['quantity_match'] and checks['price_match'] and checks['subtotal_match']:
             numeric_strong = True
-            fallback_score = 0.93
-            fallback_method = 'quantity_price_subtotal'
-            notes.append('Numeric fallback: quantity, price_unit, and subtotal match.')
+            fallback_boost = 0.04
+            notes.append('Numeric tie-breaker: quantity, price_unit, and subtotal match.')
         elif checks['quantity_match'] and checks['price_match']:
             numeric_strong = True
-            fallback_score = 0.91
-            fallback_method = 'quantity_price'
-            notes.append('Numeric fallback: quantity and price_unit match.')
+            fallback_boost = 0.03
+            notes.append('Numeric tie-breaker: quantity and price_unit match.')
         elif checks['quantity_match'] and checks['amount_match_count']:
-            fallback_score = 0.74
-            fallback_method = 'quantity_amount'
+            fallback_boost = 0.02
             notes.append(
-                'Numeric fallback: quantity and %s match.'
+                'Numeric tie-breaker: quantity and %s match.'
                 % checks['best_amount_label']
             )
         elif checks['quantity_match']:
-            fallback_score = 0.72
-            fallback_method = 'quantity_only'
-            notes.append('Numeric fallback: quantity matches, amount/price did not match.')
+            fallback_boost = 0.01
+            notes.append('Numeric tie-breaker: quantity matches, amount/price did not match.')
         elif checks['amount_match_count']:
-            fallback_score = 0.66
-            fallback_method = checks['best_amount_method']
+            fallback_boost = 0.01
             notes.append(
-                'Numeric fallback: %s matches but quantity did not match.'
+                'Numeric tie-breaker: %s matches but quantity did not match.'
                 % checks['best_amount_label']
             )
         else:
             return score, method, notes, numeric_strong
 
-        if fallback_score > (score or 0.0):
-            score = fallback_score
-            method = fallback_method
+        score += fallback_boost
         return score, method, notes, numeric_strong
 
     def _get_partial_numeric_checks(self, line, move_line):

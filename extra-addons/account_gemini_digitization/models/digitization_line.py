@@ -166,9 +166,7 @@ class AccountGeminiDigitizationLine(models.Model):
             line.match_status = 'manual'
             line.match_method = 'manual_move_line'
             line.match_score = 1.0
-            line.match_summary = _('Matched manually: %s') % (
-                line.move_line_id.display_name
-            )
+            line.match_summary = _('Рядок рахунку обрано вручну.')
 
     @api.onchange('matched_product_id')
     def _onchange_matched_product_id(self):
@@ -183,9 +181,7 @@ class AccountGeminiDigitizationLine(models.Model):
                     line.match_status = 'manual'
                     line.match_method = 'manual_product_to_move_line_unique'
                     line.match_score = 1.0
-                    line.match_summary = _('Matched manually: %s') % (
-                        move_line.display_name
-                    )
+                    line.match_summary = _('Рядок рахунку обрано вручну.')
                     continue
             line.match_status = 'manual'
             line.match_method = 'manual_product'
