@@ -121,12 +121,19 @@ class ProductMatcher:
         line_source = self._get_partial_bill_line_source(job)
         move_lines = line_source['product_lines']
         partner = self._get_job_partner(job)
+        create_line_count = len(self._partial_create_lines(job))
         for line in job.line_ids:
             try:
                 candidates = [
                     self._score_move_line(line, move_line, partner)
                     for move_line in move_lines
                 ]
+                self._apply_single_line_partial_fallback(
+                    line,
+                    line_source,
+                    candidates,
+                    create_line_count,
+                )
                 diagnostics = self._build_partial_diagnostics(
                     line,
                     job,
@@ -139,9 +146,30 @@ class ProductMatcher:
                     include_move_lines=True,
                     diagnostics=diagnostics,
                 )
+                self._sync_partial_bill_line_to_move_line(
+                    line,
+                    line_source,
+                    create_line_count,
+                    from_matching=True,
+                )
             except Exception as error:
                 _logger.exception('Gemini partial bill matching failed.')
                 self._write_line_error(line, error)
+
+    def sync_partial_bill_move_lines(self, job):
+        """Fill concrete vendor bill lines for already matched partial OCR rows."""
+        job.ensure_one()
+        if job.mode != 'partial_bill':
+            return True
+        line_source = self._get_partial_bill_line_source(job)
+        create_line_count = len(self._partial_create_lines(job))
+        for line in job.line_ids:
+            self._sync_partial_bill_line_to_move_line(
+                line,
+                line_source,
+                create_line_count,
+            )
+        return True
 
     def _match_full_purchase(self, job):
         partner = self._get_job_partner(job)
@@ -210,6 +238,14 @@ class ProductMatcher:
     def _get_move_product_lines(self, job):
         return self._get_partial_bill_line_source(job)['product_lines']
 
+    def _partial_create_lines(self, job):
+        return job.line_ids.filtered(
+            lambda line: (line.apply_action or 'create_line') == 'create_line'
+        )
+
+    def _is_partial_create_line(self, line):
+        return (getattr(line, 'apply_action', False) or 'create_line') == 'create_line'
+
     def _get_partial_bill_line_source(self, job):
         move = job.move_id
         if not move:
@@ -268,6 +304,325 @@ class ProductMatcher:
     def _is_receivable_or_payable_account_type(self, account_type):
         account_type = str(account_type or '').lower()
         return 'receivable' in account_type or 'payable' in account_type
+
+    def _apply_single_line_partial_fallback(
+        self,
+        line,
+        line_source,
+        candidates,
+        create_line_count,
+    ):
+        if not self._is_partial_create_line(line):
+            return False
+        move_lines = line_source['product_lines']
+        if create_line_count != 1 or len(move_lines) != 1:
+            return False
+
+        move_line = move_lines[0]
+        candidate = self._candidate_for_move_line(candidates, move_line)
+        if not candidate:
+            return False
+
+        quantity_state = self._partial_quantity_state(line, move_line)
+        candidate['score'] = max(candidate.get('score') or 0.0, 0.95)
+        candidate['method'] = 'single_line_bill_fallback'
+        candidate.setdefault('notes', []).append(
+            'Single-line bill fallback: one create_line OCR row and one product line on the vendor bill.'
+        )
+        if quantity_state == 'match':
+            candidate['notes'].append('Single-line fallback quantity is compatible.')
+        elif quantity_state == 'missing':
+            candidate['notes'].append('Single-line fallback quantity is not available for comparison.')
+        else:
+            candidate['notes'].append(
+                'Single-line fallback selected the only vendor bill line, but quantity differs; Apply validation will block quantity changes.'
+            )
+        return True
+
+    def _candidate_for_move_line(self, candidates, move_line):
+        for candidate in candidates:
+            if candidate.get('move_line') == move_line:
+                return candidate
+        return False
+
+    def _sync_partial_bill_line_to_move_line(
+        self,
+        line,
+        line_source,
+        create_line_count,
+        from_matching=False,
+    ):
+        if not self._is_partial_create_line(line):
+            return False
+
+        move_lines = line_source['product_lines']
+        if not move_lines:
+            self._append_partial_sync_diagnostics(
+                line,
+                line_source,
+                create_line_count,
+                'No product lines were found on the linked vendor bill.',
+                from_matching=from_matching,
+            )
+            return False
+
+        if line.move_line_id:
+            self._sync_partial_line_product_from_move_line(
+                line,
+                line_source,
+                create_line_count,
+                from_matching=from_matching,
+            )
+            return True
+
+        selected = False
+        method = False
+        score = False
+        reason = False
+        candidate_lines = []
+
+        if line.matched_product_id:
+            candidate_lines = [
+                move_line
+                for move_line in move_lines
+                if move_line.product_id == line.matched_product_id
+            ]
+            selected, method, score, reason = self._select_partial_product_move_line(
+                line,
+                candidate_lines,
+            )
+
+        if not selected and create_line_count == 1 and len(move_lines) == 1:
+            selected = move_lines[0]
+            method = 'single_line_bill_fallback'
+            score = 0.95
+            reason = (
+                'Single-line bill fallback selected the only product line on the vendor bill.'
+            )
+            candidate_lines = [selected]
+
+        if not selected:
+            if candidate_lines:
+                line.write({
+                    'candidate_move_line_ids': [(6, 0, [move_line.id for move_line in candidate_lines])],
+                    'match_status': 'ambiguous',
+                    'match_summary': _(
+                        'Ambiguous: %(count)s vendor bill lines for product %(product)s'
+                    ) % {
+                        'count': len(candidate_lines),
+                        'product': line.matched_product_id.display_name,
+                    },
+                    'match_note': self._append_text(
+                        line.match_note,
+                        self._partial_sync_diagnostic_text(
+                            line,
+                            line_source,
+                            create_line_count,
+                            'Matched product has several vendor bill lines and no unique numeric match.',
+                        ),
+                    ),
+                })
+            else:
+                self._append_partial_sync_diagnostics(
+                    line,
+                    line_source,
+                    create_line_count,
+                    'No vendor bill line could be derived from the matched product.',
+                    from_matching=from_matching,
+                )
+            return False
+
+        product = selected.product_id
+        quantity_state = self._partial_quantity_state(line, selected)
+        sync_note = reason
+        if quantity_state == 'mismatch':
+            sync_note = (
+                '%s Quantity differs; Apply validation will stop before changing the bill quantity.'
+                % sync_note
+            )
+        values = {
+            'move_line_id': selected.id,
+            'matched_product_id': product.id,
+            'candidate_move_line_ids': [(6, 0, [move_line.id for move_line in candidate_lines or [selected]])],
+            'match_status': 'matched' if line.match_status != 'manual' else 'manual',
+            'match_score': max(line.match_score or 0.0, score or 0.0),
+            'match_method': method or line.match_method or 'product_to_move_line_unique',
+            'match_summary': _(
+                'Matched: vendor bill line %(line)s by %(method)s, score %(score).2f'
+            ) % {
+                'line': selected.display_name,
+                'method': method or 'product_to_move_line_unique',
+                'score': max(line.match_score or 0.0, score or 0.0),
+            },
+            'match_note': self._append_text(
+                line.match_note,
+                self._partial_sync_diagnostic_text(
+                    line,
+                    line_source,
+                    create_line_count,
+                    sync_note,
+                    move_line=selected,
+                ),
+            ),
+        }
+        line.write(values)
+        return True
+
+    def _sync_partial_line_product_from_move_line(
+        self,
+        line,
+        line_source,
+        create_line_count,
+        from_matching=False,
+    ):
+        move_line = line.move_line_id
+        if not move_line:
+            return False
+        product = move_line.product_id
+        if not product:
+            return False
+        values = {}
+        if line.matched_product_id != product:
+            values['matched_product_id'] = product.id
+        if line.match_status not in ('matched', 'manual'):
+            values.update({
+                'match_status': 'matched',
+                'match_method': line.match_method or 'move_line_product_sync',
+                'match_score': max(line.match_score or 0.0, 0.95),
+                'match_summary': _(
+                    'Matched: vendor bill line %(line)s by move_line_product_sync, score %(score).2f'
+                ) % {
+                    'line': move_line.display_name,
+                    'score': max(line.match_score or 0.0, 0.95),
+                },
+            })
+        if values:
+            values['match_note'] = self._append_text(
+                line.match_note,
+                self._partial_sync_diagnostic_text(
+                    line,
+                    line_source,
+                    create_line_count,
+                    'Synchronized matched product from selected vendor bill line.',
+                    move_line=move_line,
+                ),
+            )
+            line.write(values)
+        elif not from_matching:
+            self._append_partial_sync_diagnostics(
+                line,
+                line_source,
+                create_line_count,
+                'Selected vendor bill line already matches the OCR line product.',
+                move_line=move_line,
+            )
+        return True
+
+    def _select_partial_product_move_line(self, line, candidate_lines):
+        if len(candidate_lines) == 1:
+            return (
+                candidate_lines[0],
+                'product_to_move_line_unique',
+                0.95,
+                'Matched product appears on exactly one vendor bill line.',
+            )
+
+        if len(candidate_lines) <= 1:
+            return False, False, False, False
+
+        strong_matches = []
+        price_matches = []
+        quantity_matches = []
+        for move_line in candidate_lines:
+            checks = self._get_partial_numeric_checks(line, move_line)
+            if (
+                checks['quantity_match']
+                and checks['price_match']
+                and checks['subtotal_match']
+            ):
+                strong_matches.append(move_line)
+            elif checks['quantity_match'] and checks['price_match']:
+                price_matches.append(move_line)
+            elif checks['quantity_match']:
+                quantity_matches.append(move_line)
+
+        if len(strong_matches) == 1:
+            return (
+                strong_matches[0],
+                'product_to_move_line_quantity_price_subtotal_unique',
+                0.97,
+                'Matched product has one vendor bill line with matching quantity, price, and subtotal.',
+            )
+        if len(price_matches) == 1:
+            return (
+                price_matches[0],
+                'product_to_move_line_quantity_price_unique',
+                0.95,
+                'Matched product has one vendor bill line with matching quantity and price.',
+            )
+        if len(quantity_matches) == 1:
+            return False, False, False, 'Only quantity matched one vendor bill line; manual review is required.'
+        return False, False, False, False
+
+    def _partial_quantity_state(self, line, move_line):
+        quantity = self._to_float(getattr(line, 'quantity', False))
+        move_quantity = self._to_float(getattr(move_line, 'quantity', False))
+        if not self._is_number(quantity) or not self._is_number(move_quantity):
+            return 'missing'
+        if self._numbers_close(quantity, move_quantity, tolerance=0.0001):
+            return 'match'
+        return 'mismatch'
+
+    def _append_partial_sync_diagnostics(
+        self,
+        line,
+        line_source,
+        create_line_count,
+        reason,
+        move_line=False,
+        from_matching=False,
+    ):
+        if from_matching:
+            return False
+        line.write({
+            'match_note': self._append_text(
+                line.match_note,
+                self._partial_sync_diagnostic_text(
+                    line,
+                    line_source,
+                    create_line_count,
+                    reason,
+                    move_line=move_line,
+                ),
+            ),
+        })
+        return True
+
+    def _partial_sync_diagnostic_text(
+        self,
+        line,
+        line_source,
+        create_line_count,
+        reason,
+        move_line=False,
+    ):
+        product_lines = line_source['product_lines']
+        selected_product = getattr(move_line, 'product_id', False) if move_line else False
+        return '\n'.join([
+            'Partial bill move-line sync:',
+            'OCR create_line rows: %s.' % create_line_count,
+            'Vendor bill product lines: %s.' % len(product_lines),
+            'Single-line fallback applicable: %s.' % (
+                'yes' if create_line_count == 1 and len(product_lines) == 1 else 'no'
+            ),
+            'Resolved move_line_id: %s.' % (move_line.id if move_line else 'none'),
+            'Move line product: %s.' % (
+                getattr(selected_product, 'display_name', False)
+                or getattr(selected_product, 'name', False)
+                or 'none'
+            ),
+            'Reason: %s' % reason,
+        ])
 
     def _get_job_partner(self, job):
         return (
@@ -1845,6 +2200,8 @@ class ProductMatcher:
                 'match_score': winner['score'],
                 'match_method': winner['method'],
             })
+            if include_move_lines and winner.get('move_line'):
+                values['move_line_id'] = winner['move_line'].id
             winner.setdefault('notes', []).append(
                 'Best candidate selected because score gap is at least %.2f.'
                 % self.BEST_GAP_MATCH_THRESHOLD
@@ -2034,10 +2391,12 @@ class ProductMatcher:
         line_product_lines = line_source['line_product_lines']
         move_lines = line_source['product_lines']
         extracted_codes = self._line_codes(line)
+        create_line_count = len(self._partial_create_lines(job))
         diagnostics = [
             'Partial bill matching diagnostics:',
             'Job mode: %s.' % job.mode,
             'Move ID: %s.' % (job.move_id.id if job.move_id else 'none'),
+            'OCR create_line rows: %s.' % create_line_count,
             'Extracted supplier/internal codes: %s.' % (
                 ', '.join(extracted_codes) if extracted_codes else 'none'
             ),
@@ -2046,6 +2405,9 @@ class ProductMatcher:
             'line_ids total: %s.' % len(line_ids),
             'line_ids product lines: %s.' % len(line_product_lines),
             'Line source used: %s.' % line_source['source'],
+            'Single-line fallback available: %s.' % (
+                'yes' if create_line_count == 1 and len(move_lines) == 1 else 'no'
+            ),
             self._format_line_source_reason(line_source),
             'Recognized values: supplier_product_code=%s; supplier_product_name=%s; quantity=%s; price_unit=%s; amount_untaxed=%s.'
             % (
@@ -3195,3 +3557,8 @@ class ProductMatcher:
             return
         if record_id not in {getattr(existing, 'id', False) for existing in records}:
             records.append(record)
+
+    def _append_text(self, existing_text, message):
+        if existing_text:
+            return '%s\n%s' % (existing_text, message)
+        return message

@@ -1814,9 +1814,21 @@ class AccountGeminiDigitizationReviewLineWizard(models.TransientModel):
     @api.onchange('matched_product_id')
     def _onchange_matched_product_id(self):
         for line in self:
-            if line.wizard_id.mode not in ('full_bill', 'full_purchase'):
-                continue
             if not line.matched_product_id:
+                continue
+            if line.wizard_id.mode == 'partial_bill':
+                move_line = line._find_unique_partial_move_line_for_product()
+                if move_line:
+                    line.move_line_id = move_line
+                    line.matched_product_id = move_line.product_id
+                    line.match_status = 'manual'
+                    line.match_method = 'manual_product_to_move_line_unique'
+                    line.match_score = 1.0
+                    line.match_summary = _('Manual: selected vendor bill line %s') % (
+                        move_line.display_name
+                    )
+                continue
+            if line.wizard_id.mode not in ('full_bill', 'full_purchase'):
                 continue
             if line._is_manual_product_selection() or line.match_status not in ('matched', 'manual'):
                 line.match_status = 'manual'
@@ -1892,3 +1904,37 @@ class AccountGeminiDigitizationReviewLineWizard(models.TransientModel):
     def _display_label(self):
         self.ensure_one()
         return self.supplier_product_name or self.description or str(self.sequence)
+
+    def _find_unique_partial_move_line_for_product(self):
+        self.ensure_one()
+        if self.wizard_id.mode != 'partial_bill':
+            return False
+        if not self.matched_product_id or not self.wizard_id.move_id:
+            return False
+        product_lines = self._get_partial_bill_product_lines()
+        matching_lines = product_lines.filtered(
+            lambda move_line: move_line.product_id == self.matched_product_id
+        )
+        if len(matching_lines) == 1:
+            return matching_lines[0]
+        return False
+
+    def _get_partial_bill_product_lines(self):
+        self.ensure_one()
+        move = self.wizard_id.move_id
+        if not move:
+            return self.env['account.move.line']
+        invoice_lines = move.invoice_line_ids.filtered(self._is_partial_bill_product_line)
+        if invoice_lines:
+            return invoice_lines
+        return move.line_ids.filtered(self._is_partial_bill_product_line)
+
+    def _is_partial_bill_product_line(self, move_line):
+        if not move_line.product_id:
+            return False
+        display_type = getattr(move_line, 'display_type', False)
+        if display_type and display_type != 'product':
+            return False
+        account = getattr(move_line, 'account_id', False)
+        account_type = str(getattr(account, 'account_type', '') or '').lower()
+        return 'receivable' not in account_type and 'payable' not in account_type

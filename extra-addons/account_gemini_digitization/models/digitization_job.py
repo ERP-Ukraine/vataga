@@ -446,8 +446,11 @@ class AccountGeminiDigitizationJob(models.Model):
 
         if self.mode == 'partial_bill':
             problematic = self.line_ids.filtered(
-                lambda line: line.match_status not in ('matched', 'manual')
-                or not line.move_line_id
+                lambda line: (line.apply_action or 'create_line') == 'create_line'
+                and (
+                    line.match_status not in ('matched', 'manual')
+                    or not line.move_line_id
+                )
             )
             if problematic:
                 return _('Some OCR lines require manual vendor bill line review before Apply.')
@@ -455,8 +458,11 @@ class AccountGeminiDigitizationJob(models.Model):
 
         if self.mode == 'full_bill':
             problematic = self.line_ids.filtered(
-                lambda line: line.match_status not in ('matched', 'manual')
-                or not line.matched_product_id
+                lambda line: (line.apply_action or 'create_line') == 'create_line'
+                and (
+                    line.match_status not in ('matched', 'manual')
+                    or not line.matched_product_id
+                )
             )
             if problematic:
                 return _('Some OCR lines require manual product review before Apply.')
@@ -464,8 +470,11 @@ class AccountGeminiDigitizationJob(models.Model):
 
         if self.mode == 'full_purchase':
             problematic = self.line_ids.filtered(
-                lambda line: line.match_status not in ('matched', 'manual')
-                or not line.matched_product_id
+                lambda line: (line.apply_action or 'create_line') == 'create_line'
+                and (
+                    line.match_status not in ('matched', 'manual')
+                    or not line.matched_product_id
+                )
             )
             if problematic:
                 return _('Some OCR lines require manual product review before Apply.')

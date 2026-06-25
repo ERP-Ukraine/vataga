@@ -1,3 +1,6 @@
+from .product_matcher import ProductMatcher
+
+
 class DigitizationApplyService:
     """Apply reviewed persistent OCR lines through the shared validation flow."""
 
@@ -7,6 +10,9 @@ class DigitizationApplyService:
 
     def apply(self):
         self.job.ensure_one()
+        if self.job.mode == 'partial_bill':
+            ProductMatcher(self.env).sync_partial_bill_move_lines(self.job)
+            self.job._update_matching_message_after_matching()
         apply_model = self.env['account.gemini.digitization.review.wizard']
         return _JobApplyContext(self.job, apply_model).action_apply()
 
