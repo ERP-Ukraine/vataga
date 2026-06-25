@@ -236,45 +236,76 @@ class AccountGeminiDigitizationJob(models.Model):
 
         return self._get_job_form_action()
 
-    def action_open_review_wizard(self):
+    def run_automatic_pipeline(self):
         self.ensure_one()
         self._check_linked_document_access('write')
-        if self.state != 'review':
-            raise UserError(_('Gemini review can be opened only for jobs in Review state.'))
+        try:
+            self.action_process()
+        except Exception as error:
+            _logger.exception('Gemini automatic digitization pipeline failed.')
+            message = _('Не вдалося завершити оцифрування. Деталі збережено у завданні Gemini OCR.')
+            self._post_automatic_pipeline_message(message)
+            return {
+                'status': 'error',
+                'message': message,
+                'notification_type': 'danger',
+                'sticky': True,
+            }
 
-        wizard = self.env['account.gemini.digitization.review.wizard'].create({
-            'job_id': self.id,
-            'line_ids': [
-                (0, 0, self._prepare_review_wizard_line_values(line))
-                for line in self.line_ids.sorted('sequence')
-            ],
-        })
-        wizard_lines_by_job_line = {
-            wizard_line.job_line_id.id: wizard_line
-            for wizard_line in wizard.line_ids
-            if wizard_line.job_line_id
-        }
-        for wizard_line in wizard.line_ids:
-            if not wizard_line.job_line_id:
-                continue
-            target_job_line = wizard_line.job_line_id.merge_target_line_id
-            if not target_job_line:
-                continue
-            target_wizard_line = wizard_lines_by_job_line.get(target_job_line.id)
-            if target_wizard_line:
-                wizard_line.merge_target_line_id = target_wizard_line.id
-        wizard._autofill_line_taxes()
-        form_view = self.env.ref(
-            'account_gemini_digitization.view_account_gemini_digitization_review_wizard_form'
-        )
+        if self.state != 'review':
+            message = _('Оцифрування завершено, але деякі рядки потребують перевірки. Дані не були застосовані автоматично.')
+            self._post_automatic_pipeline_message(message)
+            return {
+                'status': 'manual_review',
+                'message': message,
+                'notification_type': 'warning',
+                'sticky': False,
+            }
+
+        blocker = self._get_automatic_apply_blocker()
+        if blocker:
+            self._set_automatic_review_message(blocker)
+            message = _('Оцифрування завершено, але деякі рядки потребують перевірки. Дані не були застосовані автоматично.')
+            self._post_automatic_pipeline_message(message)
+            return {
+                'status': 'manual_review',
+                'message': message,
+                'notification_type': 'warning',
+                'sticky': False,
+            }
+
+        try:
+            DigitizationApplyService(self.env, self).validate_for_automatic_apply()
+            DigitizationApplyService(self.env, self).apply()
+        except UserError as error:
+            self._set_automatic_review_message(self._get_error_message(error))
+            message = _('Оцифрування завершено, але деякі рядки потребують перевірки. Дані не були застосовані автоматично.')
+            self._post_automatic_pipeline_message(message)
+            return {
+                'status': 'manual_review',
+                'message': message,
+                'notification_type': 'warning',
+                'sticky': False,
+            }
+        except Exception as error:
+            _logger.exception('Gemini automatic apply failed.')
+            self._set_automatic_review_message(str(error))
+            message = _('Оцифрування завершено, але деякі рядки потребують перевірки. Дані не були застосовані автоматично.')
+            self._post_automatic_pipeline_message(message)
+            return {
+                'status': 'manual_review',
+                'message': message,
+                'notification_type': 'warning',
+                'sticky': False,
+            }
+
+        message = self._get_automatic_success_message()
+        self._post_automatic_pipeline_message(message)
         return {
-            'type': 'ir.actions.act_window',
-            'name': _('Review Gemini Digitization'),
-            'res_model': 'account.gemini.digitization.review.wizard',
-            'view_mode': 'form',
-            'views': [(form_view.id, 'form')],
-            'res_id': wizard.id,
-            'target': 'new',
+            'status': 'applied',
+            'message': message,
+            'notification_type': 'success',
+            'sticky': False,
         }
 
     def action_run_matching(self):
@@ -316,42 +347,6 @@ class AccountGeminiDigitizationJob(models.Model):
     def _create_lines_from_response(self):
         raise UserError(_('Creating digitization lines from Gemini response is not implemented yet.'))
 
-    def _prepare_review_wizard_line_values(self, line):
-        return {
-            'job_line_id': line.id,
-            'sequence': line.sequence,
-            'supplier_product_code': line.supplier_product_code,
-            'supplier_product_name': line.supplier_product_name,
-            'description': line.description,
-            'quantity': line.quantity,
-            'uom_name': line.uom_name,
-            'price_unit_without_tax': line.price_unit_without_tax,
-            'price_unit_with_tax': line.price_unit_with_tax,
-            'line_subtotal_without_tax': line.line_subtotal_without_tax,
-            'line_tax_amount': line.line_tax_amount,
-            'line_total_with_tax': line.line_total_with_tax,
-            'price_unit': line.price_unit,
-            'tax_rate': line.tax_rate,
-            'tax_ids': [(6, 0, line.tax_ids.ids)],
-            'amount_untaxed': line.amount_untaxed,
-            'amount_tax': line.amount_tax,
-            'amount_total': line.amount_total,
-            'matched_product_id': line.matched_product_id.id,
-            'move_line_id': line.move_line_id.id,
-            'purchase_order_line_id': line.purchase_order_line_id.id,
-            'candidate_product_ids': [(6, 0, line.candidate_product_ids.ids)],
-            'candidate_move_line_ids': [(6, 0, line.candidate_move_line_ids.ids)],
-            'match_status': line.match_status,
-            'match_score': line.match_score,
-            'match_method': line.match_method,
-            'match_summary': line.match_summary,
-            'match_note': line.match_note,
-            'apply_action': line.apply_action or 'create_line',
-            'confidence': line.confidence,
-            'source_columns': line.source_columns,
-            'note': line.note,
-        }
-
     def _run_product_matching(self):
         self.ensure_one()
         try:
@@ -364,6 +359,88 @@ class AccountGeminiDigitizationJob(models.Model):
                 'state': 'review',
                 'matching_message': warning,
             })
+
+    def _get_automatic_apply_blocker(self):
+        self.ensure_one()
+        create_lines = self.line_ids.filtered(
+            lambda line: (line.apply_action or 'create_line') == 'create_line'
+        )
+        non_create_lines = self.line_ids - create_lines
+        if not self.line_ids:
+            return _('There are no recognized lines to apply.')
+        if non_create_lines:
+            return _('Automatic apply is disabled when OCR lines use merge or skip actions.')
+        for line in create_lines:
+            if line.match_status not in ('matched', 'manual'):
+                return _('Some OCR lines are not confidently matched.')
+            if not self._is_positive_number(line.quantity):
+                return _('Some OCR lines do not have a positive quantity.')
+            if not self._is_positive_number(line.price_unit):
+                return _('Some OCR lines do not have a positive unit price.')
+
+        if self.mode == 'partial_bill':
+            used_move_line_ids = set()
+            for line in create_lines:
+                if not line.move_line_id:
+                    return _('Some OCR lines are not linked to vendor bill lines.')
+                if line.move_line_id.move_id != self.move_id:
+                    return _('Some OCR lines are linked to another vendor bill.')
+                if not line.move_line_id.product_id:
+                    return _('Some selected vendor bill lines do not have products.')
+                if line.matched_product_id != line.move_line_id.product_id:
+                    return _('Some OCR line products differ from selected vendor bill lines.')
+                if line.move_line_id.id in used_move_line_ids:
+                    return _('One vendor bill line is assigned to several OCR lines.')
+                used_move_line_ids.add(line.move_line_id.id)
+            return False
+
+        if self.mode in ('full_bill', 'full_purchase'):
+            for line in create_lines:
+                if not line.matched_product_id:
+                    return _('Some OCR lines do not have matched products.')
+                if len(line.candidate_product_ids) > 1:
+                    return _('Some OCR lines have several product candidates.')
+            return False
+
+        return _('Unsupported Gemini digitization mode.')
+
+    def _set_automatic_review_message(self, details=False):
+        self.ensure_one()
+        message = _('Automatic Gemini apply requires manual review.')
+        if details:
+            message = '%s\n%s' % (message, details)
+        values = {
+            'matching_message': message,
+        }
+        if self.state not in ('done', 'error', 'cancelled'):
+            values['state'] = 'review'
+        self.write(values)
+
+    def _get_automatic_success_message(self):
+        self.ensure_one()
+        if self.mode == 'partial_bill':
+            return _('Оцифрування завершено. Кількість, ціни та податки в рядках рахунку оновлено.')
+        if self.mode == 'full_bill':
+            return _('Оцифрування завершено. Рядки рахунку створено.')
+        if self.mode == 'full_purchase':
+            return _('Оцифрування завершено. Рядки замовлення на закупівлю створено.')
+        return _('Оцифрування завершено. Дані з документа автоматично застосовано.')
+
+    def _post_automatic_pipeline_message(self, message):
+        self.ensure_one()
+        document = self.move_id or self.purchase_order_id
+        if not document or not hasattr(document, 'message_post'):
+            return False
+        document.message_post(
+            body='%s<br/>%s' % (
+                message,
+                _('Gemini OCR job: %s') % self.display_name,
+            )
+        )
+        return True
+
+    def _is_positive_number(self, value):
+        return isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0
 
     def _get_job_form_action(self):
         self.ensure_one()

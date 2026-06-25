@@ -81,6 +81,13 @@ class PurchaseOrder(models.Model):
                 'Спочатку завантажте PDF або зображення рахунку в поле «Файл для Gemini OCR».'
             ))
 
+        unfinished_job = self._find_unfinished_gemini_digitization_job(attachment)
+        if unfinished_job:
+            return self._get_gemini_digitization_notification_action(
+                _('Для цього документа вже існує незавершене завдання оцифрування Gemini.'),
+                notification_type='warning',
+            )
+
         document_name = self.name if self.name and self.name != '/' else self.id
         job = self.env['account.gemini.digitization.job'].create({
             'name': _('Gemini OCR: Purchase Order %s') % document_name,
@@ -94,7 +101,24 @@ class PurchaseOrder(models.Model):
             'currency_id': self.currency_id.id,
             'attachment_id': attachment.id,
         })
-        return self._get_gemini_digitization_job_form_action(job)
+        result = job.run_automatic_pipeline()
+        return self._get_gemini_digitization_notification_action(
+            result['message'],
+            notification_type=result.get('notification_type', 'info'),
+            sticky=result.get('sticky', False),
+        )
+
+    def _find_unfinished_gemini_digitization_job(self, attachment):
+        self.ensure_one()
+        return self.env['account.gemini.digitization.job'].search(
+            [
+                ('purchase_order_id', '=', self.id),
+                ('attachment_id', '=', attachment.id),
+                ('state', 'in', ('draft', 'processing', 'review')),
+            ],
+            order='create_date desc, id desc',
+            limit=1,
+        )
 
     def _get_gemini_digitization_job_form_action(self, job):
         form_view = self.env.ref(
@@ -108,6 +132,36 @@ class PurchaseOrder(models.Model):
             'views': [(form_view.id, 'form')],
             'res_id': job.id,
             'target': 'current',
+        }
+
+    def _get_gemini_digitization_document_action(self):
+        self.ensure_one()
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _('Purchase Order'),
+            'res_model': 'purchase.order',
+            'view_mode': 'form',
+            'res_id': self.id,
+            'target': 'current',
+        }
+
+    def _get_gemini_digitization_notification_action(
+        self,
+        message,
+        notification_type='info',
+        sticky=False,
+    ):
+        self.ensure_one()
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': _('Gemini OCR'),
+                'message': message,
+                'type': notification_type,
+                'sticky': sticky,
+                'next': self._get_gemini_digitization_document_action(),
+            },
         }
 
     def action_view_gemini_digitization_jobs(self):

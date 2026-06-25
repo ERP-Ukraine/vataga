@@ -47,16 +47,6 @@ msgid "Gemini Digitization Line"
 msgstr "Рядок оцифрування Gemini"
 
 #. module: account_gemini_digitization
-#: model:ir.model,name:account_gemini_digitization.model_account_gemini_digitization_review_wizard
-msgid "Gemini Digitization Review Wizard"
-msgstr "Майстер перевірки оцифрування Gemini"
-
-#. module: account_gemini_digitization
-#: model:ir.model,name:account_gemini_digitization.model_account_gemini_digitization_review_line_wizard
-msgid "Gemini Digitization Review Line Wizard"
-msgstr "Рядок майстра перевірки оцифрування Gemini"
-
-#. module: account_gemini_digitization
 #: model:ir.ui.menu,name:account_gemini_digitization.menu_account_gemini_digitization_root
 #: model_terms:ir.ui.view,arch_db:account_gemini_digitization.res_config_settings_view_form_gemini_digitization
 msgid "Gemini Digitization"
@@ -69,13 +59,8 @@ msgstr "Завдання оцифрування"
 
 #. module: account_gemini_digitization
 #: model_terms:ir.ui.view,arch_db:account_gemini_digitization.view_account_gemini_digitization_job_form
-msgid "Process"
-msgstr "Обробити"
-
-#. module: account_gemini_digitization
-#: model_terms:ir.ui.view,arch_db:account_gemini_digitization.view_account_gemini_digitization_job_form
-msgid "Open Review"
-msgstr "Відкрити перевірку"
+msgid "Process / Retry OCR"
+msgstr "???????? / ????????? OCR"
 
 #. module: account_gemini_digitization
 #: model_terms:ir.ui.view,arch_db:account_gemini_digitization.view_account_gemini_digitization_job_form
@@ -89,7 +74,6 @@ msgstr "Повернути до чернетки"
 
 #. module: account_gemini_digitization
 #: model_terms:ir.ui.view,arch_db:account_gemini_digitization.view_account_gemini_digitization_job_form
-#: model_terms:ir.ui.view,arch_db:account_gemini_digitization.view_account_gemini_digitization_review_wizard_form
 msgid "Cancel"
 msgstr "Скасувати"
 
@@ -158,14 +142,12 @@ msgstr "Статус"
 #. module: account_gemini_digitization
 #: model_terms:ir.ui.view,arch_db:account_gemini_digitization.view_account_gemini_digitization_job_search
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_job__mode
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_wizard__mode
 msgid "Mode"
 msgstr "Режим"
 
 #. module: account_gemini_digitization
 #: model_terms:ir.ui.view,arch_db:account_gemini_digitization.view_account_gemini_digitization_job_search
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_job__partner_id
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_wizard__partner_id
 msgid "Partner"
 msgstr "Постачальник"
 
@@ -177,7 +159,6 @@ msgstr "Створіть завдання оцифрування Gemini."
 #. module: account_gemini_digitization
 #: model:ir.model.fields.selection,name:account_gemini_digitization.selection__account_gemini_digitization_job__state__draft
 #: model:ir.model.fields.selection,name:account_gemini_digitization.selection__account_gemini_digitization_line__match_status__draft
-#: model:ir.model.fields.selection,name:account_gemini_digitization.selection__account_gemini_digitization_review_line_wizard__match_status__draft
 msgid "Draft"
 msgstr "Чернетка"
 
@@ -199,7 +180,6 @@ msgstr "Готово"
 #. module: account_gemini_digitization
 #: model:ir.model.fields.selection,name:account_gemini_digitization.selection__account_gemini_digitization_job__state__error
 #: model:ir.model.fields.selection,name:account_gemini_digitization.selection__account_gemini_digitization_line__match_status__error
-#: model:ir.model.fields.selection,name:account_gemini_digitization.selection__account_gemini_digitization_review_line_wizard__match_status__error
 msgid "Error"
 msgstr "Помилка"
 
@@ -225,61 +205,51 @@ msgstr "Повне розпізнавання замовлення на заку
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields.selection,name:account_gemini_digitization.selection__account_gemini_digitization_line__match_status__matched
-#: model:ir.model.fields.selection,name:account_gemini_digitization.selection__account_gemini_digitization_review_line_wizard__match_status__matched
 msgid "Matched"
 msgstr "Зіставлено"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields.selection,name:account_gemini_digitization.selection__account_gemini_digitization_line__match_status__ambiguous
-#: model:ir.model.fields.selection,name:account_gemini_digitization.selection__account_gemini_digitization_review_line_wizard__match_status__ambiguous
 msgid "Ambiguous"
 msgstr "Неоднозначно"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields.selection,name:account_gemini_digitization.selection__account_gemini_digitization_line__match_status__not_found
-#: model:ir.model.fields.selection,name:account_gemini_digitization.selection__account_gemini_digitization_review_line_wizard__match_status__not_found
 msgid "Not Found"
 msgstr "Не знайдено"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields.selection,name:account_gemini_digitization.selection__account_gemini_digitization_line__match_status__manual
-#: model:ir.model.fields.selection,name:account_gemini_digitization.selection__account_gemini_digitization_review_line_wizard__match_status__manual
 msgid "Manual"
 msgstr "Вручну"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields.selection,name:account_gemini_digitization.selection__account_gemini_digitization_line__apply_action__create_line
-#: model:ir.model.fields.selection,name:account_gemini_digitization.selection__account_gemini_digitization_review_line_wizard__apply_action__create_line
 msgid "Create Document Line"
 msgstr "Створити рядок"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields.selection,name:account_gemini_digitization.selection__account_gemini_digitization_line__apply_action__merge_into
-#: model:ir.model.fields.selection,name:account_gemini_digitization.selection__account_gemini_digitization_review_line_wizard__apply_action__merge_into
 msgid "Merge Into Another Line"
 msgstr "Об’єднати з"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields.selection,name:account_gemini_digitization.selection__account_gemini_digitization_line__apply_action__skip
-#: model:ir.model.fields.selection,name:account_gemini_digitization.selection__account_gemini_digitization_review_line_wizard__apply_action__skip
 msgid "Skip"
 msgstr "Пропустити"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_job__move_id
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_wizard__move_id
 msgid "Vendor Bill"
 msgstr "Рахунок постачальника"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_job__purchase_order_id
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_wizard__purchase_order_id
 msgid "Purchase Order"
 msgstr "Замовлення на закупівлю"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_job__attachment_id
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_wizard__attachment_id
 msgid "Source Attachment"
 msgstr "Джерельний документ"
 
@@ -296,38 +266,31 @@ msgstr "MIME-тип вкладення"
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_job__confidence
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__confidence
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_wizard__confidence
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__confidence
 msgid "Confidence"
 msgstr "Рівень впевненості"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_job__recognized_invoice_number
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_wizard__recognized_invoice_number
 msgid "Recognized Invoice Number"
 msgstr "Розпізнаний номер рахунку"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_job__recognized_invoice_date
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_wizard__recognized_invoice_date
 msgid "Recognized Invoice Date"
 msgstr "Розпізнана дата рахунку"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_job__recognized_amount_untaxed
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_wizard__recognized_amount_untaxed
 msgid "Recognized Amount Untaxed"
 msgstr "Розпізнана сума без ПДВ"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_job__recognized_amount_tax
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_wizard__recognized_amount_tax
 msgid "Recognized Amount Tax"
 msgstr "Розпізнана сума ПДВ"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_job__recognized_amount_total
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_wizard__recognized_amount_total
 msgid "Recognized Amount Total"
 msgstr "Розпізнана сума з ПДВ"
 
@@ -360,115 +323,96 @@ msgstr "Повідомлення про зіставлення"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__supplier_product_code
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__supplier_product_code
 msgid "Supplier Product Code"
 msgstr "Код товару постачальника"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__supplier_product_name
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__supplier_product_name
 msgid "Supplier Product Name"
 msgstr "Назва товару постачальника"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__uom_name
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__uom_name
 msgid "UoM Name"
 msgstr "Одиниця вимірювання"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__price_unit_without_tax
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__price_unit_without_tax
 msgid "Price Without Tax"
 msgstr "Ціна без ПДВ"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__price_unit_with_tax
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__price_unit_with_tax
 msgid "Price With Tax"
 msgstr "Ціна з ПДВ"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__tax_ids
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__tax_ids
 msgid "Taxes"
 msgstr "Податки"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__line_subtotal_without_tax
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__line_subtotal_without_tax
 msgid "Subtotal Without Tax"
 msgstr "Сума без ПДВ"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__line_tax_amount
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__line_tax_amount
 msgid "Line Tax Amount"
 msgstr "Сума ПДВ рядка"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__line_total_with_tax
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__line_total_with_tax
 msgid "Total With Tax"
 msgstr "Сума з ПДВ"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__matched_product_id
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__matched_product_id
 msgid "Matched Product"
 msgstr "Зіставлений товар"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__candidate_product_ids
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__candidate_product_ids
 msgid "Product Candidates"
 msgstr "Кандидати товарів"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__match_status
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__match_status
 msgid "Match Status"
 msgstr "Статус зіставлення"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__match_score
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__match_score
 msgid "Match Score"
 msgstr "Оцінка зіставлення"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__match_method
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__match_method
 msgid "Match Method"
 msgstr "Метод зіставлення"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__match_summary
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__match_summary
 msgid "Match Summary"
 msgstr "Підсумок зіставлення"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__move_line_id
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__move_line_id
 msgid "Vendor Bill Line"
 msgstr "Рядок рахунку постачальника"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__purchase_order_line_id
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__purchase_order_line_id
 msgid "Purchase Order Line"
 msgstr "Рядок замовлення на закупівлю"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__candidate_move_line_ids
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__candidate_move_line_ids
 msgid "Vendor Bill Line Candidates"
 msgstr "Кандидати рядків рахунку постачальника"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__apply_action
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__apply_action
 msgid "Apply Action"
 msgstr "Дія застосування"
 
@@ -478,7 +422,6 @@ msgid "Merge Target OCR Line"
 msgstr "Цільовий OCR-рядок для об’єднання"
 
 #. module: account_gemini_digitization
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__merge_target_line_id
 msgid "Merge Target"
 msgstr "Ціль об’єднання"
 
@@ -500,124 +443,86 @@ msgstr "ID ресурсу"
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_job__company_id
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__company_id
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_wizard__company_id
 msgid "Company"
 msgstr "Компанія"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_job__currency_id
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__currency_id
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_wizard__currency_id
 msgid "Currency"
 msgstr "Валюта"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__sequence
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__sequence
 msgid "Sequence"
 msgstr "Послідовність"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__description
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__description
 msgid "Description"
 msgstr "Опис"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__quantity
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__quantity
 msgid "Quantity"
 msgstr "Кількість"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__price_unit
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__price_unit
 msgid "Price Unit"
 msgstr "Ціна за одиницю"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__tax_rate
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__tax_rate
 msgid "Tax Rate"
 msgstr "Ставка ПДВ"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__amount_untaxed
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__amount_untaxed
 msgid "Amount Untaxed"
 msgstr "Сума без ПДВ"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__amount_tax
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__amount_tax
 msgid "Amount Tax"
 msgstr "Сума ПДВ"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__amount_total
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__amount_total
 msgid "Amount Total"
 msgstr "Загальна сума"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__source_columns
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__source_columns
 msgid "Source Columns"
 msgstr "Колонки джерела"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__note
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_wizard__note
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__note
 msgid "Note"
 msgstr "Нотатка"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__match_note
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_line_wizard__match_note
 msgid "Match Note"
 msgstr "Діагностика зіставлення"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_line__job_id
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_wizard__job_id
 msgid "Job"
 msgstr "Завдання"
 
 #. module: account_gemini_digitization
-#: model_terms:ir.ui.view,arch_db:account_gemini_digitization.view_account_gemini_digitization_review_wizard_form
-msgid "Review Gemini Digitization"
-msgstr "Перевірка оцифрування Gemini"
-
-#. module: account_gemini_digitization
-#: model_terms:ir.ui.view,arch_db:account_gemini_digitization.view_account_gemini_digitization_review_wizard_form
 msgid "Lines"
 msgstr "Рядки"
 
 #. module: account_gemini_digitization
-#: model_terms:ir.ui.view,arch_db:account_gemini_digitization.view_account_gemini_digitization_review_wizard_form
 msgid "Matching"
 msgstr "Зіставлення"
 
 #. module: account_gemini_digitization
-#: model_terms:ir.ui.view,arch_db:account_gemini_digitization.view_account_gemini_digitization_review_wizard_form
-msgid "Notes"
-msgstr "Нотатки"
-
-#. module: account_gemini_digitization
-#: model_terms:ir.ui.view,arch_db:account_gemini_digitization.view_account_gemini_digitization_review_wizard_form
 msgid "Apply"
 msgstr "Застосувати"
-
-#. module: account_gemini_digitization
-#: model_terms:ir.ui.view,arch_db:account_gemini_digitization.view_account_gemini_digitization_review_wizard_form
-msgid "Close"
-msgstr "Закрити"
-
-#. module: account_gemini_digitization
-#: model:ir.model.fields,field_description:account_gemini_digitization.field_account_gemini_digitization_review_wizard__line_ids
-msgid "Review Lines"
-msgstr "Рядки перевірки"
 
 #. module: account_gemini_digitization
 #: model:ir.model.fields,field_description:account_gemini_digitization.field_res_config_settings__gemini_api_key
@@ -744,203 +649,104 @@ msgid "no product"
 msgstr "товар не вибрано"
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "This Gemini job has already been applied."
 msgstr "Це завдання Gemini вже застосовано."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "Gemini job must be in Review state before apply."
 msgstr "Перед застосуванням завдання Gemini має бути у статусі «Перевірка»."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "There are no recognized lines to apply."
 msgstr "Немає розпізнаних рядків для застосування."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
-#, python-format
-msgid "Not all recognized lines have an Odoo product selected. Please check Review. Lines: %s"
-msgstr "Не для всіх розпізнаних рядків вибрано товар Odoo. Перевірте дані. Рядки: %s"
-
-#. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
-#, python-format
-msgid "Not all purchase order lines have an Odoo product selected. Please check Review. Lines: %s"
-msgstr "Не для всіх рядків замовлення на закупівлю вибрано товар Odoo. Перевірте дані. Рядки: %s"
-
-#. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 #, python-format
 msgid "Some OCR lines are marked as merge_into but have no target line. Lines: %s"
 msgstr "Для деяких OCR-рядків з дією «Об’єднати» не вибрано цільовий рядок. Рядки: %s"
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 #, python-format
 msgid "Some OCR lines have invalid merge targets. Target must be a create_line in the same Review. Lines: %s"
 msgstr "Деякі OCR-рядки мають неправильну ціль об’єднання. Ціль має створювати рядок у цій самій перевірці. Рядки: %s"
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "At least one OCR line must create a vendor bill line."
 msgstr "Принаймні один OCR-рядок має створити рядок рахунку постачальника."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "At least one OCR line must create a purchase order line."
 msgstr "Принаймні один OCR-рядок має створити рядок замовлення на закупівлю."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
-msgid "Merged OCR lines have different quantities. Set target quantity and price manually before Apply."
-msgstr "Об’єднані OCR-рядки мають різну кількість. Перед застосуванням задайте кількість і ціну цільового рядка вручну."
-
-#. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
-msgid "Merged OCR lines have different tax rates. Split them or correct tax rates before Apply."
-msgstr "Об’єднані OCR-рядки мають різні ставки ПДВ. Розділіть їх або виправте ставки перед застосуванням."
-
-#. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "Tax review required: select purchase tax"
 msgstr "Потрібна перевірка податку: виберіть податок для закупівлі"
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "Tax selected manually"
 msgstr "Податок вибрано вручну"
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
-#, python-format
-msgid "Manual: selected product %s"
-msgstr "Вручну: вибрано товар %s"
-
-#. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
-#, python-format
-msgid "Manual: selected vendor bill line %s"
-msgstr "Вручну: вибрано рядок рахунку постачальника %s"
-
-#. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "Skipped: will not create an invoice line"
 msgstr "Пропущено: рядок рахунку не буде створено"
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "Skipped: will not create a purchase order line"
 msgstr "Пропущено: рядок замовлення на закупівлю не буде створено"
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid " Preferred non-price-included purchase VAT tax was not selected automatically."
 msgstr " Бажаний податок ПДВ для закупівлі, не включений у ціну, не вдалося вибрати автоматично."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
-#, python-format
-msgid "%(line)s: merged OCR line \"%(merged)s\" has a different tax rate. Split it or correct tax rates before Apply."
-msgstr "%(line)s: об’єднаний OCR-рядок «%(merged)s» має іншу ставку ПДВ. Розділіть рядки або виправте ставки перед застосуванням."
-
-#. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
-#, python-format
-msgid "%(line)s: merged OCR lines use %(child_rate).4g%% VAT, but target line uses %(target_rate).4g%% VAT."
-msgstr "%(line)s: об’єднані OCR-рядки мають ПДВ %(child_rate).4g%%, а цільовий рядок — %(target_rate).4g%%."
-
-#. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
-#, python-format
-msgid "%(line)s: several purchase taxes for %(rate).4g%% were found. Please select the correct tax manually before Apply.%(price_basis_warning)s %(candidates)s"
-msgstr "%(line)s: знайдено кілька податків для закупівлі зі ставкою %(rate).4g%%. Перед застосуванням виберіть правильний податок вручну.%(price_basis_warning)s %(candidates)s"
-
-#. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
-#, python-format
-msgid "%s: OCR tax rate is 0%%, but there is no explicit zero-rated/VAT-exempt evidence. Please select taxes manually or check OCR result."
-msgstr "%s: OCR визначив ставку 0%%, але немає явної ознаки нульової ставки або звільнення від ПДВ. Виберіть податки вручну або перевірте результат OCR."
-
-#. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 #, python-format
 msgid "%s: invalid negative tax rate %.4g%%."
 msgstr "%s: неприпустима від’ємна ставка податку %.4g%%."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 #, python-format
 msgid "%s: merged OCR lines do not have enough price/subtotal data for automatic calculation."
 msgstr "%s: в об’єднаних OCR-рядках недостатньо даних про ціну або суму для автоматичного розрахунку."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
-#, python-format
-msgid "%s: merged OCR lines have different quantities. Set target quantity and price manually before Apply."
-msgstr "%s: об’єднані OCR-рядки мають різну кількість. Перед застосуванням задайте кількість і ціну цільового рядка вручну."
-
-#. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
-#, python-format
-msgid "%s: merged OCR lines have different tax rates. Split them or correct tax rates before Apply."
-msgstr "%s: об’єднані OCR-рядки мають різні ставки ПДВ. Розділіть їх або виправте ставки перед застосуванням."
-
-#. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 #, python-format
 msgid "%s: purchase tax %.4g%% was not found. Please select the correct tax before Apply."
 msgstr "%s: податок для закупівлі зі ставкою %.4g%% не знайдено. Виберіть правильний податок перед застосуванням."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
-#, python-format
-msgid "%s: selected product differs from the vendor bill line product. The existing vendor bill product was kept."
-msgstr "%s: вибраний товар відрізняється від товару в рядку рахунку. Збережено наявний товар рахунку постачальника."
-
-#. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 #, python-format
 msgid "%s: selected product does not have a purchase unit of measure."
 msgstr "%s: для вибраного товару не задано одиницю вимірювання закупівлі."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 #, python-format
 msgid "%s: selected tax is not a 0%% tax, but OCR tax rate is 0%%."
 msgstr "%s: вибраний податок не має ставки 0%%, хоча OCR визначив ставку 0%%."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 #, python-format
 msgid "%s: zero tax was not applied automatically because OCR did not provide explicit VAT-exempt evidence."
 msgstr "%s: нульовий податок не застосовано автоматично, оскільки OCR не надав явної ознаки звільнення від ПДВ."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 #, python-format
 msgid "Applied to vendor bill line %s."
 msgstr "Застосовано до рядка рахунку постачальника %s."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "Apply must not create or delete vendor bill lines."
 msgstr "Застосування не повинно створювати або видаляти рядки рахунку постачальника."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "At least one OCR line must update a vendor bill line."
 msgstr "Принаймні один OCR-рядок має оновити рядок рахунку постачальника."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 #, python-format
 msgid "Created purchase order line %s."
 msgstr "Створено рядок замовлення на закупівлю %s."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 #, python-format
 msgid "Created vendor bill line %s."
 msgstr "Створено рядок рахунку постачальника %s."
@@ -977,37 +783,30 @@ msgid "Gemini digitization is available only for vendor bills."
 msgstr "Оцифрування Gemini доступне лише для рахунків постачальника."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "Gemini full bill apply could not safely identify created vendor bill lines."
 msgstr "Не вдалося безпечно визначити створені рядки рахунку постачальника після повного застосування Gemini."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "Gemini full bill apply is allowed only for draft vendor bills."
 msgstr "Повне застосування Gemini дозволено лише для чернеток рахунків постачальника."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "Gemini full bill apply is allowed only for vendor bills."
 msgstr "Повне застосування Gemini дозволено лише для рахунків постачальника."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "Gemini full purchase apply could not safely identify created purchase order lines."
 msgstr "Не вдалося безпечно визначити створені рядки замовлення на закупівлю після застосування Gemini."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "Gemini full purchase apply is allowed only for draft or sent purchase orders."
 msgstr "Повне застосування Gemini дозволено лише для чернеток або надісланих замовлень на закупівлю."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "Gemini job is not linked to a purchase order."
 msgstr "Завдання Gemini не пов’язане із замовленням на закупівлю."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "Gemini job is not linked to a vendor bill."
 msgstr "Завдання Gemini не пов’язане з рахунком постачальника."
 
@@ -1018,12 +817,10 @@ msgid "Gemini line %s must be a JSON object."
 msgstr "Рядок Gemini %s має бути JSON-об’єктом."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "Gemini partial apply is allowed only for draft vendor bills."
 msgstr "Часткове застосування Gemini дозволено лише для чернеток рахунків постачальника."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "Gemini partial apply is allowed only for vendor bills."
 msgstr "Часткове застосування Gemini дозволено лише для рахунків постачальника."
 
@@ -1048,7 +845,6 @@ msgid "Line"
 msgstr "Рядок"
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 #, python-format
 msgid "Lines with matching errors cannot be applied. Lines: %s"
 msgstr "Рядки з помилками зіставлення не можна застосувати. Рядки: %s"
@@ -1060,57 +856,28 @@ msgid "Matching error: %s"
 msgstr "Помилка зіставлення: %s"
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "Merge: select target OCR line"
 msgstr "Об’єднання: виберіть цільовий OCR-рядок"
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 #, python-format
 msgid "Merged OCR lines: %s."
 msgstr "Об’єднані OCR-рядки: %s."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 #, python-format
 msgid "Merged into purchase order line %s."
 msgstr "Об’єднано з рядком замовлення на закупівлю %s."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 #, python-format
 msgid "Merged into vendor bill line %s."
 msgstr "Об’єднано з рядком рахунку постачальника %s."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 #, python-format
 msgid "Merged into: %s"
 msgstr "Об’єднано з: %s"
-
-#. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
-#, python-format
-msgid "Not all purchase order lines have a positive quantity. Please check Review. Lines: %s"
-msgstr "Не всі рядки замовлення на закупівлю мають додатну кількість. Перевірте дані. Рядки: %s"
-
-#. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
-#, python-format
-msgid "Not all purchase order lines have a positive unit price. Please check Review. Lines: %s"
-msgstr "Не всі рядки замовлення на закупівлю мають додатну ціну за одиницю. Перевірте дані. Рядки: %s"
-
-#. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
-#, python-format
-msgid "Not all recognized lines have a positive quantity. Please check Review. Lines: %s"
-msgstr "Не всі розпізнані рядки мають додатну кількість. Перевірте дані. Рядки: %s"
-
-#. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
-#, python-format
-msgid "Not all recognized lines have a positive unit price. Please check Review. Lines: %s"
-msgstr "Не всі розпізнані рядки мають додатну ціну за одиницю. Перевірте дані. Рядки: %s"
 
 #. module: account_gemini_digitization
 #: code:addons/account_gemini_digitization/models/digitization_job.py:0
@@ -1119,89 +886,73 @@ msgid "Product matching warning: %s"
 msgstr "Попередження зіставлення товарів: %s"
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 #, python-format
 msgid "Selected vendor bill line does not belong to the reviewed bill: %s"
 msgstr "Вибраний рядок рахунку постачальника не належить до рахунку, що перевіряється: %s"
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "Skipped during full bill apply."
 msgstr "Пропущено під час повного застосування рахунку постачальника."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "Skipped during full purchase apply."
 msgstr "Пропущено під час повного застосування замовлення на закупівлю."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "Skipped during partial bill apply."
 msgstr "Пропущено під час часткового застосування рахунку постачальника."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "Skipped: manually excluded from invoice line creation"
 msgstr "Пропущено: вручну виключено зі створення рядка рахунку"
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "Skipped: manually excluded from purchase order line creation"
 msgstr "Пропущено: вручну виключено зі створення рядка замовлення на закупівлю"
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "Skipped: manually excluded from vendor bill update"
 msgstr "Пропущено: вручну виключено з оновлення рахунку постачальника"
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 #, python-format
 msgid "Some OCR lines have unsupported apply actions. Lines: %s"
 msgstr "Деякі OCR-рядки мають непідтримувані дії застосування. Рядки: %s"
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 #, python-format
 msgid "Tax candidates: %s"
 msgstr "Кандидати податків: %s"
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "Tax review required: confirm 0%% VAT tax"
 msgstr "Потрібна перевірка податку: підтвердьте ставку ПДВ 0%%"
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 #, python-format
 msgid "Tax review required: no %.4g%% purchase tax found"
 msgstr "Потрібна перевірка податку: податок для закупівлі %.4g%% не знайдено"
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 #, python-format
 msgid "Tax review required: select %.4g%% purchase tax"
 msgstr "Потрібна перевірка податку: виберіть податок для закупівлі %.4g%%"
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 #, python-format
 msgid "Tax review required: several %.4g%% purchase taxes found"
 msgstr "Потрібна перевірка податку: знайдено кілька податків для закупівлі %.4g%%"
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 #, python-format
 msgid "Tax review required: several %.4g%% purchase taxes found; choose non-price-included VAT"
 msgstr "Потрібна перевірка податку: знайдено кілька податків для закупівлі %.4g%%; виберіть ПДВ, не включений у ціну"
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "This Gemini full bill job already has created vendor bill lines and cannot be applied again."
 msgstr "Це завдання повного розпізнавання вже створило рядки рахунку постачальника, тому його не можна застосувати повторно."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "This Gemini full purchase job already has created purchase order lines and cannot be applied again."
 msgstr "Це завдання повного розпізнавання вже створило рядки замовлення на закупівлю, тому його не можна застосувати повторно."
 
@@ -1212,13 +963,11 @@ msgid "Unknown Gemini matching mode: %s"
 msgstr "Невідомий режим зіставлення Gemini: %s"
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 #, python-format
 msgid "Unsupported Gemini review mode: %s"
 msgstr "Непідтримуваний режим перевірки Gemini: %s"
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "Vendor bill already contains product lines. Use partial bill recognition for existing lines."
 msgstr "Рахунок постачальника вже містить товарні рядки. Використайте часткове розпізнавання для наявних рядків."
 
@@ -1272,33 +1021,23 @@ msgid "Manual product selection required"
 msgstr "Потрібен ручний вибір товару"
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 msgid "Apply completed with warnings:"
 msgstr "Застосування завершено з попередженнями:"
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 #, python-format
 msgid "Вибраний рядок рахунку не належить до рахунку, що обробляється: %s"
 msgstr "Вибраний рядок рахунку не належить до рахунку, що обробляється: %s"
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 #, python-format
 msgid "У вибраному рядку рахунку не вказано товар: %s"
 msgstr "У вибраному рядку рахунку не вказано товар: %s"
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 #, python-format
 msgid "Зіставлений товар не відповідає товару у вибраному рядку рахунку: %s"
 msgstr "Зіставлений товар не відповідає товару у вибраному рядку рахунку: %s"
-
-#. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
-#, python-format
-msgid "Кількість у розпізнаному документі не збігається з кількістю у рядку рахунку. Перевірте відповідність товару перед застосуванням. Рядок: %s"
-msgstr "Кількість у розпізнаному документі не збігається з кількістю у рядку рахунку. Перевірте відповідність товару перед застосуванням. Рядок: %s"
 
 #. module: account_gemini_digitization
 #: code:addons/account_gemini_digitization/services/gemini_client.py:0
@@ -1306,16 +1045,9 @@ msgid "Gemini повернув невалідний JSON. Деталі збер�
 msgstr "Gemini повернув невалідний JSON. Деталі збережено у вкладці «Сирий JSON»."
 
 #. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
 #, python-format
 msgid "Для рядка \"%(line)s\" оберіть податок ПДВ %(rate).4g%% у Review перед Apply. %(details)s"
 msgstr "Для рядка «%(line)s» оберіть податок ПДВ %(rate).4g%% у перевірці перед застосуванням. %(details)s"
-
-#. module: account_gemini_digitization
-#: code:addons/account_gemini_digitization/wizard/digitization_review_wizard.py:0
-#, python-format
-msgid "Не всі рядки зіставлено з рядками рахунку. Перевірте Review. Рядки: %s"
-msgstr "Не всі рядки зіставлено з рядками рахунку. Перевірте дані. Рядки: %s"
 
 #. module: account_gemini_digitization
 #: code:addons/account_gemini_digitization/services/gemini_client.py:0

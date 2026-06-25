@@ -28,10 +28,10 @@
                 <header>
                     <button
                         name="action_process"
-                        string="Process"
+                        string="Process / Retry OCR"
                         type="object"
                         class="oe_highlight"
-                        invisible="state != 'draft'"
+                        invisible="state not in ('draft', 'error')"
                     />
                     <button
                         name="action_run_matching"
@@ -302,7 +302,7 @@
         name="Gemini Digitization"
         parent="account.menu_finance_configuration"
         sequence="90"
-        groups="base.group_user"
+        groups="base.group_system"
     />
 
     <menuitem
@@ -311,6 +311,6 @@
         parent="menu_account_gemini_digitization_root"
         action="action_account_gemini_digitization_job"
         sequence="10"
-        groups="base.group_user"
+        groups="base.group_system"
     />
 </odoo>
