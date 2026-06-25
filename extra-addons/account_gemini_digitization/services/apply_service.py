@@ -143,10 +143,11 @@ class _JobApplyContext:
 
         return {
             'type': 'ir.actions.act_window',
-            'name': _('Vendor Bill'),
+            'name': _('Рахунок постачальника'),
             'res_model': 'account.move',
-            'view_mode': 'form',
             'res_id': move.id,
+            'view_mode': 'form',
+            'views': [(False, 'form')],
             'target': 'current',
         }
 
@@ -267,10 +268,11 @@ class _JobApplyContext:
 
         return {
             'type': 'ir.actions.act_window',
-            'name': _('Vendor Bill'),
+            'name': _('Рахунок постачальника'),
             'res_model': 'account.move',
-            'view_mode': 'form',
             'res_id': move.id,
+            'view_mode': 'form',
+            'views': [(False, 'form')],
             'target': 'current',
         }
 
@@ -384,10 +386,11 @@ class _JobApplyContext:
         })
         return {
             'type': 'ir.actions.act_window',
-            'name': _('Purchase Order'),
+            'name': _('Замовлення на закупівлю'),
             'res_model': 'purchase.order',
-            'view_mode': 'form',
             'res_id': order.id,
+            'view_mode': 'form',
+            'views': [(False, 'form')],
             'target': 'current',
         }
 

@@ -138,10 +138,11 @@ class PurchaseOrder(models.Model):
         self.ensure_one()
         return {
             'type': 'ir.actions.act_window',
-            'name': _('Purchase Order'),
+            'name': _('Замовлення на закупівлю'),
             'res_model': 'purchase.order',
-            'view_mode': 'form',
             'res_id': self.id,
+            'view_mode': 'form',
+            'views': [(False, 'form')],
             'target': 'current',
         }
 
