@@ -6,12 +6,13 @@
         <field name="inherit_id" ref="account.view_move_form"/>
         <field name="arch" type="xml">
             <xpath expr="//form/header" position="inside">
+                <field name="gemini_has_supported_attachment" invisible="1"/>
                 <button
                     name="action_create_gemini_digitization_job"
                     string="Оцифрувати через Gemini"
                     type="object"
                     class="oe_highlight"
-                    invisible="move_type != 'in_invoice' or state != 'draft'"
+                    invisible="move_type != 'in_invoice' or state != 'draft' or not gemini_has_supported_attachment"
                 />
             </xpath>
         </field>

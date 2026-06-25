@@ -1,4 +1,4 @@
-from odoo import _, models
+from odoo import _, fields, models
 from odoo.exceptions import UserError
 
 
@@ -13,9 +13,34 @@ SUPPORTED_DIGITIZATION_MIMETYPES = (
 class AccountMove(models.Model):
     _inherit = 'account.move'
 
+    gemini_has_supported_attachment = fields.Boolean(
+        compute='_compute_gemini_has_supported_attachment',
+        compute_sudo=True,
+    )
+
+    def _compute_gemini_has_supported_attachment(self):
+        supported_move_ids = set()
+        if self.ids:
+            groups = self.env['ir.attachment'].sudo().read_group(
+                [
+                    ('res_model', '=', 'account.move'),
+                    ('res_id', 'in', self.ids),
+                    ('mimetype', 'in', SUPPORTED_DIGITIZATION_MIMETYPES),
+                ],
+                ['res_id'],
+                ['res_id'],
+            )
+            supported_move_ids = {
+                group['res_id']
+                for group in groups
+                if group.get('res_id')
+            }
+        for move in self:
+            move.gemini_has_supported_attachment = move.id in supported_move_ids
+
     def _get_latest_gemini_digitization_attachment(self):
         self.ensure_one()
-        return self.env['ir.attachment'].search(
+        return self.env['ir.attachment'].sudo().search(
             [
                 ('res_model', '=', 'account.move'),
                 ('res_id', '=', self.id),
@@ -35,7 +60,7 @@ class AccountMove(models.Model):
         attachment = self._get_latest_gemini_digitization_attachment()
         if not attachment:
             raise UserError(_(
-                'Спочатку завантажте PDF або зображення рахунку постачальника у вкладення документа.'
+                'Спочатку прикріпіть PDF або зображення рахунку постачальника до документа.'
             ))
 
         product_lines = self._get_gemini_digitization_product_lines()

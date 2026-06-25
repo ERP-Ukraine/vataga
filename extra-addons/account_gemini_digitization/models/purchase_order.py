@@ -13,21 +13,34 @@ SUPPORTED_DIGITIZATION_MIMETYPES = (
 class PurchaseOrder(models.Model):
     _inherit = 'purchase.order'
 
-    gemini_attachment_ids = fields.Many2many(
-        comodel_name='ir.attachment',
-        relation='purchase_order_gemini_attachment_rel',
-        column1='purchase_order_id',
-        column2='attachment_id',
-        string='Файл для Gemini OCR',
-        copy=False,
+    gemini_has_supported_attachment = fields.Boolean(
+        compute='_compute_gemini_has_supported_attachment',
+        compute_sudo=True,
     )
+
+    def _compute_gemini_has_supported_attachment(self):
+        supported_order_ids = set()
+        if self.ids:
+            groups = self.env['ir.attachment'].sudo().read_group(
+                [
+                    ('res_model', '=', 'purchase.order'),
+                    ('res_id', 'in', self.ids),
+                    ('mimetype', 'in', SUPPORTED_DIGITIZATION_MIMETYPES),
+                ],
+                ['res_id'],
+                ['res_id'],
+            )
+            supported_order_ids = {
+                group['res_id']
+                for group in groups
+                if group.get('res_id')
+            }
+        for order in self:
+            order.gemini_has_supported_attachment = order.id in supported_order_ids
 
     def _get_latest_gemini_digitization_attachment(self):
         self.ensure_one()
-        field_attachment = self._get_latest_gemini_field_attachment()
-        if field_attachment:
-            return field_attachment
-        return self.env['ir.attachment'].search(
+        return self.env['ir.attachment'].sudo().search(
             [
                 ('res_model', '=', 'purchase.order'),
                 ('res_id', '=', self.id),
@@ -36,19 +49,6 @@ class PurchaseOrder(models.Model):
             order='create_date desc, id desc',
             limit=1,
         )
-
-    def _get_latest_gemini_field_attachment(self):
-        self.ensure_one()
-        attachments = self.gemini_attachment_ids.filtered(
-            lambda attachment: attachment.mimetype in SUPPORTED_DIGITIZATION_MIMETYPES
-        )
-        if not attachments:
-            return self.env['ir.attachment']
-        empty_date = fields.Datetime.to_datetime('1970-01-01 00:00:00')
-        return attachments.sorted(
-            key=lambda attachment: (attachment.create_date or empty_date, attachment.id),
-            reverse=True,
-        )[:1]
 
     def action_create_gemini_digitization_job(self):
         self.ensure_one()
@@ -64,7 +64,7 @@ class PurchaseOrder(models.Model):
         attachment = self._get_latest_gemini_digitization_attachment()
         if not attachment:
             raise UserError(_(
-                'Спочатку завантажте PDF або зображення рахунку в поле «Файл для Gemini OCR».'
+                'Спочатку прикріпіть PDF або зображення до замовлення на закупівлю.'
             ))
 
         document_name = self.name if self.name and self.name != '/' else self.id
