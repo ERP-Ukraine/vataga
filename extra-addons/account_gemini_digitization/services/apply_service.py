@@ -69,8 +69,6 @@ class _JobApplyContext:
         if self.job.mode == 'full_bill':
             move = self.job.move_id
             self._validate_full_bill_apply(self.job, move)
-            self._validate_full_bill_review_lines()
-            self._prepare_full_bill_apply_plan(move)
             return True
         if self.job.mode == 'full_purchase':
             order = self.job.purchase_order_id
@@ -155,8 +153,42 @@ class _JobApplyContext:
         job = self.job_id
         move = job.move_id
         self._validate_full_bill_apply(job, move)
-        self._validate_full_bill_review_lines()
-        create_plans = self._prepare_full_bill_apply_plan(move)
+        create_plans, skipped_reasons = self._prepare_full_bill_partial_apply_plan(move)
+        applied_source_line_ids = {
+            source_line.id
+            for plan in create_plans
+            for source_line in (plan['line'] | plan['merged_lines'])
+        }
+        skipped_count = len(self.line_ids.filtered(
+            lambda line: line.id not in applied_source_line_ids
+        ))
+        applied_count = len(create_plans)
+
+        if not create_plans:
+            for skipped_line in self.line_ids:
+                self._mark_full_bill_line_skipped(
+                    skipped_line,
+                    skipped_reasons.get(skipped_line.id) or _(
+                        'No safe product match or apply data was found.'
+                    ),
+                )
+            job.write({
+                'state': 'review',
+                'error_message': False,
+                'matching_message': False,
+            })
+            action = self._get_move_form_action(move)
+            action.update({
+                'gemini_apply_result': {
+                    'applied': 0,
+                    'skipped': skipped_count,
+                },
+                'gemini_applied_count': 0,
+                'gemini_skipped_count': skipped_count,
+                'gemini_status': 'nothing_applied',
+                'gemini_notification_type': 'warning',
+            })
+            return action
 
         warnings = []
         header_values = {}
@@ -244,19 +276,20 @@ class _JobApplyContext:
                 })
 
         for skipped_line in self.line_ids.filtered(lambda line: line.apply_action == 'skip'):
-            skipped_line.job_line_id.write({
-                'apply_action': 'skip',
-                'merge_target_line_id': False,
-                'move_line_id': False,
-                'match_status': 'manual',
-                'match_score': skipped_line.match_score or 1.0,
-                'match_method': 'manual_skip',
-                'match_summary': _('Skipped: manually excluded from invoice line creation'),
-                'note': self._append_text(
-                    skipped_line.job_line_id.note,
-                    _('Skipped during full bill apply.'),
-                ),
-            })
+            if skipped_line.id not in applied_source_line_ids:
+                self._mark_full_bill_line_skipped(
+                    skipped_line,
+                    skipped_reasons.get(skipped_line.id) or _(
+                        'Skipped during full bill apply.'
+                    ),
+                )
+
+        for skipped_line_id, reason in skipped_reasons.items():
+            if skipped_line_id in applied_source_line_ids:
+                continue
+            skipped_line = self.line_ids.filtered(lambda line: line.id == skipped_line_id)
+            if skipped_line:
+                self._mark_full_bill_line_skipped(skipped_line, reason)
 
         move.invalidate_recordset(['amount_untaxed', 'amount_tax', 'amount_total'])
         warnings.extend(AmountValidator(self.env).validate_move_totals(move, job))
@@ -266,15 +299,18 @@ class _JobApplyContext:
             'matching_message': False,
         })
 
-        return {
-            'type': 'ir.actions.act_window',
-            'name': _('Рахунок постачальника'),
-            'res_model': 'account.move',
-            'res_id': move.id,
-            'view_mode': 'form',
-            'views': [(False, 'form')],
-            'target': 'current',
-        }
+        action = self._get_move_form_action(move)
+        action.update({
+            'gemini_apply_result': {
+                'applied': applied_count,
+                'skipped': skipped_count,
+            },
+            'gemini_applied_count': applied_count,
+            'gemini_skipped_count': skipped_count,
+            'gemini_status': 'partial_applied' if skipped_count else 'applied',
+            'gemini_notification_type': 'warning' if skipped_count else 'success',
+        })
+        return action
 
     def _apply_full_purchase(self):
         self.ensure_one()
@@ -829,6 +865,103 @@ class _JobApplyContext:
             raise UserError('\n'.join(errors))
         return create_plans
 
+    def _prepare_full_bill_partial_apply_plan(self, move):
+        create_plans = []
+        skipped_reasons = {}
+        applied_source_line_ids = set()
+        create_lines = self.line_ids.filtered(
+            lambda line: (line.apply_action or 'create_line') == 'create_line'
+        )
+
+        for line in create_lines.sorted('sequence'):
+            merged_lines = self.line_ids.filtered(
+                lambda child: child.apply_action == 'merge_into'
+                and child.merge_target_line_id == line
+            ).sorted('sequence')
+            source_lines = line | merged_lines
+            try:
+                self._validate_full_bill_create_candidate(line)
+                final_tax_rate = self._get_full_bill_plan_tax_rate(line, merged_lines)
+                quantity, price_unit, amount_untaxed = self._get_full_bill_plan_values(
+                    line,
+                    merged_lines,
+                )
+                tax_ids, _tax_warning = self._get_line_taxes(
+                    line,
+                    move,
+                    strict=True,
+                    tax_rate_override=final_tax_rate,
+                )
+                amount_tax, amount_total = self._get_full_bill_plan_tax_amounts(
+                    amount_untaxed,
+                    final_tax_rate,
+                )
+                create_plans.append({
+                    'line': line,
+                    'merged_lines': merged_lines,
+                    'tax_ids': tax_ids,
+                    'tax_rate': final_tax_rate,
+                    'quantity': quantity,
+                    'price_unit': price_unit,
+                    'amount_untaxed': amount_untaxed,
+                    'amount_tax': amount_tax,
+                    'amount_total': amount_total,
+                })
+                applied_source_line_ids.update(source_lines.ids)
+            except UserError as error:
+                reason = self._get_error_message(error)
+                for source_line in source_lines:
+                    skipped_reasons[source_line.id] = reason
+
+        for line in self.line_ids:
+            if line.id in applied_source_line_ids or line.id in skipped_reasons:
+                continue
+            action = line.apply_action or 'create_line'
+            if action == 'skip':
+                skipped_reasons[line.id] = _('OCR line was skipped.')
+            elif action == 'merge_into':
+                skipped_reasons[line.id] = _(
+                    'Merge target was not applied or is invalid.'
+                )
+            else:
+                skipped_reasons[line.id] = _(
+                    'OCR line was not eligible for automatic apply.'
+                )
+
+        return create_plans, skipped_reasons
+
+    def _validate_full_bill_create_candidate(self, line):
+        action = line.apply_action or 'create_line'
+        if action != 'create_line':
+            raise UserError(_('%s: OCR line is not marked to create a line.') % (
+                line._display_label(),
+            ))
+        if line.match_status == 'error':
+            raise UserError(_('%s: product matching failed.') % line._display_label())
+        if line.match_status not in ('matched', 'manual'):
+            raise UserError(_('%s: product was not confidently matched.') % (
+                line._display_label(),
+            ))
+        if not line.matched_product_id:
+            raise UserError(_('%s: no Odoo product was selected.') % (
+                line._display_label(),
+            ))
+        if not self._is_positive_number(line.quantity):
+            raise UserError(_('%s: OCR quantity must be greater than zero.') % (
+                line._display_label(),
+            ))
+        if not self._is_positive_number(line.price_unit):
+            raise UserError(_('%s: OCR unit price must be greater than zero.') % (
+                line._display_label(),
+            ))
+        product = line.matched_product_id
+        uom = getattr(product, 'uom_po_id', False) or getattr(product, 'uom_id', False)
+        if not uom:
+            raise UserError(_('%s: matched product has no unit of measure.') % (
+                line._display_label(),
+            ))
+        return True
+
     def _prepare_full_purchase_apply_plan(self, order):
         errors = []
         create_plans = []
@@ -1052,6 +1185,30 @@ class _JobApplyContext:
             values['product_uom_id'] = uom.id
         values['tax_ids'] = [(6, 0, plan['tax_ids'].ids)]
         return values
+
+    def _mark_full_bill_line_skipped(self, line, reason):
+        summary_reason = reason or _('Not eligible for automatic apply.')
+        if len(summary_reason) > 160:
+            summary_reason = '%s...' % summary_reason[:157]
+        line.job_line_id.write({
+            'move_line_id': False,
+            'match_summary': _('Skipped: %s') % summary_reason,
+            'note': self._append_text(
+                line.job_line_id.note,
+                _('Skipped during automatic full bill apply: %s') % (reason or ''),
+            ),
+        })
+
+    def _get_move_form_action(self, move):
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _('Рахунок постачальника'),
+            'res_model': 'account.move',
+            'res_id': move.id,
+            'view_mode': 'form',
+            'views': [(False, 'form')],
+            'target': 'current',
+        }
 
     def _prepare_full_purchase_order_line_values(self, plan, order):
         line = plan['line']

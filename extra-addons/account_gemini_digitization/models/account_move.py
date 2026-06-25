@@ -1,4 +1,4 @@
-from odoo import _, fields, models
+from odoo import _, models
 from odoo.exceptions import UserError
 
 
@@ -12,21 +12,6 @@ SUPPORTED_DIGITIZATION_MIMETYPES = (
 
 class AccountMove(models.Model):
     _inherit = 'account.move'
-
-    gemini_digitization_job_ids = fields.One2many(
-        comodel_name='account.gemini.digitization.job',
-        inverse_name='move_id',
-        string='Gemini Digitization Jobs',
-        readonly=True,
-    )
-    gemini_digitization_job_count = fields.Integer(
-        string='Gemini OCR Jobs',
-        compute='_compute_gemini_digitization_job_count',
-    )
-
-    def _compute_gemini_digitization_job_count(self):
-        for move in self:
-            move.gemini_digitization_job_count = len(move.gemini_digitization_job_ids)
 
     def _get_latest_gemini_digitization_attachment(self):
         self.ensure_one()
@@ -53,13 +38,6 @@ class AccountMove(models.Model):
                 'Спочатку завантажте PDF або зображення рахунку постачальника у вкладення документа.'
             ))
 
-        unfinished_job = self._find_unfinished_gemini_digitization_job(attachment)
-        if unfinished_job:
-            return self._get_gemini_digitization_notification_action(
-                _('Для цього документа вже існує незавершене завдання оцифрування Gemini.'),
-                notification_type='warning',
-            )
-
         product_lines = self._get_gemini_digitization_product_lines()
         if product_lines:
             mode = 'partial_bill'
@@ -83,23 +61,14 @@ class AccountMove(models.Model):
             'currency_id': self.currency_id.id,
             'attachment_id': attachment.id,
         })
-        result = job.run_automatic_pipeline()
+        try:
+            result = job.run_automatic_pipeline()
+        finally:
+            job._unlink_temporary_job()
         return self._get_gemini_digitization_notification_action(
             result['message'],
             notification_type=result.get('notification_type', 'info'),
             sticky=result.get('sticky', False),
-        )
-
-    def _find_unfinished_gemini_digitization_job(self, attachment):
-        self.ensure_one()
-        return self.env['account.gemini.digitization.job'].search(
-            [
-                ('move_id', '=', self.id),
-                ('attachment_id', '=', attachment.id),
-                ('state', 'in', ('draft', 'processing', 'review')),
-            ],
-            order='create_date desc, id desc',
-            limit=1,
         )
 
     def _get_gemini_digitization_product_lines(self):
@@ -126,20 +95,6 @@ class AccountMove(models.Model):
             if 'receivable' in account_type or 'payable' in account_type:
                 return False
         return True
-
-    def _get_gemini_digitization_job_form_action(self, job):
-        form_view = self.env.ref(
-            'account_gemini_digitization.view_account_gemini_digitization_job_form'
-        )
-        return {
-            'type': 'ir.actions.act_window',
-            'name': _('Gemini Digitization Job'),
-            'res_model': 'account.gemini.digitization.job',
-            'view_mode': 'form',
-            'views': [(form_view.id, 'form')],
-            'res_id': job.id,
-            'target': 'current',
-        }
 
     def _get_gemini_digitization_document_action(self):
         self.ensure_one()
@@ -171,27 +126,3 @@ class AccountMove(models.Model):
                 'next': self._get_gemini_digitization_document_action(),
             },
         }
-
-    def action_view_gemini_digitization_jobs(self):
-        self.ensure_one()
-        action = self.env['ir.actions.act_window']._for_xml_id(
-            'account_gemini_digitization.action_account_gemini_digitization_job'
-        )
-        action['domain'] = [('move_id', '=', self.id)]
-        default_mode = (
-            'partial_bill'
-            if self._get_gemini_digitization_product_lines()
-            else 'full_bill'
-        )
-        action['context'] = {
-            'default_move_id': self.id,
-            'default_mode': default_mode,
-        }
-        if self.gemini_digitization_job_count == 1:
-            job = self.gemini_digitization_job_ids
-            form_view = self.env.ref(
-                'account_gemini_digitization.view_account_gemini_digitization_job_form'
-            )
-            action['views'] = [(form_view.id, 'form')]
-            action['res_id'] = job.id
-        return action

@@ -23,9 +23,4 @@
         'views/account_move_views.xml',
         'views/purchase_order_views.xml',
     ],
-    'assets': {
-        'web.assets_backend': [
-            'account_gemini_digitization/static/src/scss/gemini_digitization.scss',
-        ],
-    },
 }

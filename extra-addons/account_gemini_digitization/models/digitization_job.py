@@ -234,7 +234,7 @@ class AccountGeminiDigitizationJob(models.Model):
             self._save_processing_error(user_error, client)
             raise user_error
 
-        return self._get_job_form_action()
+        return True
 
     def run_automatic_pipeline(self):
         self.ensure_one()
@@ -243,7 +243,7 @@ class AccountGeminiDigitizationJob(models.Model):
             self.action_process()
         except Exception as error:
             _logger.exception('Gemini automatic digitization pipeline failed.')
-            message = _('Не вдалося завершити оцифрування. Деталі збережено у завданні Gemini OCR.')
+            message = _('Не вдалося завершити оцифрування. Дані до документа не застосовано.')
             self._post_automatic_pipeline_message(message)
             return {
                 'status': 'error',
@@ -275,8 +275,10 @@ class AccountGeminiDigitizationJob(models.Model):
             }
 
         try:
-            DigitizationApplyService(self.env, self).validate_for_automatic_apply()
-            DigitizationApplyService(self.env, self).apply()
+            apply_service = DigitizationApplyService(self.env, self)
+            if self.mode != 'full_bill':
+                apply_service.validate_for_automatic_apply()
+            apply_result = apply_service.apply()
         except UserError as error:
             self._set_automatic_review_message(self._get_error_message(error))
             message = self._get_automatic_manual_review_message()
@@ -299,12 +301,17 @@ class AccountGeminiDigitizationJob(models.Model):
                 'sticky': False,
             }
 
-        message = self._get_automatic_success_message()
+        message = self._get_automatic_success_message(apply_result)
         self._post_automatic_pipeline_message(message)
+        notification_type = 'success'
+        status = 'applied'
+        if isinstance(apply_result, dict):
+            notification_type = apply_result.get('gemini_notification_type', notification_type)
+            status = apply_result.get('gemini_status', status)
         return {
-            'status': 'applied',
+            'status': status,
             'message': message,
-            'notification_type': 'success',
+            'notification_type': notification_type,
             'sticky': False,
         }
 
@@ -318,7 +325,7 @@ class AccountGeminiDigitizationJob(models.Model):
 
         ProductMatcher(self.env).match_job(self)
         self._update_matching_message_after_matching()
-        return self._get_job_form_action()
+        return True
 
     def action_apply(self):
         self.ensure_one()
@@ -368,6 +375,8 @@ class AccountGeminiDigitizationJob(models.Model):
         non_create_lines = self.line_ids - create_lines
         if not self.line_ids:
             return _('There are no recognized lines to apply.')
+        if self.mode == 'full_bill':
+            return False
         if non_create_lines:
             return _('Automatic apply is disabled when OCR lines use merge or skip actions.')
         for line in create_lines:
@@ -428,46 +437,52 @@ class AccountGeminiDigitizationJob(models.Model):
             'Дані не були застосовані автоматично.'
         )
 
-    def _get_automatic_success_message(self):
+    def _get_automatic_success_message(self, apply_result=False):
         self.ensure_one()
         if self.mode == 'partial_bill':
             return _('Оцифрування завершено. Кількість, ціни та податки в рядках рахунку оновлено.')
         if self.mode == 'full_bill':
-            return _('Оцифрування завершено. Рядки рахунку створено.')
+            if isinstance(apply_result, dict):
+                applied = apply_result.get('gemini_applied_count', 0)
+                skipped = apply_result.get('gemini_skipped_count', 0)
+                if applied and skipped:
+                    return _(
+                        'Оцифрування завершено. Створено рядків: %(applied)s. '
+                        'Не перенесено рядків: %(skipped)s, оскільки товари або дані '
+                        'не вдалося однозначно визначити.'
+                    ) % {
+                        'applied': applied,
+                        'skipped': skipped,
+                    }
+                if not applied:
+                    return _(
+                        'Оцифрування завершено, але жоден товар не вдалося безпечно '
+                        'зіставити. Дані до рахунку не застосовано.'
+                    )
+            return _('Оцифрування завершено. Усі розпізнані рядки рахунку застосовано.')
         if self.mode == 'full_purchase':
             return _('Оцифрування завершено. Рядки замовлення на закупівлю створено.')
         return _('Оцифрування завершено. Дані з документа автоматично застосовано.')
 
     def _post_automatic_pipeline_message(self, message):
         self.ensure_one()
-        document = self.move_id or self.purchase_order_id
-        if not document or not hasattr(document, 'message_post'):
-            return False
-        document.message_post(
-            body='%s<br/>%s' % (
-                message,
-                _('Gemini OCR job: %s') % self.display_name,
-            )
+        _logger.info(
+            'Gemini OCR result for %s/%s: %s',
+            self.res_model,
+            self.res_id,
+            message,
         )
+        return False
+
+    def _unlink_temporary_job(self):
+        jobs = self.sudo().exists()
+        for job in jobs:
+            job.line_ids.sudo().unlink()
+        jobs.unlink()
         return True
 
     def _is_positive_number(self, value):
         return isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0
-
-    def _get_job_form_action(self):
-        self.ensure_one()
-        form_view = self.env.ref(
-            'account_gemini_digitization.view_account_gemini_digitization_job_form'
-        )
-        return {
-            'type': 'ir.actions.act_window',
-            'name': _('Gemini Digitization Job'),
-            'res_model': 'account.gemini.digitization.job',
-            'view_mode': 'form',
-            'views': [(form_view.id, 'form')],
-            'res_id': self.id,
-            'target': 'current',
-        }
 
     def _check_linked_document_access(self, operation='read'):
         self.ensure_one()
