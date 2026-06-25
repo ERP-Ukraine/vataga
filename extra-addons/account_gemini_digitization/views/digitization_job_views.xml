@@ -163,7 +163,10 @@
                                     />
                                     <field name="supplier_product_code" readonly="1"/>
                                     <field name="supplier_product_name" readonly="1"/>
-                                    <field name="matched_product_id"/>
+                                    <field
+                                        name="matched_product_id"
+                                        readonly="parent.mode == 'partial_bill'"
+                                    />
                                     <field
                                         name="move_line_id"
                                         domain="[('move_id', '=', parent.move_id), ('product_id', '!=', False)]"
@@ -187,7 +190,13 @@
                                     <field name="amount_tax" readonly="1" optional="hide"/>
                                     <field name="amount_total" readonly="1" optional="hide"/>
                                     <field name="source_columns" readonly="1" optional="hide"/>
-                                    <field name="candidate_product_ids" widget="many2many_tags" readonly="1" optional="hide"/>
+                                    <field
+                                        name="candidate_product_ids"
+                                        widget="many2many_tags"
+                                        readonly="1"
+                                        optional="hide"
+                                        column_invisible="parent.mode == 'partial_bill'"
+                                    />
                                     <field name="match_method" readonly="1" optional="hide"/>
                                     <field name="purchase_order_line_id" readonly="1" optional="hide"/>
                                     <field name="candidate_move_line_ids" widget="many2many_tags" readonly="1" optional="hide"/>
@@ -222,8 +231,16 @@
                                             <field name="amount_untaxed" readonly="1"/>
                                             <field name="amount_tax" readonly="1"/>
                                             <field name="amount_total" readonly="1"/>
-                                            <field name="matched_product_id"/>
-                                            <field name="candidate_product_ids" widget="many2many_tags" readonly="1"/>
+                                            <field
+                                                name="matched_product_id"
+                                                readonly="parent.mode == 'partial_bill'"
+                                            />
+                                            <field
+                                                name="candidate_product_ids"
+                                                widget="many2many_tags"
+                                                readonly="1"
+                                                invisible="parent.mode == 'partial_bill'"
+                                            />
                                             <field name="match_status" readonly="1"/>
                                             <field name="match_score" readonly="1"/>
                                             <field name="match_method" readonly="1"/>

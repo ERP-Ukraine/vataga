@@ -174,15 +174,16 @@ class AccountGeminiDigitizationLine(models.Model):
             if not line.matched_product_id:
                 continue
             if line.job_id.mode == 'partial_bill':
-                move_line = line._find_unique_partial_move_line_for_product()
-                if move_line:
-                    line.move_line_id = move_line
-                    line.matched_product_id = move_line.product_id
+                if line.move_line_id:
+                    line.matched_product_id = line.move_line_id.product_id
                     line.match_status = 'manual'
-                    line.match_method = 'manual_product_to_move_line_unique'
+                    line.match_method = 'manual_move_line'
                     line.match_score = 1.0
-                    line.match_summary = _('Рядок рахунку обрано вручну.')
-                    continue
+                    line.match_summary = _('Vendor bill line selected manually.')
+                else:
+                    line.matched_product_id = False
+                    line.match_summary = _('Select a vendor bill line for partial bill matching.')
+                continue
             line.match_status = 'manual'
             line.match_method = 'manual_product'
             line.match_score = 1.0
@@ -235,6 +236,12 @@ class AccountGeminiDigitizationLine(models.Model):
                     line.match_summary = _('Matched manually: %s') % (
                         line.move_line_id.display_name
                     )
+                elif line.job_id.mode == 'partial_bill':
+                    line.matched_product_id = False
+                    line.match_status = 'draft'
+                    line.match_method = False
+                    line.match_score = 0.0
+                    line.match_summary = _('Select a vendor bill line for partial bill matching.')
                 elif line.matched_product_id:
                     line.match_status = 'manual'
                     line.match_method = 'manual_product'

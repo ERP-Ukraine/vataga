@@ -288,27 +288,15 @@ class ProductMatcher:
         candidate = self._candidate_for_move_line(candidates, move_line)
         if not candidate:
             return False
-        if (candidate.get('score') or 0.0) < self.PARTIAL_SAFE_ASSIGNMENT_THRESHOLD:
-            candidate.setdefault('notes', []).append(
-                'Single-line bill fallback was not applied because candidate score is below %.2f.'
-                % self.PARTIAL_SAFE_ASSIGNMENT_THRESHOLD
-            )
-            return False
 
-        quantity_state = self._partial_quantity_state(line, move_line)
-        candidate['score'] = max(candidate.get('score') or 0.0, 0.95)
-        candidate['method'] = 'single_line_bill_fallback'
+        candidate['score'] = 1.0
+        candidate['method'] = 'single_line_partial_bill'
         candidate.setdefault('notes', []).append(
-            'Single-line bill fallback: one create_line OCR row and one product line on the vendor bill.'
+            'Single-line partial_bill fallback: one create_line OCR row and one product line on the vendor bill.'
         )
-        if quantity_state == 'match':
-            candidate['notes'].append('Single-line fallback quantity already matches.')
-        elif quantity_state == 'missing':
-            candidate['notes'].append('Single-line fallback quantity is not available for comparison.')
-        else:
-            candidate['notes'].append(
-                'Single-line fallback selected the only vendor bill line; OCR quantity will be applied after UoM validation.'
-            )
+        candidate['notes'].append(
+            'Quantity, price, and taxes will be applied to the existing line after validation.'
+        )
         return True
 
     def _candidate_for_move_line(self, candidates, move_line):
@@ -317,127 +305,39 @@ class ProductMatcher:
                 return candidate
         return False
 
-    def _sync_partial_bill_line_to_move_line(
+    def _write_partial_single_line_result(
         self,
         line,
         line_source,
+        diagnostics,
         create_line_count,
-        from_matching=False,
+        candidate,
     ):
-        if not self._is_partial_create_line(line):
-            return False
-
-        move_lines = line_source['product_lines']
-        if not move_lines:
-            self._append_partial_sync_diagnostics(
+        move_line = candidate['move_line']
+        product = move_line.product_id
+        note = self._append_text(
+            '\n'.join(diagnostics or []),
+            self._partial_sync_diagnostic_text(
                 line,
                 line_source,
                 create_line_count,
-                'No product lines were found on the linked vendor bill.',
-                from_matching=from_matching,
-            )
-            return False
-
-        if line.move_line_id:
-            self._sync_partial_line_product_from_move_line(
-                line,
-                line_source,
-                create_line_count,
-                from_matching=from_matching,
-            )
-            return True
-
-        selected = False
-        method = False
-        score = False
-        reason = False
-        candidate_lines = []
-
-        if line.matched_product_id:
-            candidate_lines = [
-                move_line
-                for move_line in move_lines
-                if move_line.product_id == line.matched_product_id
-            ]
-            selected, method, score, reason = self._select_partial_product_move_line(
-                line,
-                candidate_lines,
-            )
-
-        if not selected and create_line_count == 1 and len(move_lines) == 1:
-            selected = move_lines[0]
-            method = 'single_line_bill_fallback'
-            score = 0.95
-            reason = (
-                'Single-line bill fallback selected the only product line on the vendor bill.'
-            )
-            candidate_lines = [selected]
-
-        if not selected:
-            if candidate_lines:
-                line.write({
-                    'candidate_move_line_ids': [(6, 0, [move_line.id for move_line in candidate_lines])],
-                    'match_status': 'ambiguous',
-                    'match_summary': _(
-                        'Ambiguous: %(count)s vendor bill lines for product %(product)s'
-                    ) % {
-                        'count': len(candidate_lines),
-                        'product': line.matched_product_id.display_name,
-                    },
-                    'match_note': self._append_text(
-                        line.match_note,
-                        self._partial_sync_diagnostic_text(
-                            line,
-                            line_source,
-                            create_line_count,
-                            'Matched product has several vendor bill lines and no unique numeric match.',
-                        ),
-                    ),
-                })
-            else:
-                self._append_partial_sync_diagnostics(
-                    line,
-                    line_source,
-                    create_line_count,
-                    'No vendor bill line could be derived from the matched product.',
-                    from_matching=from_matching,
-                )
-            return False
-
-        product = selected.product_id
-        quantity_state = self._partial_quantity_state(line, selected)
-        sync_note = reason
-        if quantity_state == 'mismatch':
-            sync_note = (
-                '%s Quantity differs; OCR quantity will be applied after UoM validation.'
-                % sync_note
-            )
-        values = {
-            'move_line_id': selected.id,
-            'matched_product_id': product.id,
-            'candidate_move_line_ids': [(6, 0, [move_line.id for move_line in candidate_lines or [selected]])],
-            'match_status': 'matched' if line.match_status != 'manual' else 'manual',
-            'match_score': max(line.match_score or 0.0, score or 0.0),
-            'match_method': method or line.match_method or 'product_to_move_line_unique',
-            'match_summary': _(
-                'Matched: vendor bill line %(line)s by %(method)s, score %(score).2f'
-            ) % {
-                'line': selected.display_name,
-                'method': method or 'product_to_move_line_unique',
-                'score': max(line.match_score or 0.0, score or 0.0),
-            },
-            'match_note': self._append_text(
-                line.match_note,
-                self._partial_sync_diagnostic_text(
-                    line,
-                    line_source,
-                    create_line_count,
-                    sync_note,
-                    move_line=selected,
-                ),
+                'Єдиний OCR-рядок зіставлено з єдиним рядком рахунку.',
+                move_line=move_line,
             ),
-        }
-        line.write(values)
+        )
+        line.write({
+            'move_line_id': move_line.id,
+            'matched_product_id': product.id,
+            'candidate_product_ids': [(6, 0, [])],
+            'candidate_move_line_ids': [(6, 0, [move_line.id])],
+            'match_status': 'matched',
+            'match_score': 1.0,
+            'match_method': 'single_line_partial_bill',
+            'match_summary': _(
+                'Єдиний OCR-рядок зіставлено з єдиним рядком рахунку.'
+            ),
+            'match_note': note,
+        })
         return True
 
     def _sync_partial_line_product_from_move_line(
@@ -453,7 +353,9 @@ class ProductMatcher:
         product = move_line.product_id
         if not product:
             return False
-        values = {}
+        values = {
+            'candidate_product_ids': [(6, 0, [])],
+        }
         if line.matched_product_id != product:
             values['matched_product_id'] = product.id
         if line.match_status not in ('matched', 'manual'):
@@ -489,61 +391,6 @@ class ProductMatcher:
                 move_line=move_line,
             )
         return True
-
-    def _select_partial_product_move_line(self, line, candidate_lines):
-        if len(candidate_lines) == 1:
-            return (
-                candidate_lines[0],
-                'product_to_move_line_unique',
-                0.95,
-                'Matched product appears on exactly one vendor bill line.',
-            )
-
-        if len(candidate_lines) <= 1:
-            return False, False, False, False
-
-        strong_matches = []
-        price_matches = []
-        quantity_matches = []
-        for move_line in candidate_lines:
-            checks = self._get_partial_numeric_checks(line, move_line)
-            if (
-                checks['quantity_match']
-                and checks['price_match']
-                and checks['subtotal_match']
-            ):
-                strong_matches.append(move_line)
-            elif checks['quantity_match'] and checks['price_match']:
-                price_matches.append(move_line)
-            elif checks['quantity_match']:
-                quantity_matches.append(move_line)
-
-        if len(strong_matches) == 1:
-            return (
-                strong_matches[0],
-                'product_to_move_line_quantity_price_subtotal_unique',
-                0.97,
-                'Matched product has one vendor bill line with matching quantity, price, and subtotal.',
-            )
-        if len(price_matches) == 1:
-            return (
-                price_matches[0],
-                'product_to_move_line_quantity_price_unique',
-                0.95,
-                'Matched product has one vendor bill line with matching quantity and price.',
-            )
-        if len(quantity_matches) == 1:
-            return False, False, False, 'Only quantity matched one vendor bill line; manual review is required.'
-        return False, False, False, False
-
-    def _partial_quantity_state(self, line, move_line):
-        quantity = self._to_float(getattr(line, 'quantity', False))
-        move_quantity = self._to_float(getattr(move_line, 'quantity', False))
-        if not self._is_number(quantity) or not self._is_number(move_quantity):
-            return 'missing'
-        if self._numbers_close(quantity, move_quantity, tolerance=0.0001):
-            return 'match'
-        return 'mismatch'
 
     def _append_partial_sync_diagnostics(
         self,
@@ -625,6 +472,20 @@ class ProductMatcher:
             except Exception as error:
                 _logger.exception('Gemini partial bill matching failed.')
                 self._write_line_error(line, error)
+
+        if create_line_count == 1 and len(move_lines) == 1:
+            line = create_lines[0]
+            if line.id in candidate_map and not self._is_manual_partial_mapping(line):
+                candidate = self._candidate_for_move_line(candidate_map[line.id], move_lines[0])
+                if candidate:
+                    self._write_partial_single_line_result(
+                        line,
+                        line_source,
+                        diagnostics_map.get(line.id),
+                        create_line_count,
+                        candidate,
+                    )
+                    return
 
         locked_move_line_ids = {
             line.move_line_id.id
@@ -813,6 +674,7 @@ class ProductMatcher:
         product = move_line.product_id
         line.write({
             'matched_product_id': product.id,
+            'candidate_product_ids': [(6, 0, [])],
             'candidate_move_line_ids': [(6, 0, [move_line.id])],
             'match_status': 'manual',
             'match_score': line.match_score or 1.0,
@@ -852,8 +714,8 @@ class ProductMatcher:
         assigned = assignment['assigned'].get(line.id)
         values = {
             'move_line_id': False,
-            'matched_product_id': best['product'].id if best else False,
-            'candidate_product_ids': [(6, 0, self._candidate_product_ids(visible_candidates))],
+            'matched_product_id': False,
+            'candidate_product_ids': [(6, 0, [])],
             'candidate_move_line_ids': [(6, 0, self._candidate_move_line_ids(visible_candidates))],
             'match_score': best['score'] if best else 0.0,
             'match_method': best['method'] if best else False,
@@ -911,6 +773,14 @@ class ProductMatcher:
                 'line': assigned['move_line'].display_name,
                 'method': values['match_method'],
             }
+        elif values['match_status'] == 'ambiguous':
+            values['match_summary'] = _(
+                'Не вдалося однозначно визначити рядок рахунку. Виберіть його вручну.'
+            )
+        elif values['match_status'] == 'not_found':
+            values['match_summary'] = _(
+                'Не знайдено відповідний рядок рахунку серед товарних рядків документа.'
+            )
         line.write(values)
 
     def _partial_assignment_diagnostic_text(self, line, assignment, candidate):
@@ -1017,14 +887,6 @@ class ProductMatcher:
     def _score_move_line(self, line, move_line, partner):
         product = move_line.product_id
         score, method, notes = self._score_product_identity(line, product, partner)
-        if line.matched_product_id and line.matched_product_id == product:
-            score, method = self._choose_score(
-                score,
-                method,
-                0.95,
-                'manual_product_to_move_line_candidate',
-            )
-            notes.append('Matched product already selected on OCR line.')
         score, method, notes = self._score_partial_code_match(
             line,
             move_line,
@@ -1034,25 +896,16 @@ class ProductMatcher:
             notes,
         )
         score, method = self._score_move_line_text(line, move_line, score, method)
-        score, notes = self._apply_partial_consistency(line, move_line, score, notes)
-        had_code_or_text_match = score >= 0.92
-        score, method, notes, numeric_strong = self._apply_partial_numeric_fallback(
-            line,
-            move_line,
-            score,
-            method,
-            notes,
+        notes.append(
+            'Partial bill candidate is limited to the current vendor bill line; '
+            'quantity, price, and subtotal are not used as matching requirements.'
         )
-        if had_code_or_text_match and numeric_strong:
-            score = max(score, 0.97)
-            notes.append('Code/name match plus quantity/price/subtotal consistency.')
         return {
             'product': product,
             'move_line': move_line,
             'score': self._clamp_score(score),
             'method': method,
             'notes': notes,
-            'numeric_strong': numeric_strong,
             'extracted_codes': self._line_codes(line),
             'candidate_codes': self._candidate_codes(product, move_line, partner),
         }
@@ -2283,139 +2136,6 @@ class ProductMatcher:
             )
         return score, method
 
-    def _apply_partial_consistency(self, line, move_line, score, notes):
-        if not score:
-            return score, notes
-
-        quantity = self._to_float(getattr(line, 'quantity', False))
-        move_quantity = self._to_float(getattr(move_line, 'quantity', False))
-        if self._is_number(quantity) and self._is_number(move_quantity):
-            if self._numbers_close(quantity, move_quantity, tolerance=0.01):
-                score += 0.01
-                notes.append('Quantity matches as a weak tie-breaker.')
-            else:
-                notes.append('Quantity differs and was ignored for matching score: recognized=%s document=%s.' % (
-                    quantity,
-                    move_quantity,
-                ))
-
-        comparisons = [
-            ('price_unit', self._recognized_price_unit(line), getattr(move_line, 'price_unit', False)),
-            ('amount_untaxed', self._recognized_subtotal(line), getattr(move_line, 'price_subtotal', False)),
-            ('amount_total', self._recognized_total(line), getattr(move_line, 'price_total', False)),
-        ]
-        currency = getattr(line, 'currency_id', False)
-        for label, recognized_value, move_value in comparisons:
-            recognized_value = self._to_float(recognized_value)
-            move_value = self._to_float(move_value)
-            if not self._is_number(recognized_value) or not self._is_number(move_value):
-                continue
-            if self._amounts_close(recognized_value, move_value, currency=currency):
-                score += 0.01
-                notes.append('%s matches as a weak tie-breaker.' % label)
-            else:
-                notes.append('%s differs and was ignored for matching score: recognized=%s document=%s.' % (
-                    label,
-                    recognized_value,
-                    move_value,
-                ))
-        return score, notes
-
-    def _apply_partial_numeric_fallback(self, line, move_line, score, method, notes):
-        checks = self._get_partial_numeric_checks(line, move_line)
-        numeric_strong = False
-        if not score:
-            return score, method, notes, numeric_strong
-
-        if checks['quantity_match'] and checks['price_match'] and checks['subtotal_match']:
-            numeric_strong = True
-            fallback_boost = 0.04
-            notes.append('Numeric tie-breaker: quantity, price_unit, and subtotal match.')
-        elif checks['quantity_match'] and checks['price_match']:
-            numeric_strong = True
-            fallback_boost = 0.03
-            notes.append('Numeric tie-breaker: quantity and price_unit match.')
-        elif checks['quantity_match'] and checks['amount_match_count']:
-            fallback_boost = 0.02
-            notes.append(
-                'Numeric tie-breaker: quantity and %s match.'
-                % checks['best_amount_label']
-            )
-        elif checks['quantity_match']:
-            fallback_boost = 0.01
-            notes.append('Numeric tie-breaker: quantity matches, amount/price did not match.')
-        elif checks['amount_match_count']:
-            fallback_boost = 0.01
-            notes.append(
-                'Numeric tie-breaker: %s matches but quantity did not match.'
-                % checks['best_amount_label']
-            )
-        else:
-            return score, method, notes, numeric_strong
-
-        score += fallback_boost
-        return score, method, notes, numeric_strong
-
-    def _get_partial_numeric_checks(self, line, move_line):
-        quantity = self._to_float(getattr(line, 'quantity', False))
-        move_quantity = self._to_float(getattr(move_line, 'quantity', False))
-        currency = getattr(line, 'currency_id', False)
-        quantity_match = (
-            self._is_number(quantity)
-            and self._is_number(move_quantity)
-            and self._numbers_close(quantity, move_quantity, tolerance=0.0001)
-        )
-
-        amount_checks = []
-        matched_by_label = {}
-        for label, method, recognized_value, move_value in (
-            (
-                'price_unit',
-                'quantity_price',
-                self._recognized_price_unit(line),
-                getattr(move_line, 'price_unit', False),
-            ),
-            (
-                'subtotal',
-                'quantity_subtotal',
-                self._recognized_subtotal(line),
-                getattr(move_line, 'price_subtotal', False),
-            ),
-            (
-                'total',
-                'quantity_total',
-                self._recognized_total(line),
-                getattr(move_line, 'price_total', False),
-            ),
-        ):
-            recognized_value = self._to_float(recognized_value)
-            move_value = self._to_float(move_value)
-            matched = (
-                self._is_number(recognized_value)
-                and self._is_number(move_value)
-                and self._amounts_close(recognized_value, move_value, currency=currency)
-            )
-            amount_checks.append((label, method, matched))
-            matched_by_label[label] = matched
-
-        matched_amounts = [
-            (label, method)
-            for label, method, matched in amount_checks
-            if matched
-        ]
-        best_amount_label, best_amount_method = (
-            matched_amounts[0] if matched_amounts else (False, False)
-        )
-        return {
-            'quantity_match': quantity_match,
-            'amount_match_count': len(matched_amounts),
-            'best_amount_label': best_amount_label,
-            'best_amount_method': best_amount_method,
-            'price_match': matched_by_label.get('price_unit', False),
-            'subtotal_match': matched_by_label.get('subtotal', False),
-            'total_match': matched_by_label.get('total', False),
-        }
-
     def _recognized_price_unit(self, line):
         return self._first_number(
             getattr(line, 'price_unit', False),
@@ -2442,11 +2162,6 @@ class ProductMatcher:
         diagnostics=False,
         allow_best_gap_match=False,
     ):
-        if include_move_lines:
-            unique_numeric_match = self._promote_unique_partial_numeric_match(candidates)
-        else:
-            unique_numeric_match = False
-
         candidates = [
             candidate
             for candidate in candidates
@@ -2470,18 +2185,7 @@ class ProductMatcher:
         }
         winner_candidate = False
 
-        if unique_numeric_match:
-            winner = unique_numeric_match
-            winner_candidate = winner
-            values.update({
-                'match_status': 'matched',
-                'matched_product_id': winner['product'].id,
-                'match_score': winner['score'],
-                'match_method': winner['method'],
-            })
-            if winner.get('move_line'):
-                values['move_line_id'] = winner['move_line'].id
-        elif (
+        if (
             len(visible_candidates) == 1
             and visible_candidates[0]['score'] >= self.MATCHED_THRESHOLD
         ):
@@ -2537,27 +2241,6 @@ class ProductMatcher:
             return True
         second = visible_candidates[1]
         return (best['score'] - second['score']) >= self.BEST_GAP_MATCH_THRESHOLD
-
-    def _promote_unique_partial_numeric_match(self, candidates):
-        strong_candidates = [
-            candidate
-            for candidate in candidates
-            if candidate.get('numeric_strong') and candidate.get('move_line')
-        ]
-        if len(strong_candidates) != 1:
-            return False
-
-        winner = strong_candidates[0]
-        winner['score'] = max(winner.get('score') or 0.0, 0.95)
-        if winner.get('method'):
-            if not winner['method'].endswith('_unique'):
-                winner['method'] = '%s_unique' % winner['method']
-        else:
-            winner['method'] = 'quantity_price_unique'
-        winner.setdefault('notes', []).append(
-            'Unique partial bill numeric match among checked invoice lines.'
-        )
-        return winner
 
     def _write_line_error(self, line, error):
         line.write({
@@ -2719,8 +2402,10 @@ class ProductMatcher:
                 self._recognized_price_unit(line) or 'none',
                 self._recognized_subtotal(line) or 'none',
             ),
-            'Methods tried: supplier_product_code, supplier_product_name, default_code, barcode, product name, move_line.name, quantity, price, subtotal, total.',
-            'Fields compared: quantity, price_unit, amount_untaxed/subtotal, amount_total, product/default/barcode/display names, supplierinfo code/name.',
+            'Candidate scope: candidates are limited to product lines of the current vendor bill.',
+            'Methods tried: supplier_product_code, supplier_product_name, default_code, barcode, product name, move_line.name, supplierinfo of candidate products.',
+            'Fields compared for matching: product/default/barcode/display names, move_line.name, supplierinfo code/name of products already on this bill.',
+            'Quantity, price_unit, subtotal, and total are ignored for move-line selection because OCR will overwrite them after Apply.',
         ]
         if not move_lines:
             diagnostics.append(
