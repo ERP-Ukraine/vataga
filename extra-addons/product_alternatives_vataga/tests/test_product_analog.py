@@ -1,6 +1,7 @@
 from odoo import Command, fields
 from odoo.exceptions import UserError, ValidationError
 from odoo.tests import TransactionCase
+from odoo.tests.common import Form
 
 
 class TestProductAnalog(TransactionCase):
@@ -194,38 +195,37 @@ class TestProductAnalog(TransactionCase):
             ]
         )
 
-    def _create_production_with_raw_move(self, component_product, bom=None):
+    def _create_production_from_bom(self, component_product, component_qty=1.0):
         finished_product = self._create_product(
-            'MO finished product for %s' % component_product.name
+            'MO finished product from BoM for %s' % component_product.name
         )
-        if not bom:
-            bom = self.MrpBom.create(
-                {
-                    'product_tmpl_id': finished_product.product_tmpl_id.id,
-                    'bom_line_ids': [
-                        (0, 0, {'product_id': component_product.id}),
-                    ],
-                }
-            )
-        production = self.MrpProduction.create(
+        bom = self.MrpBom.create(
             {
+                'product_tmpl_id': finished_product.product_tmpl_id.id,
                 'product_id': finished_product.id,
                 'product_qty': 1.0,
-                'product_uom_id': self.unit_uom.id,
-                'bom_id': bom.id,
+                'product_uom_id': finished_product.uom_id.id,
+                'bom_line_ids': [
+                    Command.create(
+                        {
+                            'product_id': component_product.id,
+                            'product_qty': component_qty,
+                            'product_uom_id': component_product.uom_id.id,
+                        }
+                    ),
+                ],
             }
         )
-        move = self.StockMove.create(
-            {
-                'name': component_product.display_name,
-                'product_id': component_product.id,
-                'product_uom_qty': 1.0,
-                'product_uom': component_product.uom_id.id,
-                'raw_material_production_id': production.id,
-                'location_id': self.stock_location.id,
-                'location_dest_id': self.production_location.id,
-            }
+        with Form(self.MrpProduction) as production_form:
+            production_form.product_id = finished_product
+            production_form.bom_id = bom
+            production_form.product_qty = 1.0
+        production = production_form.save()
+        move = production.move_raw_ids.filtered(
+            lambda raw_move: raw_move.product_id == component_product
         )
+
+        self.assertTrue(move, 'The manufacturing order must create raw moves from BoM')
         return production, bom, move
 
     def test_create_analog_with_same_uom_creates_reciprocal_line(self):
@@ -354,17 +354,9 @@ class TestProductAnalog(TransactionCase):
         component_product = self._create_product('MO component A')
         analog_product = self._create_product('MO analog B')
         self._create_analog_line(component_product, analog_product)
-        bom = self.MrpBom.create(
-            {
-                'product_tmpl_id': self._create_product('MO BOM product').product_tmpl_id.id,
-                'bom_line_ids': [
-                    (0, 0, {'product_id': component_product.id}),
-                ],
-            }
-        )
-        production, bom, move = self._create_production_with_raw_move(
+        production, bom, move = self._create_production_from_bom(
             component_product,
-            bom=bom,
+            component_qty=3.0,
         )
 
         self.assertEqual(production.state, 'draft')
@@ -373,35 +365,66 @@ class TestProductAnalog(TransactionCase):
             {'id': analog_product.id, 'display_name': analog_product.display_name},
             move.analog_product_data,
         )
+        original_qty = move.product_uom_qty
 
         move.action_replace_with_analog_product(analog_product.id)
 
         self.assertEqual(move.product_id, analog_product)
-        self.assertEqual(move.product_uom_qty, 1.0)
+        self.assertEqual(move.product_uom_qty, original_qty)
         self.assertEqual(move.product_uom, analog_product.uom_id)
         self.assertEqual(bom.bom_line_ids.product_id, component_product)
 
     def test_production_raw_move_without_analogs_has_no_marker(self):
         component_product = self._create_product('MO component without analogs')
-        production, bom, move = self._create_production_with_raw_move(component_product)
+        production, bom, move = self._create_production_from_bom(component_product)
 
         self.assertEqual(production.state, 'draft')
         self.assertFalse(move.analog_marker)
         self.assertFalse(move.analog_product_data)
 
+    def test_confirmed_production_raw_move_can_be_replaced_with_analog(self):
+        component_product = self._create_product('Confirmed MO component A')
+        analog_product = self._create_product('Confirmed MO analog B')
+        self._create_analog_line(component_product, analog_product)
+        production, bom, move = self._create_production_from_bom(
+            component_product,
+            component_qty=2.0,
+        )
+        self.env['stock.quant']._update_available_quantity(
+            component_product,
+            self.stock_location,
+            10.0,
+        )
+        self.env['stock.quant']._update_available_quantity(
+            analog_product,
+            self.stock_location,
+            10.0,
+        )
+
+        production.action_confirm()
+        move._action_assign()
+        self.assertIn(move.state, {'confirmed', 'partially_available', 'assigned'})
+        original_qty = move.product_uom_qty
+
+        move.action_replace_with_analog_product(analog_product.id)
+
+        self.assertEqual(move.product_id, analog_product)
+        self.assertEqual(move.product_uom_qty, original_qty)
+        self.assertEqual(move.product_uom, analog_product.uom_id)
+        self.assertEqual(bom.bom_line_ids.product_id, component_product)
+        if move.move_line_ids:
+            self.assertEqual(move.move_line_ids.product_id, analog_product)
+
     def test_production_raw_move_replacement_is_blocked_when_done_or_cancelled(self):
         component_product = self._create_product('Locked MO component A')
         analog_product = self._create_product('Locked MO analog B')
         self._create_analog_line(component_product, analog_product)
-        production, bom, move = self._create_production_with_raw_move(component_product)
 
-        production.write({'state': 'cancel'})
-        with self.assertRaises(UserError):
-            move.action_replace_with_analog_product(analog_product.id)
-
-        production.write({'state': 'done'})
-        with self.assertRaises(UserError):
-            move.action_replace_with_analog_product(analog_product.id)
+        for state in ('cancel', 'done'):
+            production, bom, move = self._create_production_from_bom(component_product)
+            production.write({'state': state})
+            with self.assertRaises(UserError):
+                move.action_replace_with_analog_product(analog_product.id)
 
     def test_product_analytic_rolls_invoice_and_received_to_main_product(self):
         product_a = self._create_product('Rollup main A')

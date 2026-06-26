@@ -10,7 +10,6 @@ let activeAnalogMarkerField = null;
 export class ProductAnalogMarkerField extends Component {
     setup() {
         this.orm = useService("orm");
-        this.notification = useService("notification");
         this.root = useRef("root");
         this.state = useState({ open: false, menuStyle: "" });
         this.clearTitles = this.clearTitles.bind(this);
@@ -69,8 +68,13 @@ export class ProductAnalogMarkerField extends Component {
         return this.props.payloadField || 'analog_product_data';
     }
 
+    get targetModel() {
+        return this.props.targetModel;
+    }
+
     get recordModel() {
         return (
+            this.targetModel ||
             this.props.record.resModel ||
             this.props.record.model?.root?.resModel ||
             this.props.record.model?.config?.resModel
@@ -78,7 +82,9 @@ export class ProductAnalogMarkerField extends Component {
     }
 
     get recordId() {
-        return this.props.record.resId || this.props.record.data.id;
+        const id = this.props.record.resId || this.props.record.data.id;
+        const numericId = Number(id);
+        return Number.isInteger(numericId) && numericId > 0 ? numericId : false;
     }
 
     get selectableAnalogItems() {
@@ -143,23 +149,37 @@ export class ProductAnalogMarkerField extends Component {
         if (!analogId || !analog) {
             return;
         }
-        try {
-            const result = await this.orm.call(
-                this.recordModel,
-                'action_replace_with_analog_product',
-                [[this.recordId], analogId]
-            );
+        if (!this.recordId) {
             await this.props.record.update({
-                product_id: [result.product_id, result.product_display_name],
-                product_uom: [result.product_uom_id, result.product_uom_name],
-                [this.props.name]: result.analog_marker || '',
-                [this.payloadField]: result.analog_product_data || [],
+                product_id: [analog.id, analog.display_name],
             });
             this.closeDropdown();
-        } catch (error) {
-            this.notification.add(error.message || error.toString(), {
-                type: 'danger',
-            });
+            return;
+        }
+        const result = await this.orm.call(
+            this.recordModel,
+            'action_replace_with_analog_product',
+            [[this.recordId], analogId]
+        );
+        this.closeDropdown();
+        await this.applyServerResult(result);
+    }
+
+    async applyServerResult(result) {
+        Object.assign(this.props.record.data, {
+            product_id: [result.product_id, result.product_display_name],
+            product_uom: [result.product_uom_id, result.product_uom_name],
+            [this.props.name]: result.analog_marker || '',
+            [this.payloadField]: result.analog_product_data || [],
+        });
+        const root = this.props.record.model?.root;
+        if (root?.load) {
+            await root.load();
+        }
+        if (this.props.record.model?.notify) {
+            this.props.record.model.notify();
+        } else {
+            this.render();
         }
     }
 
@@ -212,6 +232,7 @@ ProductAnalogMarkerField.props = {
     mode: { type: String, optional: true },
     payloadField: { type: String, optional: true },
     stateField: { type: String, optional: true },
+    targetModel: { type: String, optional: true },
 };
 
 export const productAnalogMarkerField = {
@@ -221,6 +242,7 @@ export const productAnalogMarkerField = {
         mode: options?.mode || 'readonly',
         payloadField: options?.payloadField,
         stateField: options?.stateField,
+        targetModel: options?.targetModel,
     }),
 };
 

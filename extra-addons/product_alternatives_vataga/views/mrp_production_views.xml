@@ -13,7 +13,7 @@
                     string="&#1040;&#1085;&#1072;&#1083;&#1086;&#1075;&#1080;"
                     widget="product_analog_marker"
                     optional="show"
-                    options="{'mode': 'select', 'payloadField': 'analog_product_data', 'stateField': 'raw_material_production_state'}"
+                    options="{'mode': 'select', 'payloadField': 'analog_product_data', 'stateField': 'raw_material_production_state', 'targetModel': 'stock.move'}"
                 />
             </xpath>
         </field>
