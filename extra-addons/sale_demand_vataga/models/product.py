@@ -445,31 +445,22 @@ class ProductAnalytic(models.Model):
 
     @api.model
     def _cron_create_product_analytic(self):
+        domain = [
+            ('sale_contract_id', '!=', False),
+            ('product_analytic_id', '=', False),
+            ('state', '=', 'sale'),
+        ]
         sale_order_line_purchase = self.env['sale.order.line.purchase'].search(
-            [
-                ('sale_contract_id', '!=', False),
-                ('product_analytic_id', '=', False),
-                ('state', '=', 'sale'),
-            ],
+            domain,
             limit=10,
         )
         if sale_order_line_purchase:
-            for line in sale_order_line_purchase:
-                product_analytic = self.env['product.analytic'].search(
-                    [
-                        ('product_id', '=', line.product_id.id),
-                        ('sale_contract_id', '=', line.sale_contract_id.id),
-                    ]
-                )
-                if not product_analytic:
-                    product_analytic = self.env['product.analytic'].create(
-                        {
-                            'product_id': line.product_id.id,
-                            'sale_contract_id': line.sale_contract_id.id,
-                        }
-                    )
-                line.product_analytic_id = product_analytic
-            self.env.ref('sale_demand_vataga.cron_create_product_analytic')._trigger()
+            sale_order_line_purchase._sync_product_analytic_id()
+            sale_order_line_purchase.flush_recordset(['product_analytic_id'])
+            if self.env['sale.order.line.purchase'].search_count(domain):
+                self.env.ref(
+                    'sale_demand_vataga.cron_create_product_analytic'
+                )._trigger()
 
     @api.model
     def _cron_sync_account_move_ids(self):

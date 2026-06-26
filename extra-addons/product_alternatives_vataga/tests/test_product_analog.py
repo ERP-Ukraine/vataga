@@ -426,6 +426,45 @@ class TestProductAnalog(TransactionCase):
             with self.assertRaises(UserError):
                 move.action_replace_with_analog_product(analog_product.id)
 
+    def test_sale_confirm_creates_main_analytic_for_analog_invoice_rollup(self):
+        product_a = self._create_product('Auto analytic main A')
+        product_b = self._create_product('Auto analytic analog B')
+        contract = self._create_seller_contract('Auto Analytic Rollup Contract')
+        self._create_analog_line(product_a, product_b)
+        sale_order = self.env['sale.order'].create(
+            {
+                'partner_id': self.partner.id,
+                'order_line': [
+                    Command.create(
+                        {
+                            'product_id': product_a.id,
+                            'analytic_distribution': {str(contract.id): 100},
+                            'product_uom_qty': 10,
+                        }
+                    ),
+                ],
+            }
+        )
+
+        sale_order.action_confirm()
+        main_analytic = self.ProductAnalytic.search(
+            [
+                ('product_id', '=', product_a.id),
+                ('sale_contract_id', '=', contract.id),
+            ],
+            limit=1,
+        )
+        self.assertTrue(main_analytic)
+        analog_analytic = self._create_product_analytic(product_b, contract)
+        self._create_vendor_bill(product_b, contract, 3)
+
+        self.assertEqual(main_analytic.demand, 10)
+        self.assertEqual(main_analytic.in_invoice, 3)
+        self.assertAlmostEqual(main_analytic.closed, 0.3)
+        self.assertEqual(analog_analytic.demand, 0)
+        self.assertEqual(analog_analytic.in_invoice, 0)
+        self.assertEqual(analog_analytic.closed, 0)
+
     def test_product_analytic_rolls_invoice_and_received_to_main_product(self):
         product_a = self._create_product('Rollup main A')
         product_b = self._create_product('Rollup analog B')

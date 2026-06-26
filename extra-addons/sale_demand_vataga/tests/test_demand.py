@@ -249,6 +249,119 @@ class TestDemand(TransactionCase):
             self.env['product.analytic']._cron_create_product_analytic()
         self.assertEqual(product_analytic_1.demand, 5)
 
+    def test_product_analytic_created_on_sale_confirm_without_manual_cron(self):
+        sale_order = self.env['sale.order'].create(
+            {
+                'partner_id': self.partner.id,
+                'order_line': [
+                    Command.create(
+                        {
+                            'product_id': self.sell_product_1.id,
+                            'analytic_distribution': {
+                                f'{self.sell_analytic_1.id}': 100
+                            },
+                            'product_uom_qty': 4,
+                        }
+                    )
+                ],
+            }
+        )
+
+        sale_order.action_confirm()
+        purchase_line = sale_order.order_line.need_to_purchase_ids
+        product_analytic = self.env['product.analytic'].search(
+            [
+                ('product_id', '=', self.sell_product_1.id),
+                ('sale_contract_id', '=', self.sell_analytic_1.id),
+            ]
+        )
+
+        self.assertEqual(len(product_analytic), 1)
+        self.assertEqual(purchase_line.product_analytic_id, product_analytic)
+        self.assertEqual(product_analytic.demand, 4)
+        self.assertFalse(
+            self.env['sale.order.line.purchase'].search(
+                [
+                    ('sale_contract_id', '!=', False),
+                    ('product_analytic_id', '=', False),
+                    ('state', '=', 'sale'),
+                ]
+            )
+        )
+
+    def test_product_analytic_syncs_when_distribution_changes_after_confirm(self):
+        sale_order = self.env['sale.order'].create(
+            {
+                'partner_id': self.partner.id,
+                'order_line': [
+                    Command.create(
+                        {
+                            'product_id': self.sell_product_1.id,
+                            'product_uom_qty': 6,
+                        }
+                    )
+                ],
+            }
+        )
+        sale_order.action_confirm()
+        purchase_line = sale_order.order_line.need_to_purchase_ids
+        self.assertFalse(purchase_line.sale_contract_id)
+        self.assertFalse(purchase_line.product_analytic_id)
+
+        sale_order.order_line.write(
+            {'analytic_distribution': {f'{self.sell_analytic_1.id}': 100}}
+        )
+        purchase_line.invalidate_recordset(['sale_contract_id', 'product_analytic_id'])
+        first_product_analytic = purchase_line.product_analytic_id
+        self.assertTrue(first_product_analytic)
+        self.assertEqual(first_product_analytic.product_id, self.sell_product_1)
+        self.assertEqual(first_product_analytic.sale_contract_id, self.sell_analytic_1)
+        self.assertEqual(first_product_analytic.demand, 6)
+
+        sale_order.order_line.write(
+            {'analytic_distribution': {f'{self.sell_analytic_2.id}': 100}}
+        )
+        purchase_line.invalidate_recordset(['sale_contract_id', 'product_analytic_id'])
+        second_product_analytic = purchase_line.product_analytic_id
+        self.assertTrue(second_product_analytic)
+        self.assertEqual(second_product_analytic.product_id, self.sell_product_1)
+        self.assertEqual(second_product_analytic.sale_contract_id, self.sell_analytic_2)
+        self.assertFalse(first_product_analytic.exists())
+        self.assertEqual(second_product_analytic.demand, 6)
+
+    def test_repeated_product_analytic_sync_does_not_create_duplicates(self):
+        sale_order = self.env['sale.order'].create(
+            {
+                'partner_id': self.partner.id,
+                'order_line': [
+                    Command.create(
+                        {
+                            'product_id': self.sell_product_1.id,
+                            'analytic_distribution': {
+                                f'{self.sell_analytic_1.id}': 100
+                            },
+                            'product_uom_qty': 2,
+                        }
+                    )
+                ],
+            }
+        )
+        sale_order.action_confirm()
+        sale_order.order_line.write(
+            {'analytic_distribution': {f'{self.sell_analytic_1.id}': 100}}
+        )
+        sale_order.order_line.need_to_purchase_ids._sync_product_analytic_id()
+        self.env['product.analytic']._cron_create_product_analytic()
+
+        product_analytics = self.env['product.analytic'].search(
+            [
+                ('product_id', '=', self.sell_product_1.id),
+                ('sale_contract_id', '=', self.sell_analytic_1.id),
+            ]
+        )
+        self.assertEqual(len(product_analytics), 1)
+        self.assertEqual(product_analytics.demand, 2)
+
     def test_demand_for_buy_products(self):
         self.env['sale.order'].create(
             {
