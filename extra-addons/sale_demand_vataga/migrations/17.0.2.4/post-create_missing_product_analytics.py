@@ -1,4 +1,8 @@
-def migrate(env, version):
+from odoo import SUPERUSER_ID, api
+
+
+def migrate(cr, version):
+    env = api.Environment(cr, SUPERUSER_ID, {})
     domain = [
         ('sale_contract_id', '!=', False),
         ('product_analytic_id', '=', False),
