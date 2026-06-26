@@ -129,6 +129,23 @@ class TestProductAnalog(TransactionCase):
         )
 
     def _create_vendor_bill(self, product, contract, quantity, move_type='in_invoice'):
+        return self._create_vendor_bill_from_distribution(
+            product,
+            {str(contract.id): 100},
+            quantity,
+            move_type=move_type,
+            seller_contract=contract,
+        )
+
+    def _create_vendor_bill_from_distribution(
+        self,
+        product,
+        analytic_distribution,
+        quantity,
+        move_type='in_invoice',
+        seller_contract=False,
+        post=True,
+    ):
         bill = self.env['account.move'].create(
             {
                 'move_type': move_type,
@@ -136,7 +153,7 @@ class TestProductAnalog(TransactionCase):
                 'journal_id': self.purchase_journal.id,
                 'invoice_date': fields.Date.today(),
                 'date': fields.Date.today(),
-                'seller_contract_id': contract.id,
+                'seller_contract_id': seller_contract.id if seller_contract else False,
                 'invoice_line_ids': [
                     Command.create(
                         {
@@ -145,14 +162,15 @@ class TestProductAnalog(TransactionCase):
                             'name': product.display_name,
                             'price_unit': 1,
                             'account_id': self.expense_account.id,
-                            'analytic_distribution': {str(contract.id): 100},
+                            'analytic_distribution': analytic_distribution,
                             'product_uom_id': product.uom_id.id,
                         }
                     )
                 ],
             }
         )
-        bill.action_post()
+        if post:
+            bill.action_post()
         return bill
 
     def _create_received_purchase(self, product, contract, quantity):
@@ -456,9 +474,38 @@ class TestProductAnalog(TransactionCase):
         )
         self.assertTrue(main_analytic)
         analog_analytic = self._create_product_analytic(product_b, contract)
+        secondary_contract = self._create_seller_contract('Resolver Secondary Contract')
+        resolver_bill = self._create_vendor_bill_from_distribution(
+            product_b,
+            {f'{contract.id},{secondary_contract.id}': 100},
+            1,
+            post=False,
+        )
+        found_contract_ids = set(
+            resolver_bill.invoice_line_ids
+            ._get_seller_contracts_from_analytic_distribution()
+            .ids
+        )
+
+        self.assertEqual(found_contract_ids, {contract.id, secondary_contract.id})
 
         self.assertEqual(main_analytic.in_invoice, 0)
-        analog_bill = self._create_vendor_bill(product_b, contract, 1)
+        analog_bill = self._create_vendor_bill_from_distribution(
+            product_b,
+            {str(contract.id): 100},
+            1,
+        )
+        self.assertFalse(analog_bill.seller_contract_id)
+        self.assertIn(
+            contract,
+            analog_bill.invoice_line_ids
+            ._get_seller_contracts_from_analytic_distribution(),
+        )
+        self.assertIn(
+            main_analytic,
+            analog_bill.invoice_line_ids
+            ._get_analog_product_analytic_recompute_targets(),
+        )
         main_analytic.invalidate_recordset(['demand', 'in_invoice', 'closed'])
         analog_analytic.invalidate_recordset(['demand', 'in_invoice', 'closed'])
 
@@ -480,22 +527,45 @@ class TestProductAnalog(TransactionCase):
         self.assertEqual(analog_analytic.in_invoice, 0)
         self.assertEqual(analog_analytic.closed, 0)
 
-        self._create_vendor_bill(product_a, contract, 2)
-        main_analytic.invalidate_recordset(['in_invoice', 'closed'])
-        analog_analytic.invalidate_recordset(['demand', 'in_invoice', 'closed'])
-
-        self.assertEqual(main_analytic.in_invoice, 3)
-        self.assertAlmostEqual(main_analytic.closed, 0.3)
-        self.assertEqual(analog_analytic.demand, 0)
-        self.assertEqual(analog_analytic.in_invoice, 0)
-        self.assertEqual(analog_analytic.closed, 0)
-
-        self._create_vendor_bill(product_b, contract, 1, move_type='in_refund')
+        self._create_vendor_bill_from_distribution(
+            product_b,
+            {str(contract.id): 100},
+            1,
+        )
         main_analytic.invalidate_recordset(['in_invoice', 'closed'])
         analog_analytic.invalidate_recordset(['demand', 'in_invoice', 'closed'])
 
         self.assertEqual(main_analytic.in_invoice, 2)
         self.assertAlmostEqual(main_analytic.closed, 0.2)
+        self.assertEqual(analog_analytic.demand, 0)
+        self.assertEqual(analog_analytic.in_invoice, 0)
+        self.assertEqual(analog_analytic.closed, 0)
+
+        self._create_vendor_bill_from_distribution(
+            product_a,
+            {str(contract.id): 100},
+            2,
+        )
+        main_analytic.invalidate_recordset(['in_invoice', 'closed'])
+        analog_analytic.invalidate_recordset(['demand', 'in_invoice', 'closed'])
+
+        self.assertEqual(main_analytic.in_invoice, 4)
+        self.assertAlmostEqual(main_analytic.closed, 0.4)
+        self.assertEqual(analog_analytic.demand, 0)
+        self.assertEqual(analog_analytic.in_invoice, 0)
+        self.assertEqual(analog_analytic.closed, 0)
+
+        self._create_vendor_bill_from_distribution(
+            product_b,
+            {str(contract.id): 100},
+            1,
+            move_type='in_refund',
+        )
+        main_analytic.invalidate_recordset(['in_invoice', 'closed'])
+        analog_analytic.invalidate_recordset(['demand', 'in_invoice', 'closed'])
+
+        self.assertEqual(main_analytic.in_invoice, 3)
+        self.assertAlmostEqual(main_analytic.closed, 0.3)
         self.assertEqual(analog_analytic.demand, 0)
         self.assertEqual(analog_analytic.in_invoice, 0)
         self.assertEqual(analog_analytic.closed, 0)

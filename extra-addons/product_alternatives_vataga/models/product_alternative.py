@@ -457,12 +457,8 @@ class ProductAnalytic(models.Model):
             + parent_kit_boms.product_tmpl_id.product_variant_ids
         )
 
-    def _get_related_invoice_move_lines(self):
+    def _get_related_invoice_lines_for_products(self, products):
         self.ensure_one()
-        products = (
-            self._get_direct_rollup_products()
-            + self._get_kit_products_for_rollup()._get_analog_rollup_products()
-        )
         if not products:
             return self.env['account.move.line']
         invoice_lines = self.env['account.move.line'].search(
@@ -475,6 +471,14 @@ class ProductAnalytic(models.Model):
         return invoice_lines.filtered(
             lambda line: self._has_related_sale_contract(line)
         )
+
+    def _get_related_invoice_move_lines(self):
+        self.ensure_one()
+        products = (
+            self._get_direct_rollup_products()
+            + self._get_kit_products_for_rollup()._get_analog_rollup_products()
+        )
+        return self._get_related_invoice_lines_for_products(products)
 
     def _get_related_purchase_contract_lines(self):
         self.ensure_one()
@@ -501,13 +505,7 @@ class ProductAnalytic(models.Model):
         if not products:
             return 0
         total_quantity = 0
-        product_ids = set(products.ids)
-        seller_lines = self.sale_contract_id.seller_move_line_ids.filtered(
-            lambda line: line.move_id.state == 'posted'
-            and line.move_type in ('in_invoice', 'in_refund')
-            and line.product_id.id in product_ids
-        )
-        for line in seller_lines:
+        for line in self._get_related_invoice_lines_for_products(products):
             quantity = line.product_uom_id._compute_quantity(
                 line.quantity,
                 target_uom,
@@ -676,8 +674,28 @@ class AccountMove(models.Model):
 class AccountMoveLine(models.Model):
     _inherit = 'account.move.line'
 
+    def _get_seller_contracts_from_analytic_distribution(self):
+        analytic_ids = set()
+        for line in self:
+            for key in (line.analytic_distribution or {}):
+                for analytic_id in str(key).split(','):
+                    analytic_id = analytic_id.strip()
+                    if analytic_id.isdigit():
+                        analytic_ids.add(int(analytic_id))
+        if not analytic_ids:
+            return self.env['account.analytic.account']
+        return self.env['account.analytic.account'].search(
+            [
+                ('id', 'in', list(analytic_ids)),
+                ('is_plan_seller_contract', '=', True),
+            ]
+        )
+
     def _get_analog_product_analytic_recompute_targets(self):
-        contracts = self.mapped('seller_contract_id')
+        contracts = (
+            self.mapped('seller_contract_id')
+            | self._get_seller_contracts_from_analytic_distribution()
+        )
         if 'seller_contract_id' in self.env['account.move']._fields:
             contracts |= self.mapped('move_id.seller_contract_id')
         return contracts.mapped('product_analytic_ids')
