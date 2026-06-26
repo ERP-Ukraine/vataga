@@ -580,6 +580,7 @@ class ProductAnalytic(models.Model):
         return total_quantity
 
     @api.depends(
+        'sale_contract_id.seller_move_line_ids',
         'sale_contract_id.seller_move_line_ids.product_id',
         'sale_contract_id.seller_move_line_ids.quantity',
         'sale_contract_id.seller_move_line_ids.analytic_distribution',
@@ -646,6 +647,64 @@ class ProductAnalytic(models.Model):
             )
             total_qty_received += product_analytic._sum_kit_received_quantity()
             product_analytic.qty_received = total_qty_received
+
+    def _recompute_analog_invoice_fields(self):
+        if not self:
+            return
+        self._compute_numbers()
+        self._compute_account_move_ids()
+
+
+class AccountMove(models.Model):
+    _inherit = 'account.move'
+
+    def action_post(self):
+        res = super().action_post()
+        self.line_ids._recompute_analog_product_analytics()
+        return res
+
+    def button_draft(self):
+        analytics = self.line_ids._get_analog_product_analytic_recompute_targets()
+        res = super().button_draft()
+        (
+            analytics
+            | self.line_ids._get_analog_product_analytic_recompute_targets()
+        )._recompute_analog_invoice_fields()
+        return res
+
+
+class AccountMoveLine(models.Model):
+    _inherit = 'account.move.line'
+
+    def _get_analog_product_analytic_recompute_targets(self):
+        contracts = self.mapped('seller_contract_id')
+        if 'seller_contract_id' in self.env['account.move']._fields:
+            contracts |= self.mapped('move_id.seller_contract_id')
+        return contracts.mapped('product_analytic_ids')
+
+    def _recompute_analog_product_analytics(self):
+        product_analytics = self._get_analog_product_analytic_recompute_targets()
+        product_analytics._recompute_analog_invoice_fields()
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        lines = super().create(vals_list)
+        lines._recompute_analog_product_analytics()
+        return lines
+
+    def write(self, vals):
+        analytics = self._get_analog_product_analytic_recompute_targets()
+        res = super().write(vals)
+        (
+            analytics | self._get_analog_product_analytic_recompute_targets()
+        )._recompute_analog_invoice_fields()
+        return res
+
+    def unlink(self):
+        analytics = self._get_analog_product_analytic_recompute_targets()
+        res = super().unlink()
+        analytics._recompute_analog_invoice_fields()
+        return res
 
 
 class MrpBom(models.Model):

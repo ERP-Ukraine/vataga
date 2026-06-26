@@ -426,7 +426,7 @@ class TestProductAnalog(TransactionCase):
             with self.assertRaises(UserError):
                 move.action_replace_with_analog_product(analog_product.id)
 
-    def test_sale_confirm_creates_main_analytic_for_analog_invoice_rollup(self):
+    def test_late_analog_invoice_updates_existing_main_product_analytic(self):
         product_a = self._create_product('Auto analytic main A')
         product_b = self._create_product('Auto analytic analog B')
         contract = self._create_seller_contract('Auto Analytic Rollup Contract')
@@ -456,11 +456,46 @@ class TestProductAnalog(TransactionCase):
         )
         self.assertTrue(main_analytic)
         analog_analytic = self._create_product_analytic(product_b, contract)
-        self._create_vendor_bill(product_b, contract, 3)
 
+        self.assertEqual(main_analytic.in_invoice, 0)
+        analog_bill = self._create_vendor_bill(product_b, contract, 1)
+        main_analytic.invalidate_recordset(['demand', 'in_invoice', 'closed'])
+        analog_analytic.invalidate_recordset(['demand', 'in_invoice', 'closed'])
+
+        self.assertIn(
+            analog_bill.invoice_line_ids,
+            main_analytic._get_related_invoice_move_lines(),
+        )
+        self.assertEqual(
+            main_analytic._sum_invoice_quantity_for_products(
+                main_analytic._get_direct_rollup_products(),
+                product_a.uom_id,
+            ),
+            1,
+        )
         self.assertEqual(main_analytic.demand, 10)
+        self.assertEqual(main_analytic.in_invoice, 1)
+        self.assertAlmostEqual(main_analytic.closed, 0.1)
+        self.assertEqual(analog_analytic.demand, 0)
+        self.assertEqual(analog_analytic.in_invoice, 0)
+        self.assertEqual(analog_analytic.closed, 0)
+
+        self._create_vendor_bill(product_a, contract, 2)
+        main_analytic.invalidate_recordset(['in_invoice', 'closed'])
+        analog_analytic.invalidate_recordset(['demand', 'in_invoice', 'closed'])
+
         self.assertEqual(main_analytic.in_invoice, 3)
         self.assertAlmostEqual(main_analytic.closed, 0.3)
+        self.assertEqual(analog_analytic.demand, 0)
+        self.assertEqual(analog_analytic.in_invoice, 0)
+        self.assertEqual(analog_analytic.closed, 0)
+
+        self._create_vendor_bill(product_b, contract, 1, move_type='in_refund')
+        main_analytic.invalidate_recordset(['in_invoice', 'closed'])
+        analog_analytic.invalidate_recordset(['demand', 'in_invoice', 'closed'])
+
+        self.assertEqual(main_analytic.in_invoice, 2)
+        self.assertAlmostEqual(main_analytic.closed, 0.2)
         self.assertEqual(analog_analytic.demand, 0)
         self.assertEqual(analog_analytic.in_invoice, 0)
         self.assertEqual(analog_analytic.closed, 0)
