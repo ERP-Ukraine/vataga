@@ -2,12 +2,15 @@
 
 import { Component, onMounted, onPatched, onWillUnmount, useRef, useState } from "@odoo/owl";
 import { registry } from "@web/core/registry";
+import { useService } from "@web/core/utils/hooks";
 import { standardFieldProps } from "@web/views/fields/standard_field_props";
 
 let activeAnalogMarkerField = null;
 
 export class ProductAnalogMarkerField extends Component {
     setup() {
+        this.orm = useService("orm");
+        this.notification = useService("notification");
         this.root = useRef("root");
         this.state = useState({ open: false, menuStyle: "" });
         this.clearTitles = this.clearTitles.bind(this);
@@ -38,26 +41,81 @@ export class ProductAnalogMarkerField extends Component {
         return this.props.record.data[this.props.name] || "";
     }
 
-    get analogRows() {
-        return this.fallbackAnalogRows;
+    get analogNames() {
+        return this.analogItems.map((analog) => analog.display_name);
+    }
+
+    get analogItems() {
+        if (this.isSelectMode) {
+            return this.selectableAnalogItems;
+        }
+        return this.fallbackAnalogNames.map((name) => ({
+            id: false,
+            display_name: name,
+        }));
+    }
+
+    get isSelectMode() {
+        return this.props.mode === 'select';
+    }
+
+    get isSelectionAllowed() {
+        const stateField = this.props.stateField || 'raw_material_production_state';
+        const productionState = this.props.record.data[stateField];
+        return this.isSelectMode && !['done', 'cancel'].includes(productionState);
+    }
+
+    get payloadField() {
+        return this.props.payloadField || 'analog_product_data';
+    }
+
+    get recordModel() {
+        return (
+            this.props.record.resModel ||
+            this.props.record.model?.root?.resModel ||
+            this.props.record.model?.config?.resModel
+        );
+    }
+
+    get recordId() {
+        return this.props.record.resId || this.props.record.data.id;
+    }
+
+    get selectableAnalogItems() {
+        const payload = this.props.record.data[this.payloadField] || [];
+        let analogs = payload;
+        if (typeof payload === 'string') {
+            try {
+                analogs = JSON.parse(payload);
+            } catch {
+                analogs = [];
+            }
+        }
+        return Array.isArray(analogs)
+            ? analogs
+                  .filter((analog) => analog.id && analog.display_name)
+                  .map((analog) => ({
+                      id: analog.id,
+                      display_name: analog.display_name,
+                  }))
+            : [];
     }
 
     get markerAnalogNames() {
         return this.markerPayload.split("\n").slice(1).filter(Boolean);
     }
 
-    get fallbackAnalogRows() {
+    get fallbackAnalogNames() {
         const names = this.props.record.data.analog_product_names || "";
         const lines = this.markerAnalogNames.length
             ? this.markerAnalogNames
             : names.split("\n").filter(Boolean);
-        return lines.map((line) => {
-            const [component, ...analogParts] = line.split("\t");
-            return {
-                component: component || "",
-                analog: analogParts.join("\t") || component || "",
-            };
-        });
+        return lines.map((line) => this.getAnalogName(line)).filter(Boolean);
+    }
+
+    getAnalogName(line) {
+        const parts = line.split("\t");
+        return parts.length > 1 ? parts.slice(1).join("\t") : line;
     }
 
     toggleDropdown(ev) {
@@ -73,6 +131,36 @@ export class ProductAnalogMarkerField extends Component {
         activeAnalogMarkerField = this;
         this.state.menuStyle = this.getMenuStyle(ev.currentTarget);
         this.state.open = true;
+    }
+
+    async selectAnalog(ev) {
+        ev.stopPropagation();
+        if (!this.isSelectionAllowed) {
+            return;
+        }
+        const analogId = Number(ev.currentTarget.dataset.analogId);
+        const analog = this.analogItems.find((item) => item.id === analogId);
+        if (!analogId || !analog) {
+            return;
+        }
+        try {
+            const result = await this.orm.call(
+                this.recordModel,
+                'action_replace_with_analog_product',
+                [[this.recordId], analogId]
+            );
+            await this.props.record.update({
+                product_id: [result.product_id, result.product_display_name],
+                product_uom: [result.product_uom_id, result.product_uom_name],
+                [this.props.name]: result.analog_marker || '',
+                [this.payloadField]: result.analog_product_data || [],
+            });
+            this.closeDropdown();
+        } catch (error) {
+            this.notification.add(error.message || error.toString(), {
+                type: 'danger',
+            });
+        }
     }
 
     getMenuStyle(target) {
@@ -121,11 +209,19 @@ ProductAnalogMarkerField.template =
     "product_alternatives_vataga.ProductAnalogMarkerField";
 ProductAnalogMarkerField.props = {
     ...standardFieldProps,
+    mode: { type: String, optional: true },
+    payloadField: { type: String, optional: true },
+    stateField: { type: String, optional: true },
 };
 
 export const productAnalogMarkerField = {
     component: ProductAnalogMarkerField,
     supportedTypes: ["char", "text"],
+    extractProps: ({ options }) => ({
+        mode: options?.mode || 'readonly',
+        payloadField: options?.payloadField,
+        stateField: options?.stateField,
+    }),
 };
 
 registry.category("fields").add("product_analog_marker", productAnalogMarkerField);

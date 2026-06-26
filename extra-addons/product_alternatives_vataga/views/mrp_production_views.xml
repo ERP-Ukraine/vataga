@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="mrp_production_form_view_analog_components" model="ir.ui.view">
+        <field name="name">mrp.production.form.analog.components</field>
+        <field name="model">mrp.production</field>
+        <field name="inherit_id" ref="mrp.mrp_production_form_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='move_raw_ids']//tree//field[@name='product_id']" position="after">
+                <field name="analog_product_data" column_invisible="1" invisible="1"/>
+                <field name="raw_material_production_state" column_invisible="1" invisible="1"/>
+                <field
+                    name="analog_marker"
+                    string="&#1040;&#1085;&#1072;&#1083;&#1086;&#1075;&#1080;"
+                    widget="product_analog_marker"
+                    optional="show"
+                    options="{'mode': 'select', 'payloadField': 'analog_product_data', 'stateField': 'raw_material_production_state'}"
+                />
+            </xpath>
+        </field>
+    </record>
+</odoo>

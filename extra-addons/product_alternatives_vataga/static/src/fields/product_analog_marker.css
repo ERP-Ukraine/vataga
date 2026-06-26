@@ -52,3 +52,9 @@
 .o_product_analog_marker_table tr:last-child td {
     border-bottom: 0;
 }
+
+.o_product_analog_marker_select {
+    padding: 0;
+    text-align: left;
+    white-space: normal;
+}

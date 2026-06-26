@@ -17,28 +17,33 @@
                 <t t-esc="marker"/>
             </button>
             <div
-                t-if="state.open and analogRows.length"
+                t-if="state.open and analogNames.length"
                 class="o_product_analog_marker_menu"
                 t-att-style="state.menuStyle"
             >
                 <table class="o_product_analog_marker_table">
                     <thead>
                         <tr>
-                            <th>&#1058;&#1086;&#1074;&#1072;&#1088;</th>
-                            <th>&#1040;&#1085;&#1072;&#1083;&#1086;&#1075;</th>
+                            <th>&#1040;&#1085;&#1072;&#1083;&#1086;&#1075;&#1080;</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr
-                            t-foreach="analogRows"
-                            t-as="analogRow"
-                            t-key="analogRow.component + '|' + analogRow.analog"
+                            t-foreach="analogItems"
+                            t-as="analog"
+                            t-key="analog.id || analog_index + '|' + analog.display_name"
                         >
                             <td>
-                                <t t-esc="analogRow.component"/>
-                            </td>
-                            <td>
-                                <t t-esc="analogRow.analog"/>
+                                <button
+                                    t-if="isSelectionAllowed and analog.id"
+                                    type="button"
+                                    class="btn btn-link o_product_analog_marker_select"
+                                    t-att-data-analog-id="analog.id"
+                                    t-on-click="selectAnalog"
+                                >
+                                    <t t-esc="analog.display_name"/>
+                                </button>
+                                <t t-else="" t-esc="analog.display_name"/>
                             </td>
                         </tr>
                     </tbody>
