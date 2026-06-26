@@ -664,15 +664,28 @@ class AccountMove(models.Model):
     def button_draft(self):
         analytics = self.line_ids._get_analog_product_analytic_recompute_targets()
         res = super().button_draft()
-        (
-            analytics
-            | self.line_ids._get_analog_product_analytic_recompute_targets()
-        )._recompute_analog_invoice_fields()
+        analytics._recompute_analog_invoice_fields()
         return res
 
 
 class AccountMoveLine(models.Model):
     _inherit = 'account.move.line'
+
+    ANALOG_RECOMPUTE_FIELDS = {
+        'product_id',
+        'quantity',
+        'product_uom_id',
+        'analytic_distribution',
+        'seller_contract_id',
+        'move_id',
+    }
+
+    def _get_posted_vendor_invoice_lines(self):
+        return self.filtered(
+            lambda line: line.move_id.state == 'posted'
+            and line.move_id.move_type in ('in_invoice', 'in_refund')
+            and line.product_id
+        )
 
     def _get_seller_contracts_from_analytic_distribution(self):
         analytic_ids = set()
@@ -691,14 +704,58 @@ class AccountMoveLine(models.Model):
             ]
         )
 
+    def _get_direct_analog_recompute_products(self):
+        products = self.mapped('product_id')
+        direct_products = self.env['product.product']
+        direct_products |= products.filtered(
+            lambda product: not product._is_analog_rollup_child()
+        )
+        direct_products |= products._get_primary_analog_main_products()
+        return direct_products
+
+    def _get_kit_analog_recompute_boms(self, direct_products):
+        kit_products = self.mapped('product_id') | direct_products
+        if not kit_products:
+            return self.env['mrp.bom']
+        return self.env['mrp.bom'].search(
+            [
+                ('type', '=', 'phantom'),
+                ('product_tmpl_id', 'in', kit_products.product_tmpl_id.ids),
+            ]
+        )
+
     def _get_analog_product_analytic_recompute_targets(self):
+        lines = self._get_posted_vendor_invoice_lines()
+        if not lines:
+            return self.env['product.analytic']
         contracts = (
-            self.mapped('seller_contract_id')
-            | self._get_seller_contracts_from_analytic_distribution()
+            lines.mapped('seller_contract_id')
+            | lines._get_seller_contracts_from_analytic_distribution()
         )
         if 'seller_contract_id' in self.env['account.move']._fields:
-            contracts |= self.mapped('move_id.seller_contract_id')
-        return contracts.mapped('product_analytic_ids')
+            contracts |= lines.mapped('move_id.seller_contract_id')
+        if not contracts:
+            return self.env['product.analytic']
+
+        direct_products = lines._get_direct_analog_recompute_products()
+        kit_boms = lines._get_kit_analog_recompute_boms(direct_products)
+        target_domain = [('sale_contract_id', 'in', contracts.ids)]
+        if direct_products and kit_boms:
+            target_domain += [
+                '|',
+                ('product_id', 'in', direct_products.ids),
+                ('kit_bom_ids', 'in', kit_boms.ids),
+            ]
+        elif direct_products:
+            target_domain.append(('product_id', 'in', direct_products.ids))
+        elif kit_boms:
+            target_domain.append(('kit_bom_ids', 'in', kit_boms.ids))
+        else:
+            return self.env['product.analytic']
+
+        return self.env['product.analytic'].search(target_domain).filtered(
+            lambda product_analytic: not product_analytic._is_analog_rollup_child()
+        )
 
     def _recompute_analog_product_analytics(self):
         product_analytics = self._get_analog_product_analytic_recompute_targets()
@@ -707,15 +764,21 @@ class AccountMoveLine(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         lines = super().create(vals_list)
-        lines._recompute_analog_product_analytics()
+        lines._get_posted_vendor_invoice_lines()._recompute_analog_product_analytics()
         return lines
 
     def write(self, vals):
-        analytics = self._get_analog_product_analytic_recompute_targets()
+        should_recompute = bool(self.ANALOG_RECOMPUTE_FIELDS & set(vals))
+        analytics = (
+            self._get_analog_product_analytic_recompute_targets()
+            if should_recompute
+            else self.env['product.analytic']
+        )
         res = super().write(vals)
-        (
-            analytics | self._get_analog_product_analytic_recompute_targets()
-        )._recompute_analog_invoice_fields()
+        if should_recompute:
+            (
+                analytics | self._get_analog_product_analytic_recompute_targets()
+            )._recompute_analog_invoice_fields()
         return res
 
     def unlink(self):

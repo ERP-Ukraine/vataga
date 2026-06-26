@@ -474,6 +474,10 @@ class TestProductAnalog(TransactionCase):
         )
         self.assertTrue(main_analytic)
         analog_analytic = self._create_product_analytic(product_b, contract)
+        unrelated_analytic = self._create_product_analytic(
+            self._create_product('Auto analytic unrelated product'),
+            contract,
+        )
         secondary_contract = self._create_seller_contract('Resolver Secondary Contract')
         resolver_bill = self._create_vendor_bill_from_distribution(
             product_b,
@@ -488,6 +492,10 @@ class TestProductAnalog(TransactionCase):
         )
 
         self.assertEqual(found_contract_ids, {contract.id, secondary_contract.id})
+        self.assertFalse(
+            resolver_bill.invoice_line_ids
+            ._get_analog_product_analytic_recompute_targets()
+        )
 
         self.assertEqual(main_analytic.in_invoice, 0)
         analog_bill = self._create_vendor_bill_from_distribution(
@@ -501,11 +509,17 @@ class TestProductAnalog(TransactionCase):
             analog_bill.invoice_line_ids
             ._get_seller_contracts_from_analytic_distribution(),
         )
-        self.assertIn(
-            main_analytic,
+        analog_bill_targets = (
             analog_bill.invoice_line_ids
-            ._get_analog_product_analytic_recompute_targets(),
+            ._get_analog_product_analytic_recompute_targets()
         )
+        self.assertIn(main_analytic, analog_bill_targets)
+        self.assertEqual(
+            set(analog_bill_targets.ids),
+            {main_analytic.id},
+        )
+        self.assertNotIn(analog_analytic, analog_bill_targets)
+        self.assertNotIn(unrelated_analytic, analog_bill_targets)
         main_analytic.invalidate_recordset(['demand', 'in_invoice', 'closed'])
         analog_analytic.invalidate_recordset(['demand', 'in_invoice', 'closed'])
 
@@ -569,6 +583,48 @@ class TestProductAnalog(TransactionCase):
         self.assertEqual(analog_analytic.demand, 0)
         self.assertEqual(analog_analytic.in_invoice, 0)
         self.assertEqual(analog_analytic.closed, 0)
+
+    def test_invoice_recompute_targets_are_scoped_to_related_products(self):
+        product_a = self._create_product('Scoped main A')
+        product_b = self._create_product('Scoped shared analog B')
+        product_c = self._create_product('Scoped main C')
+        contract_1 = self._create_seller_contract('Scoped Contract 1')
+        contract_2 = self._create_seller_contract('Scoped Contract 2')
+        self._create_analog_line(product_a, product_b)
+        self._create_analog_line(product_c, product_b)
+        analytic_a_1 = self._create_product_analytic(product_a, contract_1)
+        analytic_c_1 = self._create_product_analytic(product_c, contract_1)
+        analytic_a_2 = self._create_product_analytic(product_a, contract_2)
+        analog_analytic = self._create_product_analytic(product_b, contract_1)
+        unrelated_analytic = self._create_product_analytic(
+            self._create_product('Scoped unrelated product'),
+            contract_1,
+        )
+
+        bill = self._create_vendor_bill_from_distribution(
+            product_b,
+            {f'{contract_1.id},{contract_2.id}': 100},
+            1,
+        )
+        targets = bill.invoice_line_ids._get_analog_product_analytic_recompute_targets()
+
+        self.assertEqual(
+            set(targets.ids),
+            {analytic_a_1.id, analytic_c_1.id, analytic_a_2.id},
+        )
+        self.assertNotIn(analog_analytic, targets)
+        self.assertNotIn(unrelated_analytic, targets)
+
+        main_bill = self._create_vendor_bill_from_distribution(
+            product_a,
+            {str(contract_1.id): 100},
+            1,
+        )
+        main_targets = (
+            main_bill.invoice_line_ids
+            ._get_analog_product_analytic_recompute_targets()
+        )
+        self.assertEqual(set(main_targets.ids), {analytic_a_1.id})
 
     def test_product_analytic_rolls_invoice_and_received_to_main_product(self):
         product_a = self._create_product('Rollup main A')
