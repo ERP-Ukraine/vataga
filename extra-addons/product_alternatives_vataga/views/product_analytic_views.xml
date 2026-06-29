@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="product_analytic_pivot_analogs" model="ir.ui.view">
+        <field name="name">product.analytic.pivot.analogs</field>
+        <field name="model">product.analytic</field>
+        <field name="inherit_id" ref="sale_demand_vataga.product_analytic_pivot"/>
+        <field name="arch" type="xml">
+            <field name="comment" position="replace">
+                <field name="demand_comment" string="Примітки" type="measure"/>
+            </field>
+        </field>
+    </record>
+</odoo>

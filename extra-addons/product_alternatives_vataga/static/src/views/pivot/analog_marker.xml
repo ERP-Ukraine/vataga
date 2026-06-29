@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates>
+    <t t-name="product_alternatives_vataga.PivotRendererDemand"
+       t-inherit="sale_demand_vataga.PivotRendererDemand"
+       t-inherit-mode="extension">
+        <xpath expr="//td//div[hasclass('o_value')]" position="attributes">
+            <attribute name="t-att-style">
+                cell.measure === 'demand_comment' ? 'text-align: center !important; width: 100%; display: block;' : ''
+            </attribute>
+        </xpath>
+    </t>
+</templates>

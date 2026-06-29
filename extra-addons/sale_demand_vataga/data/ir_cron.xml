@@ -2,8 +2,8 @@
 <odoo>
     <record id="cron_create_product_analytic" model="ir.cron">
         <field name="name">Product Analytic: Auto Create Product Analytic</field>
-        <field name="interval_number">1</field>
-        <field name="interval_type">months</field>
+        <field name="interval_number">10</field>
+        <field name="interval_type">minutes</field>
         <field name="numbercall">-1</field>
         <field name="model_id" ref="sale_demand_vataga.model_product_analytic"/>
         <field name="code">model._cron_create_product_analytic()</field>

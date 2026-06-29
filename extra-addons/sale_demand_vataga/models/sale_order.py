@@ -1,5 +1,7 @@
 import math
 
+from psycopg2 import IntegrityError
+
 from odoo import api, fields, models
 
 
@@ -142,29 +144,52 @@ class SaleOrderLinePurchase(models.Model):
 
     @api.depends('product_id', 'sale_contract_id', 'order_line_id.order_id.state')
     def _compute_product_analytic_id(self):
-        need_trigger = False
+        self._sync_product_analytic_id()
+
+    def _get_product_analytic_domain(self):
+        self.ensure_one()
+        return [
+            ('product_id', '=', self.product_id.id),
+            ('sale_contract_id', '=', self.sale_contract_id.id),
+        ]
+
+    def _get_or_create_product_analytic(self):
+        self.ensure_one()
+        product_analytic = self.env['product.analytic'].search(
+            self._get_product_analytic_domain(),
+            limit=1,
+        )
+        if product_analytic:
+            return product_analytic
+
+        try:
+            with self.env.cr.savepoint():
+                return self.env['product.analytic'].create(
+                    {
+                        'product_id': self.product_id.id,
+                        'sale_contract_id': self.sale_contract_id.id,
+                    }
+                )
+        except IntegrityError:
+            return self.env['product.analytic'].search(
+                self._get_product_analytic_domain(),
+                limit=1,
+            )
+
+    def _sync_product_analytic_id(self):
         for line in self:
             old_product_analytic_id = line.product_analytic_id
-            line.product_analytic_id = self.env['product.analytic']
+            new_product_analytic_id = self.env['product.analytic']
             if line.sale_contract_id and line.state == 'sale':
-                product_analytic = self.env['product.analytic']._read_group(
-                    [
-                        ('product_id', '=', line.product_id.id),
-                        ('sale_contract_id', '=', line.sale_contract_id.id),
-                    ],
-                    ['id'],
-                )
-                if product_analytic:
-                    line.product_analytic_id = product_analytic[0][0]
-                else:
-                    need_trigger = True
-            elif (
+                new_product_analytic_id = line._get_or_create_product_analytic()
+            line.product_analytic_id = new_product_analytic_id
+            if (
                 old_product_analytic_id
-                and not old_product_analytic_id.need_to_purchase_ids
+                and old_product_analytic_id != new_product_analytic_id
             ):
-                old_product_analytic_id.unlink()
-        if need_trigger:
-            self.env.ref('sale_demand_vataga.cron_create_product_analytic')._trigger()
+                old_product_analytic_id.invalidate_recordset(['need_to_purchase_ids'])
+                if not old_product_analytic_id.need_to_purchase_ids:
+                    old_product_analytic_id.unlink()
 
     def unlink(self):
         products_analytic = self.mapped('product_analytic_id')

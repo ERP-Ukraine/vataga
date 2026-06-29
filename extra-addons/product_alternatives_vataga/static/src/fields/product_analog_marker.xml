@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates>
+    <t t-name="product_alternatives_vataga.ProductAnalogMarkerField">
+        <div
+            class="o_product_analog_marker"
+            t-if="marker"
+            t-ref="root"
+            t-on-mouseenter="clearTitles"
+            t-on-focusin="clearTitles"
+        >
+            <button
+                type="button"
+                class="btn btn-link o_product_analog_marker_button"
+                title=""
+                t-on-click="toggleDropdown"
+            >
+                <t t-esc="marker"/>
+            </button>
+            <div
+                t-if="state.open and analogNames.length"
+                class="o_product_analog_marker_menu"
+                t-att-style="state.menuStyle"
+            >
+                <table class="o_product_analog_marker_table">
+                    <thead>
+                        <tr>
+                            <th>&#1040;&#1085;&#1072;&#1083;&#1086;&#1075;&#1080;</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr
+                            t-foreach="analogItems"
+                            t-as="analog"
+                            t-key="analog.id || analog_index + '|' + analog.display_name"
+                        >
+                            <td>
+                                <button
+                                    t-if="isSelectionAllowed and analog.id"
+                                    type="button"
+                                    class="btn btn-link o_product_analog_marker_select"
+                                    t-att-data-analog-id="analog.id"
+                                    t-on-click="selectAnalog"
+                                >
+                                    <t t-esc="analog.display_name"/>
+                                </button>
+                                <t t-else="" t-esc="analog.display_name"/>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </t>
+</templates>
