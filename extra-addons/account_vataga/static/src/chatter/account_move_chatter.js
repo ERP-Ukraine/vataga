@@ -27,7 +27,7 @@ patch(Chatter.prototype, {
     },
 
     get accountMoveAutologButtonLabel() {
-        return "Autologs";
+        return "Автологи";
     },
 
     get accountMoveAutologButtonIconClass() {
