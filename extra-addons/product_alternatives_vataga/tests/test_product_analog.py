@@ -326,7 +326,7 @@ class TestProductAnalog(TransactionCase):
         self.assertEqual(reciprocal_line.product_tmpl_id, product_b.product_tmpl_id)
         self.assertEqual(reciprocal_line.product_id, product_a)
 
-    def test_demand_comment_marks_only_real_analog_product(self):
+    def test_demand_comment_marks_main_when_contract_uses_analog(self):
         product_a = self._create_product('Demand main product')
         product_b = self._create_product('Demand analog product')
         main_product_analytic = self.ProductAnalytic.create(
@@ -347,6 +347,18 @@ class TestProductAnalog(TransactionCase):
         analog_product_analytic.invalidate_recordset(['demand_comment'])
 
         self.assertEqual(main_product_analytic.demand_comment, 'Need substitute')
+        self.assertEqual(analog_product_analytic.demand_comment, 'Need substitute (A)')
+
+        self._create_vendor_bill(product_a, self.sale_contract, 1)
+        main_product_analytic.invalidate_recordset(['demand_comment'])
+
+        self.assertEqual(main_product_analytic.demand_comment, 'Need substitute')
+
+        self._create_vendor_bill(product_b, self.sale_contract, 1)
+        main_product_analytic.invalidate_recordset(['demand_comment'])
+        analog_product_analytic.invalidate_recordset(['demand_comment'])
+
+        self.assertEqual(main_product_analytic.demand_comment, 'Need substitute (A)')
         self.assertEqual(analog_product_analytic.demand_comment, 'Need substitute (A)')
 
     def test_bom_line_shows_component_analogs(self):

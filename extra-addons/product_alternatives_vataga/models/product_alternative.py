@@ -420,18 +420,52 @@ class ProductAnalytic(models.Model):
     @api.depends(
         'comment',
         'product_id',
+        'product_id.product_tmpl_id.analog_line_ids.product_id',
+        'product_id.product_tmpl_id.analog_line_ids.is_primary_link',
         'product_id.analog_source_line_ids',
         'product_id.analog_source_line_ids.is_primary_link',
+        'sale_contract_id.seller_move_line_ids',
+        'sale_contract_id.seller_move_line_ids.product_id',
+        'sale_contract_id.seller_move_line_ids.analytic_distribution',
+        'sale_contract_id.seller_move_line_ids.seller_contract_id',
+        'sale_contract_id.seller_move_line_ids.move_id.state',
+        'sale_contract_id.seller_move_line_ids.move_id.move_type',
+        'sale_contract_id.seller_move_line_ids.move_id.seller_contract_id',
+        'sale_contract_id.seller_purchase_line_ids',
+        'sale_contract_id.seller_purchase_line_ids.product_id',
+        'sale_contract_id.seller_purchase_line_ids.seller_contract_id',
+        'sale_contract_id.seller_purchase_line_ids.order_id.state',
     )
     def _compute_demand_comment(self):
         for product_analytic in self:
             comment = product_analytic.comment or ''
-            if product_analytic.product_id.analog_source_line_ids:
+            if product_analytic._should_show_demand_analog_marker():
                 product_analytic.demand_comment = (
                     f'{comment} (A)' if comment else '(A)'
                 )
             else:
                 product_analytic.demand_comment = comment
+
+    def _should_show_demand_analog_marker(self):
+        self.ensure_one()
+        if self.product_id.analog_source_line_ids:
+            return True
+        return self._has_direct_analog_purchase_activity()
+
+    def _has_direct_analog_purchase_activity(self):
+        self.ensure_one()
+        analog_products = self.product_id._get_primary_analog_products()
+        if not analog_products:
+            return False
+        if self._get_related_invoice_lines_for_products(analog_products):
+            return True
+        analog_product_ids = set(analog_products.ids)
+        return bool(
+            self.sale_contract_id.seller_purchase_line_ids.filtered(
+                lambda line: line.product_id.id in analog_product_ids
+                and line.order_id.state in ('purchase', 'done')
+            )
+        )
 
     def _is_analog_rollup_child(self):
         self.ensure_one()
@@ -651,6 +685,7 @@ class ProductAnalytic(models.Model):
             return
         self._compute_numbers()
         self._compute_account_move_ids()
+        self._compute_demand_comment()
 
 
 class AccountMove(models.Model):
