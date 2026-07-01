@@ -118,7 +118,10 @@ class SaleOrderLinePurchase(models.Model):
         'account.analytic.account', compute='_compute_sale_contract_id', store=True
     )
     product_analytic_id = fields.Many2one(
-        'product.analytic', compute='_compute_product_analytic_id', store=True
+        'product.analytic',
+        compute='_compute_product_analytic_id',
+        compute_sudo=True,
+        store=True,
     )
     state = fields.Selection(related='order_line_id.order_id.state', store=True)
 
@@ -183,7 +186,7 @@ class SaleOrderLinePurchase(models.Model):
             new_product_analytic_id = self.env['product.analytic']
             if line.sale_contract_id and line.state == 'sale':
                 new_product_analytic_id = line._get_or_create_product_analytic()
-            line.product_analytic_id = new_product_analytic_id
+            line.sudo().product_analytic_id = new_product_analytic_id
             if (
                 old_product_analytic_id
                 and old_product_analytic_id != new_product_analytic_id
