@@ -155,7 +155,8 @@ class SaleOrderLinePurchase(models.Model):
 
     def _get_or_create_product_analytic(self):
         self.ensure_one()
-        product_analytic = self.env['product.analytic'].search(
+        product_analytic_model = self.env['product.analytic'].sudo()
+        product_analytic = product_analytic_model.search(
             self._get_product_analytic_domain(),
             limit=1,
         )
@@ -164,14 +165,14 @@ class SaleOrderLinePurchase(models.Model):
 
         try:
             with self.env.cr.savepoint():
-                return self.env['product.analytic'].create(
+                return product_analytic_model.create(
                     {
                         'product_id': self.product_id.id,
                         'sale_contract_id': self.sale_contract_id.id,
                     }
                 )
         except IntegrityError:
-            return self.env['product.analytic'].search(
+            return product_analytic_model.search(
                 self._get_product_analytic_domain(),
                 limit=1,
             )
@@ -187,12 +188,13 @@ class SaleOrderLinePurchase(models.Model):
                 old_product_analytic_id
                 and old_product_analytic_id != new_product_analytic_id
             ):
+                old_product_analytic_id = old_product_analytic_id.sudo()
                 old_product_analytic_id.invalidate_recordset(['need_to_purchase_ids'])
                 if not old_product_analytic_id.need_to_purchase_ids:
                     old_product_analytic_id.unlink()
 
     def unlink(self):
-        products_analytic = self.mapped('product_analytic_id')
+        products_analytic = self.mapped('product_analytic_id').sudo()
         res = super().unlink()
         products_analytic.filtered(
             lambda analytic: not analytic.need_to_purchase_ids

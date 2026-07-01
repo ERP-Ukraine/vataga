@@ -141,7 +141,7 @@ class ProductAnalog(models.Model):
 
     def _recompute_product_analytic_demand_comments(self, products):
         if products:
-            self.env['product.analytic'].search(
+            self.env['product.analytic'].sudo().search(
                 [('product_id', 'in', products.ids)]
             )._compute_demand_comment()
 
@@ -229,7 +229,7 @@ class ProductAnalog(models.Model):
         return products
 
     def _recompute_product_analytics(self, products):
-        product_analytics = self.env['product.analytic'].search(
+        product_analytics = self.env['product.analytic'].sudo().search(
             [('product_id', 'in', products.ids)]
         )
         if not product_analytics:
@@ -412,6 +412,7 @@ class ProductAnalytic(models.Model):
 
     demand_comment = fields.Char(
         compute='_compute_demand_comment',
+        compute_sudo=True,
         store=True,
         group_operator='max',
         string='Comment',
@@ -683,9 +684,10 @@ class ProductAnalytic(models.Model):
     def _recompute_analog_invoice_fields(self):
         if not self:
             return
-        self._compute_numbers()
-        self._compute_account_move_ids()
-        self._compute_demand_comment()
+        product_analytics = self.sudo()
+        product_analytics._compute_numbers()
+        product_analytics._compute_account_move_ids()
+        product_analytics._compute_demand_comment()
 
 
 class AccountMove(models.Model):
@@ -940,35 +942,45 @@ class StockMove(models.Model):
 
     def action_replace_with_analog_product(self, analog_product_id):
         self.ensure_one()
-        if self.raw_material_production_state in ('done', 'cancel'):
+        if not self.raw_material_production_id:
+            raise UserError(
+                _('Analog replacement is only available for manufacturing components.')
+            )
+        self.raw_material_production_id.check_access_rights('write')
+        self.raw_material_production_id.check_access_rule('write')
+
+        move = self.sudo()
+        if move.raw_material_production_state in ('done', 'cancel'):
             raise UserError(
                 _('You cannot replace components on a done or cancelled manufacturing order.')
             )
 
-        analog_product = self.env['product.product'].browse(analog_product_id).exists()
+        analog_product = (
+            self.env['product.product'].sudo().browse(analog_product_id).exists()
+        )
         if not analog_product:
             raise UserError(_('The selected analog product no longer exists.'))
-        if analog_product not in self.analog_product_ids:
+        if analog_product not in move.analog_product_ids:
             raise ValidationError(
                 _('The selected product is not an allowed analog for this component.')
             )
-        if analog_product.uom_id != self.product_id.uom_id:
+        if analog_product.uom_id != move.product_id.uom_id:
             raise ValidationError(
                 _('The selected analog must use the same unit of measure.')
             )
 
-        should_reassign = self.state in {'confirmed', 'partially_available', 'assigned'}
-        if self.move_line_ids:
-            self._do_unreserve()
-        self.write(
+        should_reassign = move.state in {'confirmed', 'partially_available', 'assigned'}
+        if move.move_line_ids:
+            move._do_unreserve()
+        move.write(
             {
                 'product_id': analog_product.id,
                 'product_uom': analog_product.uom_id.id,
             }
         )
-        if should_reassign and self.state not in {'done', 'cancel'}:
-            self._action_assign()
-        self.invalidate_recordset(
+        if should_reassign and move.state not in {'done', 'cancel'}:
+            move._action_assign()
+        move.invalidate_recordset(
             [
                 'analog_marker',
                 'analog_product_data',
@@ -976,10 +988,10 @@ class StockMove(models.Model):
             ]
         )
         return {
-            'product_id': self.product_id.id,
-            'product_display_name': self.product_id.display_name,
-            'product_uom_id': self.product_uom.id,
-            'product_uom_name': self.product_uom.display_name,
-            'analog_marker': self.analog_marker,
-            'analog_product_data': self.analog_product_data,
+            'product_id': move.product_id.id,
+            'product_display_name': move.product_id.display_name,
+            'product_uom_id': move.product_uom.id,
+            'product_uom_name': move.product_uom.display_name,
+            'analog_marker': move.analog_marker,
+            'analog_product_data': move.analog_product_data,
         }
