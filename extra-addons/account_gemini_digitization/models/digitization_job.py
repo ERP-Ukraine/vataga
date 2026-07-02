@@ -265,7 +265,7 @@ class AccountGeminiDigitizationJob(models.Model):
         blocker = self._get_automatic_apply_blocker()
         if blocker:
             self._set_automatic_review_message(blocker)
-            message = self._get_automatic_manual_review_message()
+            message = self._get_automatic_manual_review_message(blocker)
             self._post_automatic_pipeline_message(message)
             return {
                 'status': 'manual_review',
@@ -280,8 +280,9 @@ class AccountGeminiDigitizationJob(models.Model):
                 apply_service.validate_for_automatic_apply()
             apply_result = apply_service.apply()
         except UserError as error:
-            self._set_automatic_review_message(self._get_error_message(error))
-            message = self._get_automatic_manual_review_message()
+            details = self._get_error_message(error)
+            self._set_automatic_review_message(details)
+            message = self._get_automatic_manual_review_message(details)
             self._post_automatic_pipeline_message(message)
             return {
                 'status': 'manual_review',
@@ -379,6 +380,35 @@ class AccountGeminiDigitizationJob(models.Model):
             return False
         if non_create_lines:
             return _('Automatic apply is disabled when OCR lines use merge or skip actions.')
+
+        if self.mode == 'partial_bill':
+            used_move_line_ids = set()
+            for line in create_lines:
+                if line.match_status not in ('matched', 'manual') or not line.move_line_id:
+                    return _(
+                        'Не вдалося однозначно зіставити рядок документа з товарним рядком рахунку: %(line)s.'
+                    ) % {
+                        'line': line._display_label(),
+                    }
+                if not self._is_positive_number(line.quantity):
+                    return _('Some OCR lines do not have a positive quantity.')
+                if not self._is_positive_number(line.price_unit):
+                    return _('Some OCR lines do not have a positive unit price.')
+                if line.move_line_id.move_id != self.move_id:
+                    return _('Some OCR lines are linked to another vendor bill.')
+                if not line.move_line_id.product_id:
+                    return _('Some selected vendor bill lines do not have products.')
+                if line.matched_product_id != line.move_line_id.product_id:
+                    return _(
+                        'Не вдалося однозначно зіставити рядок документа з товарним рядком рахунку: %(line)s.'
+                    ) % {
+                        'line': line._display_label(),
+                    }
+                if line.move_line_id.id in used_move_line_ids:
+                    return _('One vendor bill line is assigned to several OCR lines.')
+                used_move_line_ids.add(line.move_line_id.id)
+            return False
+
         for line in create_lines:
             if line.match_status not in ('matched', 'manual'):
                 return _('Some OCR lines are not confidently matched.')
@@ -386,22 +416,6 @@ class AccountGeminiDigitizationJob(models.Model):
                 return _('Some OCR lines do not have a positive quantity.')
             if not self._is_positive_number(line.price_unit):
                 return _('Some OCR lines do not have a positive unit price.')
-
-        if self.mode == 'partial_bill':
-            used_move_line_ids = set()
-            for line in create_lines:
-                if not line.move_line_id:
-                    return _('Some OCR lines are not linked to vendor bill lines.')
-                if line.move_line_id.move_id != self.move_id:
-                    return _('Some OCR lines are linked to another vendor bill.')
-                if not line.move_line_id.product_id:
-                    return _('Some selected vendor bill lines do not have products.')
-                if line.matched_product_id != line.move_line_id.product_id:
-                    return _('Some OCR line products differ from selected vendor bill lines.')
-                if line.move_line_id.id in used_move_line_ids:
-                    return _('One vendor bill line is assigned to several OCR lines.')
-                used_move_line_ids.add(line.move_line_id.id)
-            return False
 
         if self.mode in ('full_bill', 'full_purchase'):
             for line in create_lines:
@@ -415,9 +429,7 @@ class AccountGeminiDigitizationJob(models.Model):
 
     def _set_automatic_review_message(self, details=False):
         self.ensure_one()
-        message = self._get_automatic_manual_review_message()
-        if details:
-            message = '%s\n%s' % (message, details)
+        message = self._get_automatic_manual_review_message(details)
         values = {
             'matching_message': message,
         }
@@ -425,17 +437,23 @@ class AccountGeminiDigitizationJob(models.Model):
             values['state'] = 'review'
         self.write(values)
 
-    def _get_automatic_manual_review_message(self):
+    def _get_automatic_manual_review_message(self, details=False):
         self.ensure_one()
+        if details and self.mode == 'partial_bill':
+            return details
         if self.mode == 'partial_bill':
-            return _(
+            message = _(
                 'Оцифрування завершено, але не вдалося однозначно зіставити всі рядки '
                 'з товарами рахунку. Дані не були застосовані автоматично.'
             )
-        return _(
-            'Оцифрування завершено, але деякі рядки потребують перевірки. '
-            'Дані не були застосовані автоматично.'
-        )
+        else:
+            message = _(
+                'Оцифрування завершено, але деякі рядки потребують перевірки. '
+                'Дані не були застосовані автоматично.'
+            )
+        if details:
+            return '%s\n%s' % (message, details)
+        return message
 
     def _get_automatic_success_message(self, apply_result=False):
         self.ensure_one()

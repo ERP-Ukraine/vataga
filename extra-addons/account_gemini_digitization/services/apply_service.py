@@ -579,6 +579,13 @@ class _JobApplyContext:
                     line,
                     merged_lines,
                 )
+                quantity, price_unit = self._convert_partial_bill_plan_values(
+                    line,
+                    line.move_line_id,
+                    quantity,
+                    price_unit,
+                    amount_untaxed,
+                )
                 tax_ids, _tax_warning = self._get_line_taxes(
                     line,
                     move,
@@ -647,9 +654,14 @@ class _JobApplyContext:
             for source_line in (line | plan['merged_lines']).sorted('sequence'):
                 if not self._is_partial_uom_compatible(source_line, move_line):
                     errors.append(_(
-                        'Одиниця виміру в розпізнаному документі не збігається з одиницею виміру рядка рахунку. '
-                        'Перевірте відповідність товару перед застосуванням.'
-                    ))
+                        'Товари рахунку зіставлено, але кількість неможливо безпечно перенести: '
+                        'одиниця виміру в документі «%(ocr_uom)s», а в рядку рахунку «%(line_uom)s». '
+                        'Перевірте налаштування одиниць виміру або упаковки товару.'
+                    ) % {
+                        'ocr_uom': source_line.uom_name or '',
+                        'line_uom': self._get_move_line_uom_name(move_line) or '',
+                    }
+                    )
                     break
 
             # Quantity mismatch is allowed in partial_bill; OCR quantity is applied after validation.
@@ -1745,23 +1757,125 @@ class _JobApplyContext:
             return tax_rate * 100
         return tax_rate
 
+    def _convert_partial_bill_plan_values(
+        self,
+        line,
+        move_line,
+        quantity,
+        price_unit,
+        amount_untaxed,
+    ):
+        converted_quantity = self._convert_partial_bill_quantity(
+            line,
+            move_line,
+            quantity,
+        )
+        if not (
+            self._is_number(converted_quantity)
+            and self._is_number(quantity)
+            and self._is_positive_number(converted_quantity)
+            and not self._numbers_close(converted_quantity, quantity, tolerance=0.0001)
+        ):
+            return quantity, price_unit
+
+        if self._is_number(amount_untaxed):
+            return converted_quantity, amount_untaxed / converted_quantity
+        if self._is_number(price_unit) and self._is_positive_number(quantity):
+            return converted_quantity, (price_unit * quantity) / converted_quantity
+        return converted_quantity, price_unit
+
+    def _convert_partial_bill_quantity(self, line, move_line, quantity):
+        if not self._is_number(quantity):
+            return quantity
+        source_uom_name = getattr(line, 'uom_name', False)
+        normalized_source_uom = self._normalize_partial_uom(source_uom_name)
+        if not normalized_source_uom:
+            return quantity
+
+        target_uom = self._get_move_line_uom(move_line)
+        if not target_uom:
+            return quantity
+
+        source_uom = self._find_partial_ocr_uom(source_uom_name, target_uom)
+        if not source_uom:
+            if self._partial_uom_names_match(source_uom_name, target_uom):
+                return quantity
+            raise UserError(self._partial_uom_error_message(line, move_line))
+
+        if source_uom.category_id != target_uom.category_id:
+            raise UserError(self._partial_uom_error_message(line, move_line))
+        if source_uom == target_uom:
+            return quantity
+        return source_uom._compute_quantity(quantity, target_uom)
+
     def _is_partial_uom_compatible(self, line, move_line):
-        ocr_uom = self._normalize_partial_uom(getattr(line, 'uom_name', False))
-        if not ocr_uom:
+        quantity = self._to_float(getattr(line, 'quantity', False))
+        if not self._is_number(quantity):
             return True
-        move_uom = (
+        try:
+            self._convert_partial_bill_quantity(line, move_line, quantity)
+        except UserError:
+            return False
+        return True
+
+    def _get_move_line_uom(self, move_line):
+        return (
             getattr(move_line, 'product_uom_id', False)
             or getattr(move_line, 'product_uom', False)
         )
-        move_uom_name = (
-            getattr(move_uom, 'name', False)
-            or getattr(move_uom, 'display_name', False)
+
+    def _get_move_line_uom_name(self, move_line):
+        move_uom = self._get_move_line_uom(move_line)
+        return (
+            getattr(move_uom, 'display_name', False)
+            or getattr(move_uom, 'name', False)
             or False
         )
-        normalized_move_uom = self._normalize_partial_uom(move_uom_name)
-        if not normalized_move_uom:
-            return True
-        return ocr_uom == normalized_move_uom
+
+    def _find_partial_ocr_uom(self, value, target_uom=False):
+        normalized = self._normalize_partial_uom(value)
+        if not normalized:
+            return False
+        if target_uom and normalized == self._normalize_partial_uom(target_uom.name):
+            return target_uom
+
+        candidates = self.env['uom.uom'].search([])
+        matching_uoms = candidates.filtered(
+            lambda uom: normalized in (
+                self._normalize_partial_uom(uom.name),
+                self._normalize_partial_uom(uom.display_name),
+            )
+        )
+        if target_uom:
+            category_matches = matching_uoms.filtered(
+                lambda uom: uom.category_id == target_uom.category_id
+            )
+            if len(category_matches) == 1:
+                return category_matches
+            if target_uom in category_matches:
+                return target_uom
+        if len(matching_uoms) == 1:
+            return matching_uoms
+        return False
+
+    def _partial_uom_names_match(self, value, target_uom):
+        normalized = self._normalize_partial_uom(value)
+        if not normalized or not target_uom:
+            return False
+        return normalized in (
+            self._normalize_partial_uom(target_uom.name),
+            self._normalize_partial_uom(target_uom.display_name),
+        )
+
+    def _partial_uom_error_message(self, line, move_line):
+        return _(
+            'Товари рахунку зіставлено, але кількість неможливо безпечно перенести: '
+            'одиниця виміру в документі «%(ocr_uom)s», а в рядку рахунку «%(line_uom)s». '
+            'Перевірте налаштування одиниць виміру або упаковки товару.'
+        ) % {
+            'ocr_uom': getattr(line, 'uom_name', False) or '',
+            'line_uom': self._get_move_line_uom_name(move_line) or '',
+        }
 
     def _normalize_partial_uom(self, value):
         if not value:
@@ -1785,8 +1899,30 @@ class _JobApplyContext:
             'unit',
             'units',
         }
+        service_aliases = {
+            'послуга',
+            'послуги',
+            'service',
+            'services',
+        }
+        package_aliases = {
+            'компл',
+            'комплект',
+            'комплекти',
+            'уп',
+            'упак',
+            'упаковка',
+            'package',
+            'pack',
+            'set',
+            'kit',
+        }
         if normalized in unit_aliases:
             return 'unit'
+        if normalized in service_aliases:
+            return 'service'
+        if normalized in package_aliases:
+            return 'set'
         return normalized
 
     def _line_allows_zero_tax(self, line):

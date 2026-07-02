@@ -66,6 +66,16 @@ class ProductMatcher:
         'наземный робот',
         'центрального',
     )
+    DELIVERY_SERVICE_TERMS = (
+        'доставка',
+        'послуга доставки',
+        'нова пошта',
+        'новою поштою',
+        'логістика',
+        'перевезення',
+        'shipping',
+        'delivery',
+    )
 
     CYRILLIC_LATIN_LOOKALIKES = str.maketrans({
         'А': 'A', 'а': 'a',
@@ -498,6 +508,7 @@ class ProductMatcher:
             line_source,
             locked_move_line_ids,
         )
+        self._apply_partial_remaining_line_fallback(create_lines, line_source, assignment)
 
         for line in create_lines:
             if line.id not in candidate_map:
@@ -631,6 +642,52 @@ class ProductMatcher:
         if result['assigned']:
             result['global_applied'] = True
         return result
+
+    def _apply_partial_remaining_line_fallback(self, create_lines, line_source, assignment):
+        move_lines = line_source['product_lines']
+        if len(create_lines) != len(move_lines):
+            return False
+        if any((line.apply_action or 'create_line') != 'create_line' for line in create_lines):
+            return False
+
+        assigned_move_line_ids = []
+        unmatched_lines = []
+        for line in create_lines:
+            if self._is_manual_partial_mapping(line):
+                if not line.move_line_id:
+                    return False
+                assigned_move_line_ids.append(line.move_line_id.id)
+                continue
+            assigned = assignment['assigned'].get(line.id)
+            if assigned and assigned.get('move_line'):
+                assigned_move_line_ids.append(assigned['move_line'].id)
+                continue
+            unmatched_lines.append(line)
+
+        if len(assigned_move_line_ids) != len(set(assigned_move_line_ids)):
+            return False
+        unused_move_lines = [
+            move_line
+            for move_line in move_lines
+            if move_line.id not in set(assigned_move_line_ids)
+        ]
+        if len(unmatched_lines) != 1 or len(unused_move_lines) != 1:
+            return False
+
+        line = unmatched_lines[0]
+        move_line = unused_move_lines[0]
+        assignment['assigned'][line.id] = {
+            'product': move_line.product_id,
+            'move_line': move_line,
+            'score': 0.90,
+            'method': 'remaining_line_partial_bill',
+            'notes': [
+                'Safe residual partial_bill fallback: all other OCR rows and vendor bill lines are already uniquely assigned.'
+            ],
+        }
+        assignment['global_applied'] = True
+        assignment['global_method'] = 'remaining_line_partial_bill'
+        return True
 
     def _find_best_partial_assignments(self, assignment_lines, safe_candidates):
         ordered_lines = sorted(
@@ -887,6 +944,13 @@ class ProductMatcher:
     def _score_move_line(self, line, move_line, partner):
         product = move_line.product_id
         score, method, notes = self._score_product_identity(line, product, partner)
+        score, method, notes = self._score_partial_delivery_service_match(
+            line,
+            move_line,
+            score,
+            method,
+            notes,
+        )
         score, method, notes = self._score_partial_code_match(
             line,
             move_line,
@@ -909,6 +973,43 @@ class ProductMatcher:
             'extracted_codes': self._line_codes(line),
             'candidate_codes': self._candidate_codes(product, move_line, partner),
         }
+
+    def _score_partial_delivery_service_match(self, line, move_line, score, method, notes):
+        line_text = self._ocr_line_text(line)
+        product = move_line.product_id
+        candidate_text = ' '.join(
+            str(value)
+            for value in (
+                getattr(move_line, 'name', False),
+                getattr(product, 'display_name', False),
+                getattr(product, 'name', False),
+            )
+            if value
+        )
+        if not (
+            self._is_delivery_service_text(line_text)
+            and self._is_delivery_service_text(candidate_text)
+        ):
+            return score, method, notes
+        score, method = self._choose_score(
+            score,
+            method,
+            0.96,
+            'delivery_service_match',
+        )
+        notes.append(
+            'Delivery/service semantic match: OCR line and vendor bill line both contain logistics delivery signals.'
+        )
+        return score, method, notes
+
+    def _is_delivery_service_text(self, value):
+        text = self._normalize_text(value)
+        if not text:
+            return False
+        return any(
+            self._normalize_text(term) in text
+            for term in self.DELIVERY_SERVICE_TERMS
+        )
 
     def _score_product(self, line, product, partner, strict_code_profile=False):
         if strict_code_profile:
