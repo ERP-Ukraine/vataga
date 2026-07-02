@@ -1,5 +1,10 @@
-from odoo import _, fields, models
+import logging
+
+from odoo import _, api, fields, models
 from odoo.exceptions import UserError
+
+
+_logger = logging.getLogger(__name__)
 
 
 SUPPORTED_DIGITIZATION_MIMETYPES = (
@@ -13,11 +18,37 @@ SUPPORTED_DIGITIZATION_MIMETYPES = (
 class PurchaseOrder(models.Model):
     _inherit = 'purchase.order'
 
+    gemini_has_attachment = fields.Boolean(
+        compute='_compute_gemini_has_attachment',
+        compute_sudo=True,
+    )
     gemini_has_supported_attachment = fields.Boolean(
         compute='_compute_gemini_has_supported_attachment',
         compute_sudo=True,
     )
 
+    @api.depends('message_attachment_count')
+    def _compute_gemini_has_attachment(self):
+        order_ids_with_attachments = set()
+        if self.ids:
+            groups = self.env['ir.attachment'].sudo().read_group(
+                [
+                    ('res_model', '=', 'purchase.order'),
+                    ('res_id', 'in', self.ids),
+                    ('type', '=', 'binary'),
+                ],
+                ['res_id'],
+                ['res_id'],
+            )
+            order_ids_with_attachments = {
+                group['res_id']
+                for group in groups
+                if group.get('res_id')
+            }
+        for order in self:
+            order.gemini_has_attachment = order.id in order_ids_with_attachments
+
+    @api.depends('message_attachment_count')
     def _compute_gemini_has_supported_attachment(self):
         supported_order_ids = set()
         if self.ids:
@@ -25,6 +56,7 @@ class PurchaseOrder(models.Model):
                 [
                     ('res_model', '=', 'purchase.order'),
                     ('res_id', 'in', self.ids),
+                    ('type', '=', 'binary'),
                     ('mimetype', 'in', SUPPORTED_DIGITIZATION_MIMETYPES),
                 ],
                 ['res_id'],
@@ -44,6 +76,7 @@ class PurchaseOrder(models.Model):
             [
                 ('res_model', '=', 'purchase.order'),
                 ('res_id', '=', self.id),
+                ('type', '=', 'binary'),
                 ('mimetype', 'in', SUPPORTED_DIGITIZATION_MIMETYPES),
             ],
             order='create_date desc, id desc',
@@ -64,13 +97,26 @@ class PurchaseOrder(models.Model):
         attachment = self._get_latest_gemini_digitization_attachment()
         if not attachment:
             raise UserError(_(
-                'Спочатку прикріпіть PDF або зображення до замовлення на закупівлю.'
+                'Не знайдено придатного файлу для оцифрування. Прикріпіть PDF або зображення PNG/JPEG.'
             ))
+        _logger.info(
+            'Gemini OCR selected attachment "%s" (%s) for purchase.order %s.',
+            attachment.name,
+            attachment.mimetype,
+            self.id,
+        )
 
         document_name = self.name if self.name and self.name != '/' else self.id
+        product_lines = self._get_gemini_digitization_product_lines()
+        if product_lines:
+            mode = 'partial_purchase'
+            name_template = _('Gemini OCR: Partial Purchase Order %s')
+        else:
+            mode = 'full_purchase'
+            name_template = _('Gemini OCR: Purchase Order %s')
         job = self.env['account.gemini.digitization.job'].create({
-            'name': _('Gemini OCR: Purchase Order %s') % document_name,
-            'mode': 'full_purchase',
+            'name': name_template % document_name,
+            'mode': mode,
             'state': 'draft',
             'purchase_order_id': self.id,
             'res_model': 'purchase.order',
@@ -89,6 +135,20 @@ class PurchaseOrder(models.Model):
             notification_type=result.get('notification_type', 'info'),
             sticky=result.get('sticky', False),
         )
+
+    def _get_gemini_digitization_product_lines(self):
+        self.ensure_one()
+        return self.order_line.filtered(
+            lambda line: self._is_gemini_digitization_product_line(line)
+        )
+
+    def _is_gemini_digitization_product_line(self, line):
+        if not line.product_id:
+            return False
+        display_type = getattr(line, 'display_type', False)
+        if display_type:
+            return False
+        return True
 
     def _get_gemini_digitization_document_action(self):
         self.ensure_one()

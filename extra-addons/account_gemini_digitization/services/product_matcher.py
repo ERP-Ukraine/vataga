@@ -124,6 +124,8 @@ class ProductMatcher:
         self._repair_job_partner(job)
         if job.mode == 'partial_bill':
             self._match_partial_bill(job)
+        elif job.mode == 'partial_purchase':
+            self._match_partial_purchase(job)
         elif job.mode == 'full_bill':
             self._match_full_bill(job)
         elif job.mode == 'full_purchase':
@@ -137,12 +139,27 @@ class ProductMatcher:
         partner = self._get_job_partner(job)
         self._assign_partial_bill_move_lines(job, line_source, partner)
 
+    def _match_partial_purchase(self, job):
+        line_source = self._get_partial_purchase_line_source(job)
+        partner = self._get_job_partner(job)
+        self._assign_partial_bill_move_lines(job, line_source, partner)
+
     def sync_partial_bill_move_lines(self, job):
         """Fill concrete vendor bill lines for already matched partial OCR rows."""
         job.ensure_one()
         if job.mode != 'partial_bill':
             return True
         line_source = self._get_partial_bill_line_source(job)
+        partner = self._get_job_partner(job)
+        self._assign_partial_bill_move_lines(job, line_source, partner)
+        return True
+
+    def sync_partial_purchase_order_lines(self, job):
+        """Fill concrete purchase order lines for already matched partial OCR rows."""
+        job.ensure_one()
+        if job.mode != 'partial_purchase':
+            return True
+        line_source = self._get_partial_purchase_line_source(job)
         partner = self._get_job_partner(job)
         self._assign_partial_bill_move_lines(job, line_source, partner)
         return True
@@ -232,6 +249,16 @@ class ProductMatcher:
                 'invoice_product_lines': [],
                 'line_ids': [],
                 'line_product_lines': [],
+                'line_field': 'move_line_id',
+                'document_label': 'vendor bill',
+                'business_line_label': 'vendor bill line',
+                'document_id_label': 'Move ID',
+                'document_id': 'none',
+                'source_total_label': 'invoice_line_ids total',
+                'source_product_label': 'invoice_line_ids product lines',
+                'fallback_total_label': 'line_ids total',
+                'fallback_product_label': 'line_ids product lines',
+                'candidate_scope_label': 'current vendor bill',
             }
 
         invoice_lines = list(getattr(move, 'invoice_line_ids', []))
@@ -261,7 +288,72 @@ class ProductMatcher:
             'invoice_product_lines': invoice_product_lines,
             'line_ids': line_ids,
             'line_product_lines': line_product_lines,
+            'line_field': 'move_line_id',
+            'document_label': 'vendor bill',
+            'business_line_label': 'vendor bill line',
+            'document_id_label': 'Move ID',
+            'document_id': move.id,
+            'source_total_label': 'invoice_line_ids total',
+            'source_product_label': 'invoice_line_ids product lines',
+            'fallback_total_label': 'line_ids total',
+            'fallback_product_label': 'line_ids product lines',
+            'candidate_scope_label': 'current vendor bill',
         }
+
+    def _get_partial_purchase_line_source(self, job):
+        order = job.purchase_order_id
+        if not order:
+            return {
+                'source': 'none',
+                'product_lines': [],
+                'invoice_lines': [],
+                'invoice_product_lines': [],
+                'line_ids': [],
+                'line_product_lines': [],
+                'line_field': 'purchase_order_line_id',
+                'document_label': 'purchase order',
+                'business_line_label': 'purchase order line',
+                'document_id_label': 'Purchase Order ID',
+                'document_id': 'none',
+                'source_total_label': 'order_line total',
+                'source_product_label': 'order_line product lines',
+                'fallback_total_label': 'fallback lines total',
+                'fallback_product_label': 'fallback product lines',
+                'candidate_scope_label': 'current purchase order/RFQ',
+            }
+
+        order_lines = list(getattr(order, 'order_line', []))
+        order_product_lines = [
+            line
+            for line in order_lines
+            if self._is_purchase_product_line(line)
+        ]
+        return {
+            'source': 'order_line',
+            'product_lines': order_product_lines,
+            'invoice_lines': order_lines,
+            'invoice_product_lines': order_product_lines,
+            'line_ids': [],
+            'line_product_lines': [],
+            'line_field': 'purchase_order_line_id',
+            'document_label': 'purchase order',
+            'business_line_label': 'purchase order line',
+            'document_id_label': 'Purchase Order ID',
+            'document_id': order.id,
+            'source_total_label': 'order_line total',
+            'source_product_label': 'order_line product lines',
+            'fallback_total_label': 'fallback lines total',
+            'fallback_product_label': 'fallback product lines',
+            'candidate_scope_label': 'current purchase order/RFQ',
+        }
+
+    def _is_purchase_product_line(self, line):
+        if not getattr(line, 'product_id', False):
+            return False
+        display_type = getattr(line, 'display_type', False)
+        if display_type:
+            return False
+        return True
 
     def _is_move_product_line(self, line):
         if not getattr(line, 'product_id', False):
@@ -300,9 +392,13 @@ class ProductMatcher:
             return False
 
         candidate['score'] = 1.0
-        candidate['method'] = 'single_line_partial_bill'
+        candidate['method'] = self._partial_method(
+            line_source,
+            'single_line_partial_bill',
+            'single_line_partial_purchase',
+        )
         candidate.setdefault('notes', []).append(
-            'Single-line partial_bill fallback: one create_line OCR row and one product line on the vendor bill.'
+            'Single-line partial fallback: one create_line OCR row and one product line on the document.'
         )
         candidate['notes'].append(
             'Quantity, price, and taxes will be applied to the existing line after validation.'
@@ -335,19 +431,25 @@ class ProductMatcher:
                 move_line=move_line,
             ),
         )
-        line.write({
-            'move_line_id': move_line.id,
-            'matched_product_id': product.id,
-            'candidate_product_ids': [(6, 0, [])],
-            'candidate_move_line_ids': [(6, 0, [move_line.id])],
+        values = self._partial_business_line_match_values(
+            line_source,
+            move_line,
+            product,
+        )
+        values.update({
             'match_status': 'matched',
             'match_score': 1.0,
-            'match_method': 'single_line_partial_bill',
+            'match_method': self._partial_method(
+                line_source,
+                'single_line_partial_bill',
+                'single_line_partial_purchase',
+            ),
             'match_summary': _(
-                'Єдиний OCR-рядок зіставлено з єдиним рядком рахунку.'
+                'Єдиний OCR-рядок зіставлено з єдиним рядком документа.'
             ),
             'match_note': note,
         })
+        line.write(values)
         return True
 
     def _sync_partial_line_product_from_move_line(
@@ -357,7 +459,7 @@ class ProductMatcher:
         create_line_count,
         from_matching=False,
     ):
-        move_line = line.move_line_id
+        move_line = self._get_partial_business_line(line)
         if not move_line:
             return False
         product = move_line.product_id
@@ -374,7 +476,7 @@ class ProductMatcher:
                 'match_method': line.match_method or 'move_line_product_sync',
                 'match_score': max(line.match_score or 0.0, 0.95),
                 'match_summary': _(
-                    'Matched: vendor bill line %(line)s by move_line_product_sync, score %(score).2f'
+                    'Matched: document line %(line)s by move_line_product_sync, score %(score).2f'
                 ) % {
                     'line': move_line.display_name,
                     'score': max(line.match_score or 0.0, 0.95),
@@ -437,15 +539,17 @@ class ProductMatcher:
     ):
         product_lines = line_source['product_lines']
         selected_product = getattr(move_line, 'product_id', False) if move_line else False
+        line_field = line_source.get('line_field') or 'move_line_id'
         return '\n'.join([
-            'Partial bill move-line sync:',
+            'Partial document line sync:',
+            'Document: %s.' % line_source.get('document_label', 'document'),
             'OCR create_line rows: %s.' % create_line_count,
-            'Vendor bill product lines: %s.' % len(product_lines),
+            'Document product lines: %s.' % len(product_lines),
             'Single-line fallback applicable: %s.' % (
                 'yes' if create_line_count == 1 and len(product_lines) == 1 else 'no'
             ),
-            'Resolved move_line_id: %s.' % (move_line.id if move_line else 'none'),
-            'Move line product: %s.' % (
+            'Resolved %s: %s.' % (line_field, move_line.id if move_line else 'none'),
+            'Business line product: %s.' % (
                 getattr(selected_product, 'display_name', False)
                 or getattr(selected_product, 'name', False)
                 or 'none'
@@ -498,7 +602,7 @@ class ProductMatcher:
                     return
 
         locked_move_line_ids = {
-            line.move_line_id.id
+            self._get_partial_business_line(line).id
             for line in create_lines
             if self._is_manual_partial_mapping(line)
         }
@@ -531,7 +635,7 @@ class ProductMatcher:
     def _is_manual_partial_mapping(self, line):
         method = str(getattr(line, 'match_method', '') or '')
         return bool(
-            line.move_line_id
+            self._get_partial_business_line(line)
             and (
                 line.match_status == 'manual'
                 or method.startswith('manual_')
@@ -654,9 +758,10 @@ class ProductMatcher:
         unmatched_lines = []
         for line in create_lines:
             if self._is_manual_partial_mapping(line):
-                if not line.move_line_id:
+                business_line = self._get_partial_business_line(line)
+                if not business_line:
                     return False
-                assigned_move_line_ids.append(line.move_line_id.id)
+                assigned_move_line_ids.append(business_line.id)
                 continue
             assigned = assignment['assigned'].get(line.id)
             if assigned and assigned.get('move_line'):
@@ -680,13 +785,21 @@ class ProductMatcher:
             'product': move_line.product_id,
             'move_line': move_line,
             'score': 0.90,
-            'method': 'remaining_line_partial_bill',
+            'method': self._partial_method(
+                line_source,
+                'remaining_line_partial_bill',
+                'remaining_line_partial_purchase',
+            ),
             'notes': [
-                'Safe residual partial_bill fallback: all other OCR rows and vendor bill lines are already uniquely assigned.'
+                'Safe residual partial fallback: all other OCR rows and document product lines are already uniquely assigned.'
             ],
         }
         assignment['global_applied'] = True
-        assignment['global_method'] = 'remaining_line_partial_bill'
+        assignment['global_method'] = self._partial_method(
+            line_source,
+            'remaining_line_partial_bill',
+            'remaining_line_partial_purchase',
+        )
         return True
 
     def _find_best_partial_assignments(self, assignment_lines, safe_candidates):
@@ -727,16 +840,18 @@ class ProductMatcher:
         diagnostics,
         create_line_count,
     ):
-        move_line = line.move_line_id
+        move_line = self._get_partial_business_line(line)
         product = move_line.product_id
-        line.write({
-            'matched_product_id': product.id,
-            'candidate_product_ids': [(6, 0, [])],
-            'candidate_move_line_ids': [(6, 0, [move_line.id])],
+        values = self._partial_business_line_match_values(
+            line_source,
+            move_line,
+            product,
+        )
+        values.update({
             'match_status': 'manual',
             'match_score': line.match_score or 1.0,
             'match_method': line.match_method or 'manual_move_line',
-            'match_summary': _('Рядок рахунку обрано вручну.'),
+            'match_summary': _('Рядок документа обрано вручну.'),
             'match_note': self._append_text(
                 '\n'.join(diagnostics or []),
                 self._partial_sync_diagnostic_text(
@@ -748,6 +863,7 @@ class ProductMatcher:
                 ),
             ),
         })
+        line.write(values)
 
     def _write_partial_assignment_result(
         self,
@@ -771,9 +887,14 @@ class ProductMatcher:
         assigned = assignment['assigned'].get(line.id)
         values = {
             'move_line_id': False,
+            'purchase_order_line_id': False,
             'matched_product_id': False,
             'candidate_product_ids': [(6, 0, [])],
-            'candidate_move_line_ids': [(6, 0, self._candidate_move_line_ids(visible_candidates))],
+            'candidate_move_line_ids': [
+                (6, 0, self._candidate_move_line_ids(visible_candidates))
+                if self._is_partial_bill_source(line_source)
+                else (6, 0, [])
+            ],
             'match_score': best['score'] if best else 0.0,
             'match_method': best['method'] if best else False,
         }
@@ -784,9 +905,12 @@ class ProductMatcher:
                 'Global one-to-one assignment applied by %s.'
                 % assignment['global_method']
             )
+            values.update(self._partial_business_line_match_values(
+                line_source,
+                move_line,
+                move_line.product_id,
+            ))
             values.update({
-                'move_line_id': move_line.id,
-                'matched_product_id': move_line.product_id.id,
                 'match_status': 'matched',
                 'match_score': assigned.get('score') or 0.0,
                 'match_method': assigned.get('method') or assignment['global_method'],
@@ -825,20 +949,50 @@ class ProductMatcher:
         )
         if assigned:
             values['match_summary'] = _(
-                'Зіставлено з рядком рахунку %(line)s за методом %(method)s.'
+                'Зіставлено з рядком документа %(line)s за методом %(method)s.'
             ) % {
                 'line': assigned['move_line'].display_name,
                 'method': values['match_method'],
             }
         elif values['match_status'] == 'ambiguous':
             values['match_summary'] = _(
-                'Не вдалося однозначно визначити рядок рахунку. Виберіть його вручну.'
+                'Не вдалося однозначно визначити рядок документа.'
             )
         elif values['match_status'] == 'not_found':
             values['match_summary'] = _(
-                'Не знайдено відповідний рядок рахунку серед товарних рядків документа.'
+                'Не знайдено відповідний товарний рядок документа.'
             )
         line.write(values)
+
+    def _is_partial_bill_source(self, line_source):
+        return (line_source.get('line_field') or 'move_line_id') == 'move_line_id'
+
+    def _partial_method(self, line_source, bill_method, purchase_method):
+        return bill_method if self._is_partial_bill_source(line_source) else purchase_method
+
+    def _get_partial_business_line(self, line):
+        if getattr(line.job_id, 'mode', False) == 'partial_purchase':
+            return line.purchase_order_line_id
+        return line.move_line_id
+
+    def _partial_business_line_match_values(self, line_source, business_line, product):
+        values = {
+            'matched_product_id': product.id,
+            'candidate_product_ids': [(6, 0, [])],
+        }
+        if self._is_partial_bill_source(line_source):
+            values.update({
+                'move_line_id': business_line.id,
+                'purchase_order_line_id': False,
+                'candidate_move_line_ids': [(6, 0, [business_line.id])],
+            })
+        else:
+            values.update({
+                'move_line_id': False,
+                'purchase_order_line_id': business_line.id,
+                'candidate_move_line_ids': [(6, 0, [])],
+            })
+        return values
 
     def _partial_assignment_diagnostic_text(self, line, assignment, candidate):
         move_line = candidate.get('move_line')
@@ -2479,17 +2633,20 @@ class ProductMatcher:
         extracted_codes = self._line_codes(line)
         create_line_count = len(self._partial_create_lines(job))
         diagnostics = [
-            'Partial bill matching diagnostics:',
+            'Partial document matching diagnostics:',
             'Job mode: %s.' % job.mode,
-            'Move ID: %s.' % (job.move_id.id if job.move_id else 'none'),
+            '%s: %s.' % (
+                line_source.get('document_id_label', 'Document ID'),
+                line_source.get('document_id', 'none'),
+            ),
             'OCR create_line rows: %s.' % create_line_count,
             'Extracted supplier/internal codes: %s.' % (
                 ', '.join(extracted_codes) if extracted_codes else 'none'
             ),
-            'invoice_line_ids total: %s.' % len(invoice_lines),
-            'invoice_line_ids product lines: %s.' % len(invoice_product_lines),
-            'line_ids total: %s.' % len(line_ids),
-            'line_ids product lines: %s.' % len(line_product_lines),
+            '%s: %s.' % (line_source.get('source_total_label'), len(invoice_lines)),
+            '%s: %s.' % (line_source.get('source_product_label'), len(invoice_product_lines)),
+            '%s: %s.' % (line_source.get('fallback_total_label'), len(line_ids)),
+            '%s: %s.' % (line_source.get('fallback_product_label'), len(line_product_lines)),
             'Line source used: %s.' % line_source['source'],
             'Single-line fallback available: %s.' % (
                 'yes' if create_line_count == 1 and len(move_lines) == 1 else 'no'
@@ -2503,14 +2660,16 @@ class ProductMatcher:
                 self._recognized_price_unit(line) or 'none',
                 self._recognized_subtotal(line) or 'none',
             ),
-            'Candidate scope: candidates are limited to product lines of the current vendor bill.',
-            'Methods tried: supplier_product_code, supplier_product_name, default_code, barcode, product name, move_line.name, supplierinfo of candidate products.',
-            'Fields compared for matching: product/default/barcode/display names, move_line.name, supplierinfo code/name of products already on this bill.',
-            'Quantity, price_unit, subtotal, and total are ignored for move-line selection because OCR will overwrite them after Apply.',
+            'Candidate scope: candidates are limited to product lines of the %s.' % (
+                line_source.get('candidate_scope_label', 'current document')
+            ),
+            'Methods tried: supplier_product_code, supplier_product_name, default_code, barcode, product name, business line name, supplierinfo of candidate products.',
+            'Fields compared for matching: product/default/barcode/display names, business line name, supplierinfo code/name of products already on this document.',
+            'Quantity, price_unit, subtotal, and total are ignored for line selection because OCR will overwrite them after Apply.',
         ]
         if not move_lines:
             diagnostics.append(
-                'No product invoice lines are available on the vendor bill after checking invoice_line_ids and line_ids fallback.'
+                'No product lines are available on the current document for partial matching.'
             )
             return diagnostics
 
@@ -2528,7 +2687,10 @@ class ProductMatcher:
                 % (
                     best.get('score') or 0.0,
                     best.get('method') or 'unknown',
-                    ' on move_line_id=%s' % move_line.id if move_line else '',
+                    ' on %s=%s' % (
+                        line_source.get('line_field', 'line_id'),
+                        move_line.id,
+                    ) if move_line else '',
                     product_name,
                 )
             )
@@ -2554,6 +2716,11 @@ class ProductMatcher:
                     len(line_source['line_product_lines']),
                 )
             )
+        if line_source['source'] == 'order_line':
+            return (
+                'Used purchase order/RFQ order_line with %s product lines.'
+                % len(line_source['invoice_product_lines'])
+            )
         return 'No move line source was available.'
 
     def _format_partial_candidate_diagnostics(self, candidate):
@@ -2571,7 +2738,7 @@ class ProductMatcher:
             decision = 'rejected below threshold'
 
         values = [
-            '- move_line_id=%s; product_id=%s; score=%.2f; method=%s; decision=%s.'
+            '- business_line_id=%s; product_id=%s; score=%.2f; method=%s; decision=%s.'
             % (
                 move_line.id,
                 product.id,
@@ -2589,7 +2756,7 @@ class ProductMatcher:
                 getattr(product, 'default_code', False) or '',
                 getattr(product, 'barcode', False) or '',
             ),
-            '  move_line.name=%s' % (getattr(move_line, 'name', False) or ''),
+            '  business_line.name=%s' % (getattr(move_line, 'name', False) or ''),
             '  display_type=%s; account_id=%s; account_type=%s'
             % (
                 getattr(move_line, 'display_type', False) or '',
@@ -2598,7 +2765,7 @@ class ProductMatcher:
             ),
             '  quantity=%s; price_unit=%s; price_subtotal=%s'
             % (
-                getattr(move_line, 'quantity', False),
+                getattr(move_line, 'quantity', False) or getattr(move_line, 'product_qty', False),
                 getattr(move_line, 'price_unit', False),
                 getattr(move_line, 'price_subtotal', False),
             ),

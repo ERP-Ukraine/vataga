@@ -1,5 +1,10 @@
-from odoo import _, fields, models
+import logging
+
+from odoo import _, api, fields, models
 from odoo.exceptions import UserError
+
+
+_logger = logging.getLogger(__name__)
 
 
 SUPPORTED_DIGITIZATION_MIMETYPES = (
@@ -13,11 +18,37 @@ SUPPORTED_DIGITIZATION_MIMETYPES = (
 class AccountMove(models.Model):
     _inherit = 'account.move'
 
+    gemini_has_attachment = fields.Boolean(
+        compute='_compute_gemini_has_attachment',
+        compute_sudo=True,
+    )
     gemini_has_supported_attachment = fields.Boolean(
         compute='_compute_gemini_has_supported_attachment',
         compute_sudo=True,
     )
 
+    @api.depends('message_attachment_count')
+    def _compute_gemini_has_attachment(self):
+        move_ids_with_attachments = set()
+        if self.ids:
+            groups = self.env['ir.attachment'].sudo().read_group(
+                [
+                    ('res_model', '=', 'account.move'),
+                    ('res_id', 'in', self.ids),
+                    ('type', '=', 'binary'),
+                ],
+                ['res_id'],
+                ['res_id'],
+            )
+            move_ids_with_attachments = {
+                group['res_id']
+                for group in groups
+                if group.get('res_id')
+            }
+        for move in self:
+            move.gemini_has_attachment = move.id in move_ids_with_attachments
+
+    @api.depends('message_attachment_count')
     def _compute_gemini_has_supported_attachment(self):
         supported_move_ids = set()
         if self.ids:
@@ -25,6 +56,7 @@ class AccountMove(models.Model):
                 [
                     ('res_model', '=', 'account.move'),
                     ('res_id', 'in', self.ids),
+                    ('type', '=', 'binary'),
                     ('mimetype', 'in', SUPPORTED_DIGITIZATION_MIMETYPES),
                 ],
                 ['res_id'],
@@ -44,6 +76,7 @@ class AccountMove(models.Model):
             [
                 ('res_model', '=', 'account.move'),
                 ('res_id', '=', self.id),
+                ('type', '=', 'binary'),
                 ('mimetype', 'in', SUPPORTED_DIGITIZATION_MIMETYPES),
             ],
             order='create_date desc, id desc',
@@ -60,8 +93,14 @@ class AccountMove(models.Model):
         attachment = self._get_latest_gemini_digitization_attachment()
         if not attachment:
             raise UserError(_(
-                'Спочатку прикріпіть PDF або зображення рахунку постачальника до документа.'
+                'Не знайдено придатного файлу для оцифрування. Прикріпіть PDF або зображення PNG/JPEG.'
             ))
+        _logger.info(
+            'Gemini OCR selected attachment "%s" (%s) for account.move %s.',
+            attachment.name,
+            attachment.mimetype,
+            self.id,
+        )
 
         product_lines = self._get_gemini_digitization_product_lines()
         if product_lines:

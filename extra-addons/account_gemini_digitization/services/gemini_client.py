@@ -558,6 +558,17 @@ Do not create products.
 Do not apply data to account.move.
 Do not create invoice lines.
 """
+        if mode == 'partial_purchase':
+            return """
+partial_purchase:
+The document is a supplier invoice uploaded to a purchase order or RFQ that already has product lines in Odoo.
+Products already exist in purchase.order.line.
+Extract invoice number, invoice date, vendor, VAT, prices, totals, and document lines for later matching.
+Do not match products.
+Do not create products.
+Do not apply data to purchase.order.
+Do not create purchase order lines.
+"""
         if mode == 'full_purchase':
             return """
 full_purchase:

@@ -32,6 +32,7 @@ class AccountGeminiDigitizationJob(models.Model):
     MODE_SELECTION = [
         ('partial_bill', 'Partial Vendor Bill Recognition'),
         ('full_bill', 'Full Vendor Bill Recognition'),
+        ('partial_purchase', 'Partial Purchase Order Recognition'),
         ('full_purchase', 'Full Purchase Order Recognition'),
     ]
 
@@ -409,6 +410,40 @@ class AccountGeminiDigitizationJob(models.Model):
                 used_move_line_ids.add(line.move_line_id.id)
             return False
 
+        if self.mode == 'partial_purchase':
+            problematic = create_lines.filtered(
+                lambda line: line.match_status not in ('matched', 'manual')
+                or not line.purchase_order_line_id
+            )
+            if problematic:
+                return _(
+                    'Оцифрування завершено, але не вдалося однозначно зіставити %(count)s рядків із товарами замовлення. '
+                    'Дані не були застосовані автоматично.'
+                ) % {
+                    'count': len(problematic),
+                }
+            used_order_line_ids = set()
+            for line in create_lines:
+                if not self._is_positive_number(line.quantity):
+                    return _('Some OCR lines do not have a positive quantity.')
+                if not self._is_positive_number(line.price_unit):
+                    return _('Some OCR lines do not have a positive unit price.')
+                if line.purchase_order_line_id.order_id != self.purchase_order_id:
+                    return _('Some OCR lines are linked to another purchase order.')
+                if not line.purchase_order_line_id.product_id:
+                    return _('Some selected purchase order lines do not have products.')
+                if line.matched_product_id != line.purchase_order_line_id.product_id:
+                    return _(
+                        'Оцифрування завершено, але не вдалося однозначно зіставити %(count)s рядків із товарами замовлення. '
+                        'Дані не були застосовані автоматично.'
+                    ) % {
+                        'count': 1,
+                    }
+                if line.purchase_order_line_id.id in used_order_line_ids:
+                    return _('One purchase order line is assigned to several OCR lines.')
+                used_order_line_ids.add(line.purchase_order_line_id.id)
+            return False
+
         for line in create_lines:
             if line.match_status not in ('matched', 'manual'):
                 return _('Some OCR lines are not confidently matched.')
@@ -439,12 +474,17 @@ class AccountGeminiDigitizationJob(models.Model):
 
     def _get_automatic_manual_review_message(self, details=False):
         self.ensure_one()
-        if details and self.mode == 'partial_bill':
+        if details and self.mode in ('partial_bill', 'partial_purchase'):
             return details
         if self.mode == 'partial_bill':
             message = _(
                 'Оцифрування завершено, але не вдалося однозначно зіставити всі рядки '
                 'з товарами рахунку. Дані не були застосовані автоматично.'
+            )
+        elif self.mode == 'partial_purchase':
+            message = _(
+                'Оцифрування завершено, але не вдалося однозначно зіставити рядки '
+                'з товарами замовлення. Дані не були застосовані автоматично.'
             )
         else:
             message = _(
@@ -459,6 +499,8 @@ class AccountGeminiDigitizationJob(models.Model):
         self.ensure_one()
         if self.mode == 'partial_bill':
             return _('Оцифрування завершено. Кількість, ціни та податки в рядках рахунку оновлено.')
+        if self.mode == 'partial_purchase':
+            return _('Оцифрування завершено. Кількість, ціни та податки в рядках замовлення оновлено.')
         if self.mode == 'full_bill':
             if isinstance(apply_result, dict):
                 applied = apply_result.get('gemini_applied_count', 0)
@@ -576,6 +618,23 @@ class AccountGeminiDigitizationJob(models.Model):
             )
             if problematic:
                 return self._get_automatic_manual_review_message()
+            return False
+
+        if self.mode == 'partial_purchase':
+            problematic = self.line_ids.filtered(
+                lambda line: (line.apply_action or 'create_line') == 'create_line'
+                and (
+                    line.match_status not in ('matched', 'manual')
+                    or not line.purchase_order_line_id
+                )
+            )
+            if problematic:
+                return _(
+                    'Оцифрування завершено, але не вдалося однозначно зіставити %(count)s рядків із товарами замовлення. '
+                    'Дані не були застосовані автоматично.'
+                ) % {
+                    'count': len(problematic),
+                }
             return False
 
         if self.mode == 'full_bill':

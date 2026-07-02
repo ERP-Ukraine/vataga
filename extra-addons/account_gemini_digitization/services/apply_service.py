@@ -17,12 +17,18 @@ class DigitizationApplyService:
         if self.job.mode == 'partial_bill':
             ProductMatcher(self.env).sync_partial_bill_move_lines(self.job)
             self.job._update_matching_message_after_matching()
+        if self.job.mode == 'partial_purchase':
+            ProductMatcher(self.env).sync_partial_purchase_order_lines(self.job)
+            self.job._update_matching_message_after_matching()
         return _JobApplyContext(self.job).action_apply()
 
     def validate_for_automatic_apply(self):
         self.job.ensure_one()
         if self.job.mode == 'partial_bill':
             ProductMatcher(self.env).sync_partial_bill_move_lines(self.job)
+            self.job._update_matching_message_after_matching()
+        if self.job.mode == 'partial_purchase':
+            ProductMatcher(self.env).sync_partial_purchase_order_lines(self.job)
             self.job._update_matching_message_after_matching()
         return _JobApplyContext(self.job).validate_for_automatic_apply()
 
@@ -51,6 +57,8 @@ class _JobApplyContext:
             raise UserError(_('This Gemini job has already been applied.'))
         if self.mode == 'partial_bill':
             return self._apply_partial_bill()
+        if self.mode == 'partial_purchase':
+            return self._apply_partial_purchase()
         if self.mode == 'full_bill':
             return self._apply_full_bill()
         if self.mode == 'full_purchase':
@@ -65,6 +73,13 @@ class _JobApplyContext:
             self._validate_review_lines()
             apply_plans = self._prepare_partial_bill_apply_plan(move)
             self._validate_partial_bill_apply_plans(apply_plans, move)
+            return True
+        if self.job.mode == 'partial_purchase':
+            order = self.job.purchase_order_id
+            self._validate_partial_purchase_apply(self.job, order)
+            self._validate_partial_purchase_review_lines()
+            apply_plans = self._prepare_partial_purchase_apply_plan(order)
+            self._validate_partial_purchase_apply_plans(apply_plans, order)
             return True
         if self.job.mode == 'full_bill':
             move = self.job.move_id
@@ -148,6 +163,33 @@ class _JobApplyContext:
             'views': [(False, 'form')],
             'target': 'current',
         }
+
+    def _apply_partial_purchase(self):
+        self.ensure_one()
+        if self.mode != 'partial_purchase':
+            raise UserError(_('Unsupported Gemini review mode: %s') % self.mode)
+
+        job = self.job_id
+        order = job.purchase_order_id
+        self._validate_partial_purchase_apply(job, order)
+        self._validate_partial_purchase_review_lines()
+        apply_plans = self._prepare_partial_purchase_apply_plan(order)
+        self._validate_partial_purchase_apply_plans(apply_plans, order)
+
+        existing_line_ids = set(order.order_line.ids)
+        for plan in apply_plans:
+            self._apply_purchase_review_line(plan, order)
+
+        if set(order.order_line.ids) != existing_line_ids:
+            raise UserError(_('Apply must not create or delete purchase order lines.'))
+
+        job.write({
+            'state': 'done',
+            'error_message': False,
+            'matching_message': False,
+        })
+
+        return self._get_purchase_order_form_action(order)
 
     def _apply_full_bill(self):
         job = self.job_id
@@ -477,6 +519,28 @@ class _JobApplyContext:
             raise UserError(_(
                 'This Gemini full purchase job already has created purchase order lines and cannot be applied again.'
             ))
+        if self._get_purchase_product_lines(order):
+            raise UserError(_(
+                'Purchase order already contains product lines. Use partial purchase recognition for existing lines.'
+            ))
+
+    def _validate_partial_purchase_apply(self, job, order):
+        if not job or job.state != 'review':
+            raise UserError(_('Gemini job must be in Review state before apply.'))
+        if not order:
+            raise UserError(_('Gemini job is not linked to a purchase order.'))
+        if order.state not in ('draft', 'sent'):
+            raise UserError(_(
+                'Gemini partial purchase apply is allowed only for draft or sent purchase orders.'
+            ))
+        if not (order.partner_id or job.partner_id):
+            raise UserError(_(
+                'Спочатку оберіть постачальника в замовленні на закупівлю.'
+            ))
+        if not self._get_purchase_product_lines(order):
+            raise UserError(_(
+                'Purchase order has no product lines. Use full purchase recognition for empty orders.'
+            ))
 
     def _validate_review_lines(self):
         if not self.line_ids:
@@ -685,6 +749,57 @@ class _JobApplyContext:
             raise UserError('\n'.join(errors))
         return True
 
+    def _validate_partial_purchase_apply_plans(self, apply_plans, order):
+        errors = []
+        used_order_line_ids = {}
+        for plan in apply_plans:
+            line = plan['line']
+            order_line = line.purchase_order_line_id
+            label = line._display_label()
+            if not order_line or order_line.order_id != order:
+                errors.append(_(
+                    'Selected purchase order line does not belong to the reviewed order: %s'
+                ) % label)
+                continue
+            if not order_line.product_id:
+                errors.append(_(
+                    'Selected purchase order line has no product: %s'
+                ) % label)
+                continue
+            if (
+                line.matched_product_id
+                and line.matched_product_id != order_line.product_id
+            ):
+                errors.append(_(
+                    'Matched product does not match selected purchase order line product: %s'
+                ) % label)
+
+            if order_line.id in used_order_line_ids:
+                errors.append(_(
+                    'One purchase order line cannot be assigned to several OCR lines: %s'
+                ) % label)
+            else:
+                used_order_line_ids[order_line.id] = line
+
+            if not self._is_positive_number(plan['quantity']):
+                errors.append(_(
+                    '%s: OCR quantity must be greater than zero before Apply.'
+                ) % label)
+
+            if not self._is_partial_purchase_uom_compatible(line, order_line):
+                errors.append(_(
+                    'Товари замовлення зіставлено, але кількість неможливо безпечно перенести: '
+                    'одиниця виміру в документі «%(ocr_uom)s», а в рядку замовлення «%(line_uom)s». '
+                    'Перевірте налаштування одиниць виміру або упаковки товару.'
+                ) % {
+                    'ocr_uom': line.uom_name or '',
+                    'line_uom': self._get_purchase_line_uom_name(order_line) or '',
+                })
+
+        if errors:
+            raise UserError('\n'.join(errors))
+        return True
+
     def _validate_full_bill_review_lines(self):
         if not self.line_ids:
             raise UserError(_('There are no recognized lines to apply.'))
@@ -743,6 +858,73 @@ class _JobApplyContext:
                 'Not all recognized lines have an Odoo product selected. '
                 'Please check Review. Lines: %s'
             ) % ', '.join(missing_product))
+        if missing_quantity:
+            raise UserError(_(
+                'Not all recognized lines have a positive quantity. '
+                'Please check Review. Lines: %s'
+            ) % ', '.join(missing_quantity))
+        if missing_price:
+            raise UserError(_(
+                'Not all recognized lines have a positive unit price. '
+                'Please check Review. Lines: %s'
+            ) % ', '.join(missing_price))
+
+    def _validate_partial_purchase_review_lines(self):
+        if not self.line_ids:
+            raise UserError(_('There are no recognized lines to apply.'))
+
+        incomplete = []
+        invalid = []
+        missing_price = []
+        missing_quantity = []
+        duplicate_order_lines = []
+        invalid_action = []
+        used_order_line_ids = {}
+        create_lines = self.line_ids.filtered(
+            lambda line: (line.apply_action or 'create_line') == 'create_line'
+        )
+
+        if not create_lines:
+            raise UserError(_('At least one OCR line must update a purchase order line.'))
+
+        for line in self.line_ids:
+            label = line._display_label()
+            action = line.apply_action or 'create_line'
+            if action != 'create_line':
+                invalid_action.append(label)
+                continue
+            if not line.purchase_order_line_id:
+                incomplete.append(label)
+                continue
+            if line.match_status == 'error':
+                invalid.append(label)
+                continue
+            if line.match_status not in ('matched', 'manual'):
+                incomplete.append(label)
+            if line.purchase_order_line_id.id in used_order_line_ids:
+                duplicate_order_lines.append(label)
+            else:
+                used_order_line_ids[line.purchase_order_line_id.id] = line
+            if not self._is_positive_number(line.quantity):
+                missing_quantity.append(label)
+            if not self._is_positive_number(line.price_unit):
+                missing_price.append(label)
+
+        if invalid_action:
+            raise UserError(_('Automatic apply is disabled when OCR lines use merge or skip actions.'))
+        if incomplete:
+            raise UserError(_(
+                'Оцифрування завершено, але не вдалося однозначно зіставити %(count)s рядків із товарами замовлення. '
+                'Дані не були застосовані автоматично.'
+            ) % {
+                'count': len(set(incomplete)),
+            })
+        if invalid:
+            raise UserError(_('Lines with matching errors cannot be applied. Lines: %s') % ', '.join(invalid))
+        if duplicate_order_lines:
+            raise UserError(_(
+                'One purchase order line cannot be assigned to several OCR lines. Lines: %s'
+            ) % ', '.join(duplicate_order_lines))
         if missing_quantity:
             raise UserError(_(
                 'Not all recognized lines have a positive quantity. '
@@ -941,6 +1123,53 @@ class _JobApplyContext:
                 )
 
         return create_plans, skipped_reasons
+
+    def _prepare_partial_purchase_apply_plan(self, order):
+        errors = []
+        apply_plans = []
+        create_lines = self.line_ids.filtered(
+            lambda line: (line.apply_action or 'create_line') == 'create_line'
+        )
+        for line in create_lines.sorted('sequence'):
+            try:
+                final_tax_rate = self._normalize_tax_rate(line.tax_rate)
+                quantity, price_unit, amount_untaxed = self._get_full_bill_plan_values(
+                    line,
+                    self.env['account.gemini.digitization.line'],
+                )
+                quantity, price_unit = self._convert_partial_purchase_plan_values(
+                    line,
+                    line.purchase_order_line_id,
+                    quantity,
+                    price_unit,
+                    amount_untaxed,
+                )
+                tax_ids, _tax_warning = self._get_line_taxes(
+                    line,
+                    order,
+                    strict=True,
+                    tax_rate_override=final_tax_rate,
+                )
+                amount_tax, amount_total = self._get_full_bill_plan_tax_amounts(
+                    amount_untaxed,
+                    final_tax_rate,
+                )
+                apply_plans.append({
+                    'line': line,
+                    'tax_ids': tax_ids,
+                    'tax_rate': final_tax_rate,
+                    'quantity': quantity,
+                    'price_unit': price_unit,
+                    'amount_untaxed': amount_untaxed,
+                    'amount_tax': amount_tax,
+                    'amount_total': amount_total,
+                })
+            except UserError as error:
+                errors.append(self._get_error_message(error))
+
+        if errors:
+            raise UserError('\n'.join(errors))
+        return apply_plans
 
     def _validate_full_bill_create_candidate(self, line):
         action = line.apply_action or 'create_line'
@@ -1222,6 +1451,17 @@ class _JobApplyContext:
             'target': 'current',
         }
 
+    def _get_purchase_order_form_action(self, order):
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _('Замовлення на закупівлю'),
+            'res_model': 'purchase.order',
+            'res_id': order.id,
+            'view_mode': 'form',
+            'views': [(False, 'form')],
+            'target': 'current',
+        }
+
     def _prepare_full_purchase_order_line_values(self, plan, order):
         line = plan['line']
         product = line.matched_product_id
@@ -1286,6 +1526,9 @@ class _JobApplyContext:
             return invoice_lines
         return move.line_ids.filtered(lambda line: self._is_move_product_line(line))
 
+    def _get_purchase_product_lines(self, order):
+        return order.order_line.filtered(lambda line: self._is_purchase_product_line(line))
+
     def _is_move_product_line(self, line):
         if not line.product_id:
             return False
@@ -1298,6 +1541,14 @@ class _JobApplyContext:
             account_type = str(account_type).lower()
             if 'receivable' in account_type or 'payable' in account_type:
                 return False
+        return True
+
+    def _is_purchase_product_line(self, line):
+        if not line.product_id:
+            return False
+        display_type = getattr(line, 'display_type', False)
+        if display_type:
+            return False
         return True
 
     def _apply_review_line(self, plan, move):
@@ -1383,6 +1634,61 @@ class _JobApplyContext:
                 ),
             })
         return warnings
+
+    def _apply_purchase_review_line(self, plan, order):
+        line = plan['line']
+        tax_ids = plan['tax_ids']
+        order_line = line.purchase_order_line_id
+        if order_line.order_id != order:
+            raise UserError(_(
+                'Selected purchase order line does not belong to the reviewed order: %s'
+            ) % line._display_label())
+
+        matched_product = order_line.product_id
+        values = {
+            'product_qty': plan['quantity'],
+            'price_unit': plan['price_unit'],
+        }
+        if tax_ids:
+            values['taxes_id'] = [(6, 0, tax_ids.ids)]
+        order_line.write(values)
+
+        status = line.match_status
+        method = line.match_method
+        if status not in ('matched', 'manual'):
+            status = 'manual'
+            method = method or 'manual_purchase_order_line'
+        match_score = line.match_score
+        if status == 'manual' and not match_score:
+            match_score = 1.0
+
+        note = self._append_text(
+            line.job_line_id.note,
+            _('Applied to purchase order line %s.') % order_line.display_name,
+        )
+        line.job_line_id.write({
+            'purchase_order_line_id': order_line.id,
+            'move_line_id': False,
+            'matched_product_id': matched_product.id,
+            'apply_action': 'create_line',
+            'merge_target_line_id': False,
+            'match_status': status,
+            'match_score': match_score,
+            'match_method': method,
+            'match_summary': line.match_summary,
+            'quantity': plan['quantity'],
+            'price_unit': plan['price_unit'],
+            'tax_rate': plan['tax_rate'],
+            'tax_ids': [(6, 0, tax_ids.ids)] if tax_ids else [(6, 0, [])],
+            'amount_untaxed': plan['amount_untaxed'],
+            'amount_tax': plan['amount_tax'],
+            'amount_total': plan['amount_total'],
+            'line_subtotal_without_tax': plan['amount_untaxed'],
+            'line_tax_amount': plan['amount_tax'],
+            'line_total_with_tax': plan['amount_total'],
+            'note': note,
+        })
+        return True
 
     def _get_line_taxes(self, line, move, strict=False, tax_rate_override=None):
         tax_rate = self._normalize_tax_rate(
@@ -1784,6 +2090,33 @@ class _JobApplyContext:
             return converted_quantity, (price_unit * quantity) / converted_quantity
         return converted_quantity, price_unit
 
+    def _convert_partial_purchase_plan_values(
+        self,
+        line,
+        order_line,
+        quantity,
+        price_unit,
+        amount_untaxed,
+    ):
+        converted_quantity = self._convert_partial_purchase_quantity(
+            line,
+            order_line,
+            quantity,
+        )
+        if not (
+            self._is_number(converted_quantity)
+            and self._is_number(quantity)
+            and self._is_positive_number(converted_quantity)
+            and not self._numbers_close(converted_quantity, quantity, tolerance=0.0001)
+        ):
+            return quantity, price_unit
+
+        if self._is_number(amount_untaxed):
+            return converted_quantity, amount_untaxed / converted_quantity
+        if self._is_number(price_unit) and self._is_positive_number(quantity):
+            return converted_quantity, (price_unit * quantity) / converted_quantity
+        return converted_quantity, price_unit
+
     def _convert_partial_bill_quantity(self, line, move_line, quantity):
         if not self._is_number(quantity):
             return quantity
@@ -1808,12 +2141,46 @@ class _JobApplyContext:
             return quantity
         return source_uom._compute_quantity(quantity, target_uom)
 
+    def _convert_partial_purchase_quantity(self, line, order_line, quantity):
+        if not self._is_number(quantity):
+            return quantity
+        source_uom_name = getattr(line, 'uom_name', False)
+        normalized_source_uom = self._normalize_partial_uom(source_uom_name)
+        if not normalized_source_uom:
+            return quantity
+
+        target_uom = self._get_purchase_line_uom(order_line)
+        if not target_uom:
+            return quantity
+
+        source_uom = self._find_partial_ocr_uom(source_uom_name, target_uom)
+        if not source_uom:
+            if self._partial_uom_names_match(source_uom_name, target_uom):
+                return quantity
+            raise UserError(self._partial_purchase_uom_error_message(line, order_line))
+
+        if source_uom.category_id != target_uom.category_id:
+            raise UserError(self._partial_purchase_uom_error_message(line, order_line))
+        if source_uom == target_uom:
+            return quantity
+        return source_uom._compute_quantity(quantity, target_uom)
+
     def _is_partial_uom_compatible(self, line, move_line):
         quantity = self._to_float(getattr(line, 'quantity', False))
         if not self._is_number(quantity):
             return True
         try:
             self._convert_partial_bill_quantity(line, move_line, quantity)
+        except UserError:
+            return False
+        return True
+
+    def _is_partial_purchase_uom_compatible(self, line, order_line):
+        quantity = self._to_float(getattr(line, 'quantity', False))
+        if not self._is_number(quantity):
+            return True
+        try:
+            self._convert_partial_purchase_quantity(line, order_line, quantity)
         except UserError:
             return False
         return True
@@ -1829,6 +2196,17 @@ class _JobApplyContext:
         return (
             getattr(move_uom, 'display_name', False)
             or getattr(move_uom, 'name', False)
+            or False
+        )
+
+    def _get_purchase_line_uom(self, order_line):
+        return getattr(order_line, 'product_uom', False)
+
+    def _get_purchase_line_uom_name(self, order_line):
+        purchase_uom = self._get_purchase_line_uom(order_line)
+        return (
+            getattr(purchase_uom, 'display_name', False)
+            or getattr(purchase_uom, 'name', False)
             or False
         )
 
@@ -1875,6 +2253,16 @@ class _JobApplyContext:
         ) % {
             'ocr_uom': getattr(line, 'uom_name', False) or '',
             'line_uom': self._get_move_line_uom_name(move_line) or '',
+        }
+
+    def _partial_purchase_uom_error_message(self, line, order_line):
+        return _(
+            'Товари замовлення зіставлено, але кількість неможливо безпечно перенести: '
+            'одиниця виміру в документі «%(ocr_uom)s», а в рядку замовлення «%(line_uom)s». '
+            'Перевірте налаштування одиниць виміру або упаковки товару.'
+        ) % {
+            'ocr_uom': getattr(line, 'uom_name', False) or '',
+            'line_uom': self._get_purchase_line_uom_name(order_line) or '',
         }
 
     def _normalize_partial_uom(self, value):
