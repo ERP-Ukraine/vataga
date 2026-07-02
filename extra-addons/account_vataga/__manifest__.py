@@ -20,5 +20,9 @@
         'views/account_payment_view.xml',
         'wizard/account_payment_register.xml',
     ],
-    'assets': {},
+    'assets': {
+        'web.assets_backend': [
+            'account_vataga/static/src/views/account_move_draft_confirmation.js',
+        ],
+    },
 }

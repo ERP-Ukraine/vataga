@@ -21,6 +21,9 @@ class AccountMove(models.Model):
     seller_contract_id = fields.Many2one(
         'account.analytic.account', domain="[('is_plan_seller_contract', '=', True)]"
     )
+    has_checked_moderation_fields = fields.Boolean(
+        compute='_compute_has_checked_moderation_fields',
+    )
 
     def _get_studio_boolean_fields_to_reset(self):
         fields_to_reset = self.env['ir.model.fields'].sudo().search([
@@ -34,6 +37,14 @@ class AccountMove(models.Model):
             for field in fields_to_reset
             if field.name in self._fields
         ]
+
+    def _compute_has_checked_moderation_fields(self):
+        fields_to_reset = self._get_studio_boolean_fields_to_reset()
+        for move in self:
+            move.has_checked_moderation_fields = any(
+                move[field_name]
+                for field_name in fields_to_reset
+            )
 
     def button_draft(self):
         posted_invoice_moves = self.filtered(
