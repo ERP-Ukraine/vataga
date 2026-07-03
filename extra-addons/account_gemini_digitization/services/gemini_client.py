@@ -475,6 +475,10 @@ Keep product lines in the same order as in the document.
 Return numbers as JSON numbers without currency symbols.
 Return dates in YYYY-MM-DD format.
 Return VAT separately as tax_rate and tax_amount.
+Return the value from document columns named "Артикул", "Код", "SKU", "Article",
+or supplier product code exactly in supplier_product_code.
+Do not interpret supplier_product_code as a number.
+Do not remove /, -, _, leading zeros, or other supplier article symbols.
 Return tax_rate as a percentage number, not as a fraction.
 For 20%% VAT return 20, not 0.2.
 For 7%% VAT return 7, not 0.07.

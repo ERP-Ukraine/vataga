@@ -386,6 +386,9 @@ class AccountGeminiDigitizationJob(models.Model):
             used_move_line_ids = set()
             for line in create_lines:
                 if line.match_status not in ('matched', 'manual') or not line.move_line_id:
+                    article_message = self._get_unmatched_supplier_article_message(line)
+                    if article_message:
+                        return article_message
                     return _(
                         'Не вдалося однозначно зіставити рядок документа з товарним рядком рахунку: %(line)s.'
                     ) % {
@@ -416,6 +419,9 @@ class AccountGeminiDigitizationJob(models.Model):
                 or not line.purchase_order_line_id
             )
             if problematic:
+                article_message = self._get_unmatched_supplier_article_message(problematic[0])
+                if article_message:
+                    return article_message
                 return _(
                     'Оцифрування завершено, але не вдалося однозначно зіставити %(count)s рядків із товарами замовлення. '
                     'Дані не були застосовані автоматично.'
@@ -617,6 +623,9 @@ class AccountGeminiDigitizationJob(models.Model):
                 )
             )
             if problematic:
+                article_message = self._get_unmatched_supplier_article_message(problematic[0])
+                if article_message:
+                    return article_message
                 return self._get_automatic_manual_review_message()
             return False
 
@@ -629,6 +638,9 @@ class AccountGeminiDigitizationJob(models.Model):
                 )
             )
             if problematic:
+                article_message = self._get_unmatched_supplier_article_message(problematic[0])
+                if article_message:
+                    return article_message
                 return _(
                     'Оцифрування завершено, але не вдалося однозначно зіставити %(count)s рядків із товарами замовлення. '
                     'Дані не були застосовані автоматично.'
@@ -646,6 +658,9 @@ class AccountGeminiDigitizationJob(models.Model):
                 )
             )
             if problematic:
+                article_message = self._get_unmatched_supplier_article_message(problematic[0])
+                if article_message:
+                    return article_message
                 return _('Some OCR lines require manual product review before Apply.')
             return False
 
@@ -658,10 +673,23 @@ class AccountGeminiDigitizationJob(models.Model):
                 )
             )
             if problematic:
+                article_message = self._get_unmatched_supplier_article_message(problematic[0])
+                if article_message:
+                    return article_message
                 return _('Some OCR lines require manual product review before Apply.')
             return False
 
         return False
+
+    def _get_unmatched_supplier_article_message(self, line):
+        code = getattr(line, 'supplier_product_code', False)
+        if not code:
+            return False
+        return _(
+            'Не вдалося зіставити артикул постачальника «%(code)s» з товарами документа.'
+        ) % {
+            'code': code,
+        }
 
     def _clean_matching_warning_from_error_message(self):
         self.ensure_one()

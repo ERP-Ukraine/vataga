@@ -1,8 +1,14 @@
 import re
+import logging
 from datetime import datetime
 
 from odoo import _
 from odoo.exceptions import UserError
+
+from .supplier_code import SupplierArticleNormalizer
+
+
+_logger = logging.getLogger(__name__)
 
 
 class ResponseParser:
@@ -170,11 +176,25 @@ class ResponseParser:
         if normalized['warning']:
             warnings.append(normalized['warning'])
 
+        supplier_product_code = self._clean_string(
+            self._first_string(
+                line.get('supplier_product_code'),
+                line.get('supplier_code'),
+                line.get('product_code'),
+                line.get('article'),
+                line.get('sku'),
+            )
+        )
+        if supplier_product_code:
+            _logger.info(
+                'OCR article raw=%s, normalized=%s',
+                supplier_product_code,
+                SupplierArticleNormalizer.normalize(supplier_product_code),
+            )
+
         return {
             'sequence': index * 10,
-            'supplier_product_code': self._clean_string(
-                line.get('supplier_product_code')
-            ),
+            'supplier_product_code': supplier_product_code,
             'supplier_product_name': self._clean_string(
                 line.get('supplier_product_name')
             ),
@@ -203,6 +223,13 @@ class ResponseParser:
             value = value.strip()
             return value or False
         return str(value)
+
+    def _first_string(self, *values):
+        for value in values:
+            cleaned = self._clean_string(value)
+            if cleaned:
+                return cleaned
+        return False
 
     def _to_float(self, value):
         if value is None or value is False:

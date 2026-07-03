@@ -4,6 +4,8 @@ import re
 
 from odoo import _
 
+from .supplier_code import SupplierArticleNormalizer
+
 
 _logger = logging.getLogger(__name__)
 
@@ -118,6 +120,7 @@ class ProductMatcher:
 
     def __init__(self, env):
         self.env = env
+        self._supplier_separatorless_cache = {}
 
     def match_job(self, job):
         job.ensure_one()
@@ -630,6 +633,7 @@ class ProductMatcher:
                 candidate_map.get(line.id) or [],
                 diagnostics_map.get(line.id),
                 assignment,
+                line_source,
             )
 
     def _is_manual_partial_mapping(self, line):
@@ -871,6 +875,7 @@ class ProductMatcher:
         candidates,
         diagnostics,
         assignment,
+        line_source,
     ):
         candidates = [
             candidate
@@ -963,6 +968,8 @@ class ProductMatcher:
                 'Не знайдено відповідний товарний рядок документа.'
             )
         line.write(values)
+        if values['match_status'] == 'not_found':
+            self._log_unmatched_supplier_article(line, candidates)
 
     def _is_partial_bill_source(self, line_source):
         return (line_source.get('line_field') or 'move_line_id') == 'move_line_id'
@@ -1060,9 +1067,16 @@ class ProductMatcher:
         profile = self._line_code_profile(line)
         search_codes = profile['primary_codes'] or profile['secondary_codes']
 
+        for seller in self._find_supplierinfos_by_articles(
+            self._line_supplier_articles(line),
+            partner,
+        ):
+            self._append_unique(products, self._seller_product(seller))
+
         for seller in self._find_supplierinfos_by_codes(
             profile['primary_codes'],
             partner,
+            allow_low_value=True,
         ):
             self._append_unique(products, self._seller_product(seller))
 
@@ -1098,6 +1112,14 @@ class ProductMatcher:
     def _score_move_line(self, line, move_line, partner):
         product = move_line.product_id
         score, method, notes = self._score_product_identity(line, product, partner)
+        score, method, notes = self._score_supplierinfo_article_exact(
+            line,
+            product,
+            partner,
+            score,
+            method,
+            notes,
+        )
         score, method, notes = self._score_partial_delivery_service_match(
             line,
             move_line,
@@ -1165,6 +1187,28 @@ class ProductMatcher:
             for term in self.DELIVERY_SERVICE_TERMS
         )
 
+    def _score_supplierinfo_article_exact(self, line, product, partner, score, method, notes):
+        for code in self._line_supplier_articles(line):
+            match_info = self._supplier_code_match_info(product, partner, code)
+            if not match_info:
+                continue
+            score, method = self._choose_score(
+                score,
+                method,
+                1.0,
+                match_info['method'],
+            )
+            notes.append(
+                'Exact vendor supplierinfo article match: raw=%s normalized=%s method=%s.'
+                % (
+                    code,
+                    SupplierArticleNormalizer.normalize(code),
+                    match_info['method'],
+                )
+            )
+            break
+        return score, method, notes
+
     def _score_product(self, line, product, partner, strict_code_profile=False):
         if strict_code_profile:
             return self._score_product_strict(line, product, partner)
@@ -1205,11 +1249,15 @@ class ProductMatcher:
             notes.append('Ignored low-value token %s for exact matching.' % token)
 
         for code in primary_codes:
-            if self._supplier_code_matches(product, partner, code):
+            supplier_code_match = self._supplier_code_match_info(product, partner, code)
+            if supplier_code_match:
                 score = 1.0
-                method = 'supplierinfo_code_exact'
+                method = supplier_code_match['method']
                 supplierinfo_signal = 'supplierinfo_code_exact:%s' % code
-                notes.append('Exact vendor supplierinfo code match: %s.' % code)
+                notes.append(
+                    'Exact vendor supplierinfo code match: %s (%s).'
+                    % (code, supplier_code_match['method'])
+                )
                 break
             if self._code_equals(code, getattr(product, 'default_code', False)):
                 score = 1.0
@@ -1380,8 +1428,13 @@ class ProductMatcher:
         notes = []
 
         for code in self._line_codes(line):
-            if self._supplier_code_matches(product, partner, code):
-                return 1.0, 'supplier_code_exact', notes
+            supplier_code_match = self._supplier_code_match_info(product, partner, code)
+            if supplier_code_match:
+                notes.append(
+                    'Exact vendor supplierinfo code match: %s (%s).'
+                    % (code, supplier_code_match['method'])
+                )
+                return 1.0, supplier_code_match['method'], notes
             if self._code_equals(code, getattr(product, 'default_code', False)):
                 return 1.0, 'default_code_exact', notes
             if self._code_equals(code, getattr(product, 'barcode', False)):
@@ -1473,7 +1526,7 @@ class ProductMatcher:
             return 'no_vendor_supplierinfo'
         for code in primary_codes:
             for seller in sellers:
-                if self._code_equals(code, getattr(seller, 'product_code', False)):
+                if SupplierArticleNormalizer.equals(code, getattr(seller, 'product_code', False)):
                     return 'supplierinfo_code_exact:%s' % code
         supplier_name = getattr(line, 'supplier_product_name', False)
         if supplier_name:
@@ -2261,7 +2314,21 @@ class ProductMatcher:
     def _score_partial_code_match(self, line, move_line, partner, score, method, notes):
         product = move_line.product_id
         candidate_codes = self._candidate_codes(product, move_line, partner)
+        supplier_article_codes = {
+            SupplierArticleNormalizer.normalize(article)
+            for article in self._line_supplier_articles(line)
+            if SupplierArticleNormalizer.normalize(article)
+        }
         for code in self._line_codes(line):
+            normalized_article = SupplierArticleNormalizer.normalize(code)
+            if self._is_low_value_code(code) and normalized_article not in supplier_article_codes:
+                notes.append(
+                    'Ignored low-value OCR code fragment %s for generic code-token matching; '
+                    'exact vendor supplierinfo article matching is handled separately.'
+                    % code
+                )
+                continue
+
             exact_token = self._find_code_exact_token(code, candidate_codes)
             if exact_token:
                 score, method = self._choose_score(
@@ -2485,6 +2552,34 @@ class ProductMatcher:
             visible_candidates,
         )
         line.write(values)
+        if values['match_status'] == 'not_found':
+            self._log_unmatched_supplier_article(line, candidates)
+
+    def _log_unmatched_supplier_article(self, line, candidates):
+        articles = self._line_supplier_articles(line)
+        if not articles:
+            return False
+        partner = self._get_job_partner(line.job_id)
+        candidate_codes = []
+        for candidate in candidates or []:
+            candidate_codes.extend(candidate.get('candidate_codes') or [])
+            product = candidate.get('product')
+            if product:
+                for seller in self._product_sellers(product, partner):
+                    code = getattr(seller, 'product_code', False)
+                    if code:
+                        candidate_codes.append(code)
+        candidate_codes = list(dict.fromkeys(str(code) for code in candidate_codes if code))
+        for article in articles:
+            _logger.info(
+                'OCR supplier code raw=%s normalized=%s supplier=%s candidate supplier codes=%s mode=%s',
+                article,
+                SupplierArticleNormalizer.normalize(article),
+                getattr(partner, 'display_name', False) or getattr(partner, 'name', False) or 'none',
+                ', '.join(candidate_codes[:30]) if candidate_codes else 'none',
+                getattr(line.job_id, 'mode', False) or 'unknown',
+            )
+        return True
 
     def _can_match_best_gap(self, visible_candidates, allow_best_gap_match):
         if not allow_best_gap_match or not visible_candidates:
@@ -2631,6 +2726,7 @@ class ProductMatcher:
         line_product_lines = line_source['line_product_lines']
         move_lines = line_source['product_lines']
         extracted_codes = self._line_codes(line)
+        supplier_articles = self._line_supplier_articles(line)
         create_line_count = len(self._partial_create_lines(job))
         diagnostics = [
             'Partial document matching diagnostics:',
@@ -2640,6 +2736,12 @@ class ProductMatcher:
                 line_source.get('document_id', 'none'),
             ),
             'OCR create_line rows: %s.' % create_line_count,
+            'Supplier articles raw/normalized: %s.' % (
+                ', '.join(
+                    '%s -> %s' % (article, SupplierArticleNormalizer.normalize(article))
+                    for article in supplier_articles
+                ) if supplier_articles else 'none'
+            ),
             'Extracted supplier/internal codes: %s.' % (
                 ', '.join(extracted_codes) if extracted_codes else 'none'
             ),
@@ -2813,13 +2915,15 @@ class ProductMatcher:
         supplierinfo_candidates = self._find_supplierinfos_by_codes(
             profile['primary_codes'],
             partner,
+            allow_low_value=True,
         )
+        supplier_articles = self._line_supplier_articles(line)
         supplierinfo_exact = [
             seller
             for seller in supplierinfo_candidates
             if any(
-                self._code_equals(code, getattr(seller, 'product_code', False))
-                for code in profile['primary_codes']
+                SupplierArticleNormalizer.equals(code, getattr(seller, 'product_code', False))
+                for code in supplier_articles
             )
         ]
         diagnostics = [
@@ -2827,6 +2931,12 @@ class ProductMatcher:
             'Job mode: %s.' % job.mode,
             'Move ID: %s.' % (job.move_id.id if getattr(job, 'move_id', False) else 'none'),
             'Vendor partner used: %s.' % (partner.id if partner else 'none'),
+            'Supplier articles raw/normalized: %s.' % (
+                ', '.join(
+                    '%s -> %s' % (article, SupplierArticleNormalizer.normalize(article))
+                    for article in supplier_articles
+                ) if supplier_articles else 'none'
+            ),
             'Primary codes: %s.' % (
                 ', '.join(profile['primary_codes']) if profile['primary_codes'] else 'none'
             ),
@@ -3182,9 +3292,11 @@ class ProductMatcher:
 
     def _find_supplierinfos(self, line, partner):
         sellers = []
-        for code in self._line_codes(line):
-            for seller in self._search_supplierinfos_exact(partner, product_code=code):
-                self._append_unique(sellers, seller)
+        for seller in self._find_supplierinfos_by_articles(
+            self._line_supplier_articles(line),
+            partner,
+        ):
+            self._append_unique(sellers, seller)
         supplier_name = getattr(line, 'supplier_product_name', False)
         if supplier_name:
             for seller in self._search_supplierinfos_exact(
@@ -3194,10 +3306,17 @@ class ProductMatcher:
                 self._append_unique(sellers, seller)
         return sellers
 
-    def _find_supplierinfos_by_codes(self, codes, partner):
+    def _find_supplierinfos_by_articles(self, codes, partner):
         sellers = []
         for code in codes:
-            if self._is_low_value_code(code):
+            for seller in self._search_supplierinfos_article_exact(partner, code):
+                self._append_unique(sellers, seller)
+        return sellers
+
+    def _find_supplierinfos_by_codes(self, codes, partner, allow_low_value=False):
+        sellers = []
+        for code in codes:
+            if self._is_low_value_code(code) and not allow_low_value:
                 continue
             for search_code in self._code_search_variants(code):
                 for seller in self._search_supplierinfos_exact(partner, product_code=search_code):
@@ -3209,7 +3328,10 @@ class ProductMatcher:
     def _search_supplierinfos_exact(self, partner, product_code=False, product_name=False):
         if not partner or (not product_code and not product_name):
             return []
-        domain = [('partner_id', '=', partner.id)]
+        if product_code and not product_name:
+            return self._search_supplierinfos_article_exact(partner, product_code)
+        commercial_partner = self._commercial_partner(partner)
+        domain = [('partner_id', '=', commercial_partner.id)]
         if product_code and product_name:
             domain.extend(['|', ('product_code', '=', product_code), ('product_name', '=', product_name)])
         elif product_code:
@@ -3218,11 +3340,42 @@ class ProductMatcher:
             domain.append(('product_name', '=', product_name))
         return list(self.env['product.supplierinfo'].search(domain, limit=100))
 
+    def _search_supplierinfos_article_exact(self, partner, product_code):
+        if not partner or not product_code:
+            return []
+        commercial_partner = self._commercial_partner(partner)
+        normalized = SupplierArticleNormalizer.normalize(product_code)
+        if not normalized:
+            return []
+        variants = list(dict.fromkeys([
+            product_code,
+            normalized,
+        ] + self._code_search_variants(product_code)))
+        sellers = self.env['product.supplierinfo'].search([
+            ('partner_id', '=', commercial_partner.id),
+            ('product_code', 'in', variants),
+        ], limit=100)
+        result = [
+            seller
+            for seller in sellers
+            if SupplierArticleNormalizer.equals(product_code, seller.product_code)
+        ]
+        if result:
+            return result
+
+        supplier_sellers = self._supplierinfos_for_partner(commercial_partner)
+        return [
+            seller
+            for seller in supplier_sellers
+            if SupplierArticleNormalizer.equals(product_code, seller.product_code)
+        ][:100]
+
     def _search_supplierinfos_like(self, term, partner):
         if not term or not partner:
             return []
+        commercial_partner = self._commercial_partner(partner)
         return list(self.env['product.supplierinfo'].search([
-            ('partner_id', '=', partner.id),
+            ('partner_id', '=', commercial_partner.id),
             ('product_name', 'ilike', term),
         ], limit=100))
 
@@ -3230,8 +3383,9 @@ class ProductMatcher:
         code = str(code or '').strip()
         if not self._normalize_code(code) or not partner:
             return []
+        commercial_partner = self._commercial_partner(partner)
         return list(self.env['product.supplierinfo'].search([
-            ('partner_id', '=', partner.id),
+            ('partner_id', '=', commercial_partner.id),
             ('product_code', 'ilike', code),
         ], limit=100))
 
@@ -3272,9 +3426,27 @@ class ProductMatcher:
         ], limit=100))
 
     def _supplier_code_matches(self, product, partner, code):
+        return bool(self._supplier_code_match_info(product, partner, code))
+
+    def _supplier_code_match_info(self, product, partner, code):
+        if not product or not partner or not code:
+            return False
         for seller in self._product_sellers(product, partner):
-            if self._code_equals(code, getattr(seller, 'product_code', False)):
-                return True
+            if SupplierArticleNormalizer.equals(code, getattr(seller, 'product_code', False)):
+                return {
+                    'method': 'supplierinfo_code_exact',
+                    'seller': seller,
+                }
+
+        separatorless = SupplierArticleNormalizer.separatorless(code)
+        if not separatorless:
+            return False
+        unique_seller = self._unique_separatorless_supplierinfo(partner, separatorless)
+        if unique_seller and self._seller_matches_product(unique_seller, product):
+            return {
+                'method': 'supplierinfo_code_separatorless_unique',
+                'seller': unique_seller,
+            }
         return False
 
     def _product_supplier_names(self, product, partner):
@@ -3288,6 +3460,7 @@ class ProductMatcher:
 
     def _product_sellers(self, product, partner=False):
         sellers = []
+        commercial_partner = self._commercial_partner(partner) if partner else False
         for source in (
             getattr(product, 'seller_ids', False),
             getattr(getattr(product, 'product_tmpl_id', False), 'seller_ids', False),
@@ -3295,9 +3468,64 @@ class ProductMatcher:
             if not source:
                 continue
             for seller in source:
-                if not partner or getattr(getattr(seller, 'partner_id', False), 'id', False) == partner.id:
+                seller_partner = self._commercial_partner(getattr(seller, 'partner_id', False))
+                if not commercial_partner or (
+                    seller_partner
+                    and seller_partner.id == commercial_partner.id
+                ):
                     self._append_unique(sellers, seller)
         return sellers
+
+    def _commercial_partner(self, partner):
+        return getattr(partner, 'commercial_partner_id', False) or partner
+
+    def _supplierinfos_for_partner(self, partner):
+        commercial_partner = self._commercial_partner(partner)
+        if not commercial_partner:
+            return self.env['product.supplierinfo']
+        return self.env['product.supplierinfo'].search([
+            ('partner_id', '=', commercial_partner.id),
+            ('product_code', '!=', False),
+        ], limit=1000)
+
+    def _unique_separatorless_supplierinfo(self, partner, separatorless_code):
+        commercial_partner = self._commercial_partner(partner)
+        cache_key = (
+            getattr(commercial_partner, 'id', False),
+            separatorless_code,
+        )
+        if cache_key in self._supplier_separatorless_cache:
+            return self._supplier_separatorless_cache[cache_key]
+        matches = [
+            seller
+            for seller in self._supplierinfos_for_partner(commercial_partner)
+            if SupplierArticleNormalizer.separatorless(seller.product_code) == separatorless_code
+        ]
+        product_keys = {
+            self._seller_product_key(seller)
+            for seller in matches
+            if self._seller_product_key(seller)
+        }
+        result = matches[0] if len(product_keys) == 1 and matches else False
+        self._supplier_separatorless_cache[cache_key] = result
+        return result
+
+    def _seller_matches_product(self, seller, product):
+        seller_product = getattr(seller, 'product_id', False)
+        if seller_product:
+            return seller_product == product
+        seller_template = getattr(seller, 'product_tmpl_id', False)
+        product_template = getattr(product, 'product_tmpl_id', False)
+        return bool(seller_template and product_template and seller_template == product_template)
+
+    def _seller_product_key(self, seller):
+        product = getattr(seller, 'product_id', False)
+        if product:
+            return ('product', product.id)
+        template = getattr(seller, 'product_tmpl_id', False)
+        if template:
+            return ('template', template.id)
+        return False
 
     def _seller_product(self, seller):
         product = getattr(seller, 'product_id', False)
@@ -3329,6 +3557,22 @@ class ProductMatcher:
                 continue
             codes.extend(self._extract_codes_from_text(value))
         return [code for code in self._unique_normalized_codes(codes) if code]
+
+    def _line_supplier_articles(self, line):
+        articles = []
+        explicit_code = getattr(line, 'supplier_product_code', False)
+        if explicit_code:
+            articles.append(explicit_code)
+        for code in self._line_codes(line):
+            if not code:
+                continue
+            normalized = SupplierArticleNormalizer.normalize(code)
+            if normalized and normalized not in {
+                SupplierArticleNormalizer.normalize(article)
+                for article in articles
+            }:
+                articles.append(code)
+        return articles
 
     def _line_name_terms(self, line):
         return [
@@ -3410,8 +3654,12 @@ class ProductMatcher:
 
         explicit_code = getattr(line, 'supplier_product_code', False)
         if explicit_code:
-            for code in self._expand_code_tokens([explicit_code]):
-                self._add_profile_code(code, primary_codes, ignored_low_value_tokens)
+            self._add_profile_code(
+                explicit_code,
+                primary_codes,
+                ignored_low_value_tokens,
+                allow_low_value=True,
+            )
 
         if not primary_codes:
             for value in (
@@ -3456,10 +3704,10 @@ class ProductMatcher:
             'ignored_low_value_tokens': self._unique_normalized_codes(ignored_low_value_tokens),
         }
 
-    def _add_profile_code(self, code, codes, ignored_low_value_tokens):
+    def _add_profile_code(self, code, codes, ignored_low_value_tokens, allow_low_value=False):
         if not code:
             return
-        if self._is_low_value_code(code):
+        if self._is_low_value_code(code) and not allow_low_value:
             ignored_low_value_tokens.append(code)
             return
         codes.append(code)
