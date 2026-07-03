@@ -23,7 +23,7 @@ class ResponseParser:
     def __init__(self, env=None):
         self.env = env
 
-    def parse(self, response):
+    def parse(self, response, raw_response=None):
         if not isinstance(response, dict):
             raise UserError(_('Gemini response must be a JSON object.'))
 
@@ -43,14 +43,21 @@ class ResponseParser:
         }
         header_tax_rate = self._compute_header_tax_rate(header, lines)
         legacy_line_total_kind = self._detect_legacy_line_total_kind(lines, header)
+        document_price_tax_mode = self._detect_document_price_tax_mode(
+            response,
+            lines,
+            raw_response=raw_response,
+        )
         return {
             'header': header,
+            'document_price_tax_mode': document_price_tax_mode,
             'lines': [
                 self._parse_line(
                     line,
                     index,
                     header_tax_rate=header_tax_rate,
                     legacy_line_total_kind=legacy_line_total_kind,
+                    document_price_tax_mode=document_price_tax_mode,
                 )
                 for index, line in enumerate(lines, start=1)
             ],
@@ -59,7 +66,7 @@ class ResponseParser:
 
     def apply_to_job(self, job, response, raw_response=None):
         job.ensure_one()
-        parsed = self.parse(response)
+        parsed = self.parse(response, raw_response=raw_response)
         header = parsed['header']
 
         job.line_ids.unlink()
@@ -73,6 +80,7 @@ class ResponseParser:
             'recognized_amount_untaxed': header['untaxed_amount'],
             'recognized_amount_tax': header['tax_amount'],
             'recognized_amount_total': header['total_amount'],
+            'document_price_tax_mode': parsed['document_price_tax_mode'],
             'state': 'review',
         })
 
@@ -88,6 +96,7 @@ class ResponseParser:
                 'uom_name': line['uom_name'],
                 'price_unit_without_tax': line['price_unit_without_tax'],
                 'price_unit_with_tax': line['price_unit_with_tax'],
+                'price_tax_mode': line['price_tax_mode'],
                 'price_unit': line['price_unit'],
                 'tax_rate': line['tax_rate'],
                 'line_subtotal_without_tax': line['line_subtotal_without_tax'],
@@ -109,6 +118,7 @@ class ResponseParser:
         index,
         header_tax_rate=False,
         legacy_line_total_kind=False,
+        document_price_tax_mode='unknown',
     ):
         if not isinstance(line, dict):
             raise UserError(_('Gemini line %s must be a JSON object.') % index)
@@ -120,11 +130,22 @@ class ResponseParser:
 
         price_unit_without_tax = self._to_float(line.get('price_unit_without_tax'))
         price_unit_with_tax = self._to_float(line.get('price_unit_with_tax'))
+        price_tax_mode = self._normalize_price_tax_mode(
+            line.get('price_tax_mode'),
+            context_text,
+            price_unit_without_tax=price_unit_without_tax,
+            price_unit_with_tax=price_unit_with_tax,
+            line_subtotal_without_tax=self._to_float(
+                line.get('line_subtotal_without_tax')
+            ),
+            line_total_with_tax=self._to_float(line.get('line_total_with_tax')),
+            document_price_tax_mode=document_price_tax_mode,
+        )
         legacy_price_unit = self._to_float(line.get('unit_price'))
         if not self._is_number(price_unit_without_tax) and not self._is_number(
             price_unit_with_tax
         ) and self._is_number(legacy_price_unit):
-            if self._context_says_with_tax(context_text):
+            if price_tax_mode == 'included':
                 price_unit_with_tax = legacy_price_unit
             else:
                 price_unit_without_tax = legacy_price_unit
@@ -155,6 +176,10 @@ class ResponseParser:
                 line_subtotal_without_tax = legacy_line_total
             elif self._context_says_with_tax(context_text):
                 line_total_with_tax = legacy_line_total
+            elif price_tax_mode == 'excluded':
+                line_subtotal_without_tax = legacy_line_total
+            elif price_tax_mode == 'included':
+                line_total_with_tax = legacy_line_total
             elif legacy_line_total_kind == 'without_tax':
                 line_subtotal_without_tax = legacy_line_total
             elif legacy_line_total_kind == 'with_tax':
@@ -162,6 +187,24 @@ class ResponseParser:
             else:
                 warnings.append(
                     'Legacy line_total is ambiguous and was not used as a normalized amount.'
+                )
+
+        if price_tax_mode == 'included':
+            if not self._is_number(price_unit_with_tax) and self._is_number(legacy_price_unit):
+                price_unit_with_tax = legacy_price_unit
+            if (
+                not self._is_number(price_unit_with_tax)
+                and self._is_positive_number(quantity)
+                and self._is_number(line_total_with_tax)
+            ):
+                price_unit_with_tax = self._round_amount(line_total_with_tax / quantity)
+            if (
+                not self._is_number(price_unit_with_tax)
+                and self._is_number(price_unit_without_tax)
+                and self._is_positive_number(tax_rate)
+            ):
+                price_unit_with_tax = self._round_amount(
+                    price_unit_without_tax * (1 + tax_rate / 100)
                 )
 
         normalized = self._normalize_amounts(
@@ -172,6 +215,7 @@ class ResponseParser:
             line_tax_amount=line_tax_amount,
             line_total_with_tax=line_total_with_tax,
             tax_rate=tax_rate,
+            price_tax_mode=price_tax_mode,
         )
         if normalized['warning']:
             warnings.append(normalized['warning'])
@@ -203,6 +247,7 @@ class ResponseParser:
             'uom_name': self._clean_string(line.get('uom')),
             'price_unit_without_tax': normalized['price_unit_without_tax'],
             'price_unit_with_tax': normalized['price_unit_with_tax'],
+            'price_tax_mode': price_tax_mode,
             'price_unit': normalized['price_unit'],
             'tax_rate': tax_rate,
             'line_subtotal_without_tax': normalized['line_subtotal_without_tax'],
@@ -371,6 +416,131 @@ class ResponseParser:
             return self._round_amount(amount_untaxed + amount_tax)
         return amount_untaxed
 
+    def _normalize_price_tax_mode(
+        self,
+        value,
+        context_text,
+        price_unit_without_tax=False,
+        price_unit_with_tax=False,
+        line_subtotal_without_tax=False,
+        line_total_with_tax=False,
+        document_price_tax_mode='unknown',
+    ):
+        value = self._clean_string(value)
+        if value:
+            normalized = value.strip().lower()
+            if normalized in ('included', 'include', 'with_tax', 'with tax', 'gross'):
+                return 'included'
+            if normalized in ('excluded', 'exclude', 'without_tax', 'without tax', 'net'):
+                return 'excluded'
+
+        if self._context_says_without_tax(context_text):
+            return 'excluded'
+        if self._context_says_with_tax(context_text):
+            return 'included'
+        if document_price_tax_mode in ('included', 'excluded'):
+            return document_price_tax_mode
+        if self._is_number(price_unit_with_tax) and not self._is_number(price_unit_without_tax):
+            return 'included'
+        if self._is_number(line_total_with_tax) and not self._is_number(line_subtotal_without_tax):
+            return 'included'
+        if self._is_number(price_unit_without_tax) and not self._is_number(price_unit_with_tax):
+            return 'excluded'
+        if self._is_number(line_subtotal_without_tax) and not self._is_number(line_total_with_tax):
+            return 'excluded'
+        return 'unknown'
+
+    def _detect_document_price_tax_mode(self, response, lines, raw_response=None):
+        explicit_mode = self._clean_string(
+            response.get('document_price_tax_mode')
+            or response.get('price_tax_mode')
+        )
+        if explicit_mode:
+            normalized = explicit_mode.strip().lower()
+            if normalized in ('included', 'include', 'with_tax', 'with tax', 'gross'):
+                return 'included'
+            if normalized in ('excluded', 'exclude', 'without_tax', 'without tax', 'net'):
+                return 'excluded'
+
+        context_text = self._build_document_price_context(
+            response,
+            lines,
+            raw_response=raw_response,
+        )
+        if self._context_says_without_tax(context_text):
+            return 'excluded'
+        if self._document_context_says_with_tax(context_text):
+            return 'included'
+        amount_mode = self._detect_document_price_tax_mode_from_amounts(response, lines)
+        if amount_mode:
+            return amount_mode
+        return 'unknown'
+
+    def _build_document_price_context(self, response, lines, raw_response=None):
+        values = [
+            response.get('source_columns'),
+            response.get('evidence'),
+            response.get('document_evidence'),
+            response.get('extracted_text_for_json_parse'),
+        ]
+        if isinstance(raw_response, dict):
+            values.extend((
+                raw_response.get('extracted_text_for_json_parse'),
+                raw_response.get('json_text_candidate'),
+            ))
+        for line in lines:
+            if not isinstance(line, dict):
+                continue
+            values.extend((
+                line.get('source_columns'),
+                line.get('evidence'),
+            ))
+        return self._build_context_text(*values)
+
+    def _document_context_says_with_tax(self, context_text):
+        if self._context_says_with_tax(context_text):
+            return True
+        if any(
+            marker in (context_text or '')
+            for marker in (
+                'ціна з пдв',
+                'цiна з пдв',
+                'сума з пдв',
+                'всього з пдв',
+                'цена с ндс',
+                'сумма с ндс',
+            )
+        ):
+            return True
+        return bool(re.search(
+            r'(у\s*(т\.?\s*ч\.?|тому\s+числі)\s*(пдв|ндс|vat)|including\s*(vat|tax))',
+            context_text or '',
+        ))
+
+    def _detect_document_price_tax_mode_from_amounts(self, response, lines):
+        total_amount = self._to_float(response.get('total_amount'))
+        untaxed_amount = self._to_float(response.get('untaxed_amount'))
+        totals_with_tax = []
+        subtotals_without_tax = []
+        for line in lines:
+            if not isinstance(line, dict):
+                continue
+            total_with_tax = self._to_float(line.get('line_total_with_tax'))
+            subtotal_without_tax = self._to_float(line.get('line_subtotal_without_tax'))
+            if self._is_number(total_with_tax):
+                totals_with_tax.append(total_with_tax)
+            if self._is_number(subtotal_without_tax):
+                subtotals_without_tax.append(subtotal_without_tax)
+
+        if totals_with_tax and self._amounts_close(sum(totals_with_tax), total_amount):
+            return 'included'
+        if subtotals_without_tax and self._amounts_close(
+            sum(subtotals_without_tax),
+            untaxed_amount,
+        ):
+            return 'excluded'
+        return False
+
     def _normalize_amounts(
         self,
         quantity=False,
@@ -380,6 +550,7 @@ class ResponseParser:
         line_tax_amount=False,
         line_total_with_tax=False,
         tax_rate=False,
+        price_tax_mode='unknown',
     ):
         warning = False
 
@@ -459,7 +630,11 @@ class ResponseParser:
             'line_subtotal_without_tax': line_subtotal_without_tax,
             'line_tax_amount': line_tax_amount,
             'line_total_with_tax': line_total_with_tax,
-            'price_unit': price_unit_without_tax,
+            'price_unit': (
+                price_unit_with_tax
+                if price_tax_mode == 'included' and self._is_number(price_unit_with_tax)
+                else price_unit_without_tax
+            ),
             'amount_untaxed': line_subtotal_without_tax,
             'amount_tax': line_tax_amount,
             'amount_total': line_total_with_tax,
@@ -496,10 +671,10 @@ class ResponseParser:
             )
         )
 
-    def _build_context_text(self, source_columns=False, evidence=False):
+    def _build_context_text(self, *values):
         return ' '.join(
             value.lower()
-            for value in (source_columns, evidence)
+            for value in values
             if isinstance(value, str) and value
         )
 

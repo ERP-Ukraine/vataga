@@ -39,3 +39,16 @@ class ResConfigSettings(models.TransientModel):
         ],
         groups='base.group_system',
     )
+    gemini_purchase_vat_20_included_tax_id = fields.Many2one(
+        comodel_name='account.tax',
+        string='Default Gemini Purchase VAT 20% Included Tax',
+        config_parameter='account_gemini_digitization.default_purchase_vat_20_included_tax_id',
+        domain=[
+            ('active', '=', True),
+            ('amount_type', '=', 'percent'),
+            ('amount', '=', 20.0),
+            ('type_tax_use', 'in', ('purchase', 'none')),
+            ('price_include', '=', True),
+        ],
+        groups='base.group_system',
+    )

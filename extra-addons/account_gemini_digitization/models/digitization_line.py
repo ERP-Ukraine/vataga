@@ -19,6 +19,11 @@ class AccountGeminiDigitizationLine(models.Model):
         ('merge_into', 'Merge Into Another Line'),
         ('skip', 'Skip'),
     ]
+    PRICE_TAX_MODE_SELECTION = [
+        ('included', 'Price Includes Tax'),
+        ('excluded', 'Price Excludes Tax'),
+        ('unknown', 'Unknown'),
+    ]
 
     job_id = fields.Many2one(
         comodel_name='account.gemini.digitization.job',
@@ -41,6 +46,12 @@ class AccountGeminiDigitizationLine(models.Model):
     )
     price_unit_with_tax = fields.Float(
         string='Price With Tax',
+    )
+    price_tax_mode = fields.Selection(
+        selection=PRICE_TAX_MODE_SELECTION,
+        string='OCR Price Tax Mode',
+        default='unknown',
+        copy=False,
     )
     price_unit = fields.Float()
     tax_rate = fields.Float()

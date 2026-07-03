@@ -487,6 +487,19 @@ If a column explicitly means price without VAT, return it as price_unit_without_
 If a column explicitly means price with VAT, return it as price_unit_with_tax.
 If a column explicitly means line subtotal without VAT, return it as line_subtotal_without_tax.
 If a column explicitly means line total with VAT, return it as line_total_with_tax.
+Determine per line whether the unit price is shown with VAT or without VAT from
+the price column header. Do not recalculate the unit price. Return the price
+exactly as shown and set price_tax_mode to "included" or "excluded".
+Also set document_price_tax_mode at the top level when the whole document table
+clearly uses one price basis.
+Use price_tax_mode "included" only when the line price column explicitly says
+the price includes VAT, for example "Ціна з ПДВ", "Сума з ПДВ", or "Total with VAT".
+Use price_tax_mode "excluded" only when the line price column explicitly says
+the price excludes VAT, for example "Ціна без ПДВ", "Сума без ПДВ", or "Subtotal without VAT".
+For documents with columns like "Ціна з ПДВ" and "Сума з ПДВ", return
+document_price_tax_mode as "included" and return the PDF unit price in
+price_unit_with_tax without dividing it by VAT.
+If the price column basis is unclear, return price_tax_mode as "unknown".
 If a line VAT amount is shown separately, return it as line_tax_amount.
 If the VAT rate is shown only in the footer/header and it is clearly one rate for
 the whole document, return that rate as tax_rate for each taxable line.
@@ -512,6 +525,7 @@ JSON schema:
   "untaxed_amount": null,
   "tax_amount": null,
   "total_amount": null,
+  "document_price_tax_mode": null,
   "confidence": null,
   "lines": [
     {
@@ -522,6 +536,7 @@ JSON schema:
       "uom": null,
       "price_unit_without_tax": null,
       "price_unit_with_tax": null,
+      "price_tax_mode": null,
       "line_subtotal_without_tax": null,
       "line_tax_amount": null,
       "line_total_with_tax": null,
@@ -602,6 +617,7 @@ Do not create purchase order lines.
                 'untaxed_amount': {'type': 'number'},
                 'tax_amount': {'type': 'number'},
                 'total_amount': {'type': 'number'},
+                'document_price_tax_mode': {'type': 'string'},
                 'confidence': {'type': 'number'},
                 'lines': {
                     'type': 'array',
@@ -615,6 +631,7 @@ Do not create purchase order lines.
                             'uom': {'type': 'string'},
                             'price_unit_without_tax': {'type': 'number'},
                             'price_unit_with_tax': {'type': 'number'},
+                            'price_tax_mode': {'type': 'string'},
                             'line_subtotal_without_tax': {'type': 'number'},
                             'line_tax_amount': {'type': 'number'},
                             'line_total_with_tax': {'type': 'number'},

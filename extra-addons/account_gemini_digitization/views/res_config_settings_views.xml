@@ -31,6 +31,13 @@
                             domain="[('active', '=', True), ('amount_type', '=', 'percent'), ('amount', '=', 20.0), ('type_tax_use', 'in', ('purchase', 'none')), '|', ('company_id', '=', company_id), ('company_id', '=', False)]"
                         />
                     </div>
+                    <div class="row mt16">
+                        <label for="gemini_purchase_vat_20_included_tax_id" class="col-lg-3 o_light_label"/>
+                        <field
+                            name="gemini_purchase_vat_20_included_tax_id"
+                            domain="[('active', '=', True), ('amount_type', '=', 'percent'), ('amount', '=', 20.0), ('type_tax_use', 'in', ('purchase', 'none')), ('price_include', '=', True), '|', ('company_id', '=', company_id), ('company_id', '=', False)]"
+                        />
+                    </div>
                 </block>
             </xpath>
         </field>

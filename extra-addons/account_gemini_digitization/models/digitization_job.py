@@ -150,6 +150,16 @@ class AccountGeminiDigitizationJob(models.Model):
         currency_field='currency_id',
         copy=False,
     )
+    document_price_tax_mode = fields.Selection(
+        selection=[
+            ('included', 'Prices Include Tax'),
+            ('excluded', 'Prices Exclude Tax'),
+            ('unknown', 'Unknown'),
+        ],
+        string='Document Price Tax Mode',
+        default='unknown',
+        copy=False,
+    )
     line_ids = fields.One2many(
         comodel_name='account.gemini.digitization.line',
         inverse_name='job_id',

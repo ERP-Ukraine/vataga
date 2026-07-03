@@ -1,8 +1,13 @@
+import logging
+
 from odoo import _, fields
 from odoo.exceptions import UserError
 
 from .amount_validator import AmountValidator
 from .product_matcher import ProductMatcher
+
+
+_logger = logging.getLogger(__name__)
 
 
 class DigitizationApplyService:
@@ -292,6 +297,7 @@ class _JobApplyContext:
                 'quantity': plan['quantity'],
                 'price_unit': plan['price_unit'],
                 'tax_rate': plan['tax_rate'],
+                'price_tax_mode': plan.get('price_tax_mode') or review_line.price_tax_mode or 'unknown',
                 'tax_ids': [(6, 0, tax_ids.ids)] if tax_ids else [(6, 0, [])],
                 'amount_untaxed': plan['amount_untaxed'],
                 'amount_tax': plan['amount_tax'],
@@ -415,6 +421,7 @@ class _JobApplyContext:
                 'quantity': plan['quantity'],
                 'price_unit': plan['price_unit'],
                 'tax_rate': plan['tax_rate'],
+                'price_tax_mode': plan.get('price_tax_mode') or review_line.price_tax_mode or 'unknown',
                 'tax_ids': [(6, 0, tax_ids.ids)] if tax_ids else [(6, 0, [])],
                 'amount_untaxed': plan['amount_untaxed'],
                 'amount_tax': plan['amount_tax'],
@@ -639,6 +646,7 @@ class _JobApplyContext:
                     and child.merge_target_line_id == line
                 ).sorted('sequence')
                 final_tax_rate = self._get_full_bill_plan_tax_rate(line, merged_lines)
+                final_price_tax_mode = self._get_full_bill_plan_price_tax_mode(line, merged_lines)
                 quantity, price_unit, amount_untaxed = self._get_full_bill_plan_values(
                     line,
                     merged_lines,
@@ -655,6 +663,7 @@ class _JobApplyContext:
                     move,
                     strict=True,
                     tax_rate_override=final_tax_rate,
+                    price_tax_mode_override=final_price_tax_mode,
                 )
                 amount_tax, amount_total = self._get_full_bill_plan_tax_amounts(
                     amount_untaxed,
@@ -665,6 +674,7 @@ class _JobApplyContext:
                     'merged_lines': merged_lines,
                     'tax_ids': tax_ids,
                     'tax_rate': final_tax_rate,
+                    'price_tax_mode': final_price_tax_mode,
                     'quantity': quantity,
                     'price_unit': price_unit,
                     'amount_untaxed': amount_untaxed,
@@ -1027,6 +1037,7 @@ class _JobApplyContext:
                     and child.merge_target_line_id == line
                 ).sorted('sequence')
                 final_tax_rate = self._get_full_bill_plan_tax_rate(line, merged_lines)
+                final_price_tax_mode = self._get_full_bill_plan_price_tax_mode(line, merged_lines)
                 quantity, price_unit, amount_untaxed = self._get_full_bill_plan_values(
                     line,
                     merged_lines,
@@ -1036,6 +1047,7 @@ class _JobApplyContext:
                     move,
                     strict=True,
                     tax_rate_override=final_tax_rate,
+                    price_tax_mode_override=final_price_tax_mode,
                 )
                 amount_tax, amount_total = self._get_full_bill_plan_tax_amounts(
                     amount_untaxed,
@@ -1046,6 +1058,7 @@ class _JobApplyContext:
                     'merged_lines': merged_lines,
                     'tax_ids': tax_ids,
                     'tax_rate': final_tax_rate,
+                    'price_tax_mode': final_price_tax_mode,
                     'quantity': quantity,
                     'price_unit': price_unit,
                     'amount_untaxed': amount_untaxed,
@@ -1076,6 +1089,7 @@ class _JobApplyContext:
             try:
                 self._validate_full_bill_create_candidate(line)
                 final_tax_rate = self._get_full_bill_plan_tax_rate(line, merged_lines)
+                final_price_tax_mode = self._get_full_bill_plan_price_tax_mode(line, merged_lines)
                 quantity, price_unit, amount_untaxed = self._get_full_bill_plan_values(
                     line,
                     merged_lines,
@@ -1085,6 +1099,7 @@ class _JobApplyContext:
                     move,
                     strict=True,
                     tax_rate_override=final_tax_rate,
+                    price_tax_mode_override=final_price_tax_mode,
                 )
                 amount_tax, amount_total = self._get_full_bill_plan_tax_amounts(
                     amount_untaxed,
@@ -1095,6 +1110,7 @@ class _JobApplyContext:
                     'merged_lines': merged_lines,
                     'tax_ids': tax_ids,
                     'tax_rate': final_tax_rate,
+                    'price_tax_mode': final_price_tax_mode,
                     'quantity': quantity,
                     'price_unit': price_unit,
                     'amount_untaxed': amount_untaxed,
@@ -1133,6 +1149,10 @@ class _JobApplyContext:
         for line in create_lines.sorted('sequence'):
             try:
                 final_tax_rate = self._normalize_tax_rate(line.tax_rate)
+                final_price_tax_mode = self._get_full_bill_plan_price_tax_mode(
+                    line,
+                    self.env['account.gemini.digitization.line'],
+                )
                 quantity, price_unit, amount_untaxed = self._get_full_bill_plan_values(
                     line,
                     self.env['account.gemini.digitization.line'],
@@ -1149,6 +1169,7 @@ class _JobApplyContext:
                     order,
                     strict=True,
                     tax_rate_override=final_tax_rate,
+                    price_tax_mode_override=final_price_tax_mode,
                 )
                 amount_tax, amount_total = self._get_full_bill_plan_tax_amounts(
                     amount_untaxed,
@@ -1158,6 +1179,7 @@ class _JobApplyContext:
                     'line': line,
                     'tax_ids': tax_ids,
                     'tax_rate': final_tax_rate,
+                    'price_tax_mode': final_price_tax_mode,
                     'quantity': quantity,
                     'price_unit': price_unit,
                     'amount_untaxed': amount_untaxed,
@@ -1216,6 +1238,10 @@ class _JobApplyContext:
                     and child.merge_target_line_id == line
                 ).sorted('sequence')
                 final_tax_rate = self._get_full_bill_plan_tax_rate(line, merged_lines)
+                final_price_tax_mode = self._get_full_bill_plan_price_tax_mode(
+                    line,
+                    merged_lines,
+                )
                 quantity, price_unit, amount_untaxed = self._get_full_bill_plan_values(
                     line,
                     merged_lines,
@@ -1230,6 +1256,7 @@ class _JobApplyContext:
                     order,
                     strict=True,
                     tax_rate_override=final_tax_rate,
+                    price_tax_mode_override=final_price_tax_mode,
                 )
                 amount_tax, amount_total = self._get_full_bill_plan_tax_amounts(
                     amount_untaxed,
@@ -1240,6 +1267,7 @@ class _JobApplyContext:
                     'merged_lines': merged_lines,
                     'tax_ids': tax_ids,
                     'tax_rate': final_tax_rate,
+                    'price_tax_mode': final_price_tax_mode,
                     'quantity': quantity,
                     'price_unit': price_unit,
                     'amount_untaxed': amount_untaxed,
@@ -1262,8 +1290,8 @@ class _JobApplyContext:
         if not merged_lines:
             return (
                 line.quantity,
-                line.price_unit,
-                self._line_subtotal(line) or line.quantity * line.price_unit,
+                self._line_price_unit(line),
+                self._line_subtotal(line) or line.quantity * self._line_price_unit(line),
             )
 
         group_lines = (line | merged_lines).sorted('sequence')
@@ -1282,8 +1310,8 @@ class _JobApplyContext:
             if self._has_manual_merge_values(line):
                 return (
                     line.quantity,
-                    line.price_unit,
-                    self._line_subtotal(line) or line.quantity * line.price_unit,
+                    self._line_price_unit(line),
+                    self._line_subtotal(line) or line.quantity * self._line_price_unit(line),
                 )
             if quantity_error_message:
                 raise UserError(quantity_error_message)
@@ -1371,6 +1399,47 @@ class _JobApplyContext:
             })
         return target_rate
 
+    def _get_full_bill_plan_price_tax_mode(self, line, merged_lines):
+        target_mode = self._line_price_tax_mode(line)
+        if target_mode == 'unknown':
+            target_mode = self._job_document_price_tax_mode()
+        child_modes = []
+        for merged_line in merged_lines:
+            child_mode = self._line_price_tax_mode(merged_line)
+            if child_mode == 'unknown':
+                child_mode = self._job_document_price_tax_mode()
+            if child_mode != 'unknown' and child_mode not in child_modes:
+                child_modes.append(child_mode)
+
+        if len(child_modes) > 1:
+            raise UserError(_(
+                '%s: merged OCR lines have different price VAT modes. '
+                'Split them or correct OCR result before Apply.'
+            ) % line._display_label())
+
+        if not child_modes:
+            return target_mode
+
+        child_mode = child_modes[0]
+        if target_mode == 'unknown':
+            return child_mode
+        if target_mode != child_mode:
+            raise UserError(_(
+                '%(line)s: merged OCR lines use %(child_mode)s price VAT mode, '
+                'but target line uses %(target_mode)s price VAT mode.'
+            ) % {
+                'line': line._display_label(),
+                'child_mode': child_mode,
+                'target_mode': target_mode,
+            })
+        return target_mode
+
+    def _job_document_price_tax_mode(self):
+        mode = getattr(self.job_id, 'document_price_tax_mode', False) or 'unknown'
+        if mode in ('included', 'excluded'):
+            return mode
+        return 'unknown'
+
     def _validate_merge_tax_rates(self, line, merged_lines):
         target_rate = self._normalize_tax_rate(line.tax_rate)
         if not self._is_number(target_rate):
@@ -1398,20 +1467,44 @@ class _JobApplyContext:
         return amount_tax, amount_untaxed + amount_tax
 
     def _line_price_unit(self, line):
+        if self._line_price_tax_mode(line) == 'included':
+            return self._first_number(
+                line.price_unit_with_tax,
+                line.price_unit,
+            )
         return self._first_number(
-            line.price_unit,
             line.price_unit_without_tax,
+            line.price_unit,
         )
 
     def _line_subtotal(self, line):
-        return self._first_number(
+        subtotal = self._first_number(
             line.amount_untaxed,
             line.line_subtotal_without_tax,
         )
+        if self._is_number(subtotal):
+            return subtotal
+        if self._line_price_tax_mode(line) != 'included':
+            return subtotal
+        tax_rate = self._normalize_tax_rate(line.tax_rate)
+        if not self._is_positive_number(tax_rate):
+            return subtotal
+        total = self._first_number(
+            line.amount_total,
+            line.line_total_with_tax,
+        )
+        if self._is_number(total):
+            return total / (1 + tax_rate / 100.0)
+        quantity = self._to_float(line.quantity)
+        price_unit = self._line_price_unit(line)
+        if self._is_number(quantity) and self._is_number(price_unit):
+            return quantity * price_unit / (1 + tax_rate / 100.0)
+        return subtotal
 
     def _prepare_full_bill_invoice_line_values(self, plan, move):
         line = plan['line']
         product = line.matched_product_id
+        self._log_price_mode_apply(plan, plan['tax_ids'], move)
         values = {
             'product_id': product.id,
             'name': self._get_full_bill_line_name(line, product, plan['merged_lines']),
@@ -1470,6 +1563,7 @@ class _JobApplyContext:
             raise UserError(_(
                 '%s: selected product does not have a purchase unit of measure.'
             ) % line._display_label())
+        self._log_price_mode_apply(plan, plan['tax_ids'], order)
         return {
             'order_id': order.id,
             'product_id': product.id,
@@ -1484,6 +1578,25 @@ class _JobApplyContext:
             'taxes_id': [(6, 0, plan['tax_ids'].ids)],
             'date_planned': order.date_order or fields.Datetime.now(),
         }
+
+    def _log_price_mode_apply(self, plan, taxes, document):
+        line = plan['line']
+        tax = taxes[:1] if taxes else False
+        price_tax_mode = plan.get('price_tax_mode') or self._line_price_tax_mode(line)
+        _logger.info(
+            'Gemini OCR price mode: document_model=%s document_id=%s '
+            'document_mode=%s line_mode=%s ocr_price=%s selected_tax=%s/%s '
+            'selected_tax_price_include=%s final_price_unit=%s',
+            getattr(document, '_name', False),
+            getattr(document, 'id', False),
+            self._job_document_price_tax_mode(),
+            price_tax_mode,
+            self._line_price_unit(line),
+            tax.display_name if tax else False,
+            tax.id if tax else False,
+            self._tax_is_price_included(tax) if tax else False,
+            plan.get('price_unit'),
+        )
 
     def _get_full_bill_line_name(self, line, product, merged_lines=False):
         name = (
@@ -1575,6 +1688,7 @@ class _JobApplyContext:
         }
         if tax_ids:
             values['tax_ids'] = [(6, 0, tax_ids.ids)]
+        self._log_price_mode_apply(plan, tax_ids, move)
         move_line.write(values)
 
         status = line.match_status
@@ -1609,6 +1723,7 @@ class _JobApplyContext:
             'quantity': plan['quantity'],
             'price_unit': plan['price_unit'],
             'tax_rate': plan['tax_rate'],
+            'price_tax_mode': plan.get('price_tax_mode') or line.price_tax_mode or 'unknown',
             'tax_ids': [(6, 0, tax_ids.ids)] if tax_ids else [(6, 0, [])],
             'amount_untaxed': plan['amount_untaxed'],
             'amount_tax': plan['amount_tax'],
@@ -1651,6 +1766,7 @@ class _JobApplyContext:
         }
         if tax_ids:
             values['taxes_id'] = [(6, 0, tax_ids.ids)]
+        self._log_price_mode_apply(plan, tax_ids, order)
         order_line.write(values)
 
         status = line.match_status
@@ -1679,6 +1795,7 @@ class _JobApplyContext:
             'quantity': plan['quantity'],
             'price_unit': plan['price_unit'],
             'tax_rate': plan['tax_rate'],
+            'price_tax_mode': plan.get('price_tax_mode') or line.price_tax_mode or 'unknown',
             'tax_ids': [(6, 0, tax_ids.ids)] if tax_ids else [(6, 0, [])],
             'amount_untaxed': plan['amount_untaxed'],
             'amount_tax': plan['amount_tax'],
@@ -1690,13 +1807,26 @@ class _JobApplyContext:
         })
         return True
 
-    def _get_line_taxes(self, line, move, strict=False, tax_rate_override=None):
+    def _get_line_taxes(
+        self,
+        line,
+        move,
+        strict=False,
+        tax_rate_override=None,
+        price_tax_mode_override=None,
+    ):
         tax_rate = self._normalize_tax_rate(
             line.tax_rate if tax_rate_override is None else tax_rate_override
         )
+        price_tax_mode = price_tax_mode_override or self._line_price_tax_mode(line)
         if line.tax_ids:
             if strict:
-                self._validate_selected_taxes(line, line.tax_ids, tax_rate)
+                self._validate_selected_taxes(
+                    line,
+                    line.tax_ids,
+                    tax_rate,
+                    price_tax_mode_override=price_tax_mode,
+                )
             return line.tax_ids, False
 
         if not self._is_number(tax_rate):
@@ -1723,10 +1853,20 @@ class _JobApplyContext:
                 tax_rate,
             )
 
-        taxes, warning = self._find_purchase_taxes(move.company_id, tax_rate, line=line)
+        taxes, warning = self._find_purchase_taxes(
+            move.company_id,
+            tax_rate,
+            line=line,
+            price_tax_mode=price_tax_mode,
+        )
         if taxes:
             try:
-                self._validate_selected_taxes(line, taxes, tax_rate)
+                self._validate_selected_taxes(
+                    line,
+                    taxes,
+                    tax_rate,
+                    price_tax_mode_override=price_tax_mode,
+                )
             except UserError as error:
                 if strict:
                     raise
@@ -1736,6 +1876,8 @@ class _JobApplyContext:
 
         if strict:
             if tax_rate > 0:
+                if price_tax_mode == 'included' and warning:
+                    raise UserError(warning)
                 raise UserError(_(
                     'Для рядка "%(line)s" оберіть податок ПДВ %(rate).4g%% у Review перед Apply. %(details)s'
                 ) % {
@@ -1746,7 +1888,7 @@ class _JobApplyContext:
             raise UserError(warning)
         return self.env['account.tax'], warning
 
-    def _find_purchase_taxes(self, company, tax_rate, line=False):
+    def _find_purchase_taxes(self, company, tax_rate, line=False, price_tax_mode=False):
         tax_rate = self._normalize_tax_rate(tax_rate)
         if not self._is_number(tax_rate):
             return self.env['account.tax'], False
@@ -1776,12 +1918,22 @@ class _JobApplyContext:
             company,
             tax_rate,
             line=line,
+            price_tax_mode=price_tax_mode,
         )
         if selected_taxes:
             return selected_taxes, False
 
         price_basis_warning = ''
-        if self._line_uses_price_without_tax(line):
+        if price_tax_mode == 'included':
+            return self.env['account.tax'], _(
+                '%(line)s: Не знайдено однозначний податок придбання зі ставкою %(rate).4g%%, '
+                'включений у ціну. Налаштуйте податок «Придбання в т. ч. ПДВ». %(candidates)s'
+            ) % {
+                'line': line._display_label() if line else _('Line'),
+                'rate': tax_rate,
+                'candidates': self._format_tax_candidates(matching_taxes),
+            }
+        if price_tax_mode == 'excluded' or self._line_uses_price_without_tax(line):
             price_basis_warning = _(
                 ' Preferred non-price-included purchase VAT tax was not selected automatically.'
             )
@@ -1796,12 +1948,31 @@ class _JobApplyContext:
             'candidates': self._format_tax_candidates(matching_taxes),
         }
 
-    def _select_best_purchase_tax(self, taxes, company, tax_rate, line=False):
-        configured_tax = self._get_configured_purchase_vat_tax(tax_rate, company)
+    def _select_best_purchase_tax(
+        self,
+        taxes,
+        company,
+        tax_rate,
+        line=False,
+        price_tax_mode=False,
+    ):
+        if not price_tax_mode:
+            price_tax_mode = self._line_price_tax_mode(line)
+        price_include = self._price_mode_to_tax_price_include(price_tax_mode)
+        configured_tax = self._get_configured_purchase_vat_tax(
+            tax_rate,
+            company,
+            price_include=price_include,
+        )
         if configured_tax and configured_tax.id in taxes.ids:
             return configured_tax
 
-        product_tax = self._get_product_supplier_tax(line, taxes, tax_rate)
+        product_tax = self._get_product_supplier_tax(
+            line,
+            taxes,
+            tax_rate,
+            price_tax_mode=price_tax_mode,
+        )
         if product_tax:
             return product_tax
 
@@ -1813,12 +1984,20 @@ class _JobApplyContext:
         if company_taxes:
             taxes = company_taxes
 
-        price_basis_taxes = self._filter_taxes_for_line_price_basis(taxes, line)
+        price_basis_taxes = self._filter_taxes_for_line_price_basis(
+            taxes,
+            line,
+            price_tax_mode=price_tax_mode,
+        )
+        if price_tax_mode == 'included':
+            if len(price_basis_taxes) == 1:
+                return price_basis_taxes
+            return self.env['account.tax']
         if len(price_basis_taxes) == 1:
             return price_basis_taxes
         if price_basis_taxes:
             taxes = price_basis_taxes
-        elif self._line_uses_price_without_tax(line):
+        elif price_tax_mode in ('included', 'excluded') or self._line_uses_price_without_tax(line):
             return self.env['account.tax']
 
         preferred_by_name = taxes.filtered(
@@ -1833,11 +2012,16 @@ class _JobApplyContext:
             return taxes
         return self.env['account.tax']
 
-    def _get_configured_purchase_vat_tax(self, tax_rate, company):
+    def _get_configured_purchase_vat_tax(self, tax_rate, company, price_include=None):
         if abs((tax_rate or 0.0) - 20.0) > 0.0001:
             return self.env['account.tax']
+        parameter_key = (
+            'account_gemini_digitization.default_purchase_vat_20_included_tax_id'
+            if price_include is True
+            else 'account_gemini_digitization.default_purchase_vat_20_tax_id'
+        )
         tax_id = self.env['ir.config_parameter'].sudo().get_param(
-            'account_gemini_digitization.default_purchase_vat_20_tax_id'
+            parameter_key
         )
         if not tax_id:
             return self.env['account.tax']
@@ -1850,12 +2034,15 @@ class _JobApplyContext:
             return self.env['account.tax']
         if not self._tax_matches_rate_and_scope(tax, tax_rate, company):
             return self.env['account.tax']
+        if price_include is not None and self._tax_is_price_included(tax) != price_include:
+            return self.env['account.tax']
         return tax
 
-    def _get_product_supplier_tax(self, line, taxes, tax_rate):
+    def _get_product_supplier_tax(self, line, taxes, tax_rate, price_tax_mode=False):
         product = getattr(line, 'matched_product_id', False) if line else False
         if not product:
             return self.env['account.tax']
+        price_include = self._price_mode_to_tax_price_include(price_tax_mode)
         product_taxes = (
             getattr(product, 'supplier_taxes_id', False)
             or getattr(getattr(product, 'product_tmpl_id', False), 'supplier_taxes_id', False)
@@ -1869,18 +2056,27 @@ class _JobApplyContext:
             and tax.type_tax_use in ('purchase', 'none')
             and getattr(tax, 'active', True)
             and not (
-                self._line_uses_price_without_tax(line)
+                price_include is False
                 and self._tax_is_price_included(tax)
+            )
+            and not (
+                price_include is True
+                and not self._tax_is_price_included(tax)
             )
         )
         if len(matching_product_taxes) == 1:
             return matching_product_taxes
         return self.env['account.tax']
 
-    def _filter_taxes_for_line_price_basis(self, taxes, line):
+    def _filter_taxes_for_line_price_basis(self, taxes, line, price_tax_mode=False):
         if not taxes or not line:
             return taxes
-        if self._line_uses_price_without_tax(line):
+        if not price_tax_mode:
+            price_tax_mode = self._line_price_tax_mode(line)
+        price_include = self._price_mode_to_tax_price_include(price_tax_mode)
+        if price_include is True:
+            return taxes.filtered(lambda tax: self._tax_is_price_included(tax))
+        if price_include is False:
             return taxes.filtered(lambda tax: not self._tax_is_price_included(tax))
         return taxes
 
@@ -1939,9 +2135,47 @@ class _JobApplyContext:
             )
         )
 
+    def _price_mode_to_tax_price_include(self, price_tax_mode):
+        if price_tax_mode == 'included':
+            return True
+        if price_tax_mode == 'excluded':
+            return False
+        return None
+
+    def _line_price_tax_mode(self, line):
+        if not line:
+            return 'unknown'
+        mode = getattr(line, 'price_tax_mode', False) or 'unknown'
+        if mode in ('included', 'excluded'):
+            return mode
+
+        text = self._normalize_text(' '.join(
+            str(value)
+            for value in (
+                getattr(line, 'source_columns', False),
+                getattr(line, 'note', False),
+                getattr(line, 'description', False),
+                getattr(line, 'supplier_product_name', False),
+            )
+            if value
+        ))
+        if self._text_says_price_without_tax(text):
+            return 'excluded'
+        if self._text_says_price_with_tax(text):
+            return 'included'
+        return 'unknown'
+
+    def _line_uses_price_with_tax(self, line):
+        return self._line_price_tax_mode(line) == 'included'
+
     def _line_uses_price_without_tax(self, line):
         if not line:
             return False
+        mode = self._line_price_tax_mode(line)
+        if mode == 'included':
+            return False
+        if mode == 'excluded':
+            return True
         if self._is_positive_number(self._to_float(getattr(line, 'price_unit_without_tax', False))):
             return True
         if self._is_positive_number(self._to_float(getattr(line, 'line_subtotal_without_tax', False))):
@@ -1956,6 +2190,31 @@ class _JobApplyContext:
             )
             if value
         ))
+        return self._text_says_price_without_tax(text)
+
+    def _text_says_price_with_tax(self, text):
+        if not text:
+            return False
+        return any(
+            marker in text
+            for marker in (
+                'ціна з пдв',
+                'цiна з пдв',
+                'цена с ндс',
+                'price with vat',
+                'price with tax',
+                'with vat',
+                'with tax',
+                'сума з пдв',
+                'сумма с ндс',
+                'total with vat',
+                'total with tax',
+            )
+        )
+
+    def _text_says_price_without_tax(self, text):
+        if not text:
+            return False
         return any(
             marker in text
             for marker in (
@@ -1968,6 +2227,8 @@ class _JobApplyContext:
                 'without tax',
                 'сума без пдв',
                 'сумма без ндс',
+                'subtotal without vat',
+                'subtotal without tax',
             )
         )
 
@@ -1987,12 +2248,13 @@ class _JobApplyContext:
         for tax in taxes[:10]:
             company = getattr(tax, 'company_id', False)
             parts.append(
-                '[id=%s %s; amount=%s; type=%s; company_id=%s; active=%s]'
+                '[id=%s %s; amount=%s; type=%s; price_include=%s; company_id=%s; active=%s]'
                 % (
                     tax.id,
                     tax.display_name or tax.name,
                     tax.amount,
                     tax.type_tax_use,
+                    self._tax_is_price_included(tax),
                     company.id if company else False,
                     getattr(tax, 'active', True),
                 )
@@ -2002,6 +2264,10 @@ class _JobApplyContext:
     def _get_tax_review_summary(self, line, warning):
         tax_rate = self._normalize_tax_rate(line.tax_rate)
         if self._is_number(tax_rate):
+            if 'включений у ціну' in str(warning) or 'included in price' in str(warning):
+                return _(
+                    'Tax review required: select price-included %.4g%% purchase tax'
+                ) % tax_rate
             if 'several purchase taxes' in str(warning):
                 if 'non-price-included' in str(warning):
                     return _(
@@ -2015,9 +2281,16 @@ class _JobApplyContext:
             return _('Tax review required: select %.4g%% purchase tax') % tax_rate
         return _('Tax review required: select purchase tax')
 
-    def _validate_selected_taxes(self, line, taxes, tax_rate):
+    def _validate_selected_taxes(
+        self,
+        line,
+        taxes,
+        tax_rate,
+        price_tax_mode_override=None,
+    ):
         if not self._is_number(tax_rate):
             return True
+        price_tax_mode = price_tax_mode_override or self._line_price_tax_mode(line)
         if tax_rate > 0:
             matching_taxes = taxes.filtered(
                 lambda tax: tax.amount_type == 'percent'
@@ -2032,7 +2305,20 @@ class _JobApplyContext:
                     'line': line._display_label(),
                     'rate': tax_rate,
                 })
-            if self._line_uses_price_without_tax(line):
+            if price_tax_mode == 'included':
+                not_included_taxes = matching_taxes.filtered(
+                    lambda tax: not self._tax_is_price_included(tax)
+                )
+                if not_included_taxes:
+                    raise UserError(_(
+                        'Для рядка "%(line)s" OCR розпізнав ціну з ПДВ, '
+                        'але вибраний податок не включений у ціну. '
+                        'Оберіть податок придбання зі ставкою %(rate).4g%%, включений у ціну.'
+                    ) % {
+                        'line': line._display_label(),
+                        'rate': tax_rate,
+                    })
+            elif price_tax_mode == 'excluded' or self._line_uses_price_without_tax(line):
                 price_included_taxes = matching_taxes.filtered(
                     lambda tax: self._tax_is_price_included(tax)
                 )
@@ -2084,6 +2370,9 @@ class _JobApplyContext:
         ):
             return quantity, price_unit
 
+        if self._is_number(price_unit) and self._is_positive_number(quantity):
+            if self._line_uses_price_with_tax(line):
+                return converted_quantity, (price_unit * quantity) / converted_quantity
         if self._is_number(amount_untaxed):
             return converted_quantity, amount_untaxed / converted_quantity
         if self._is_number(price_unit) and self._is_positive_number(quantity):
@@ -2111,6 +2400,9 @@ class _JobApplyContext:
         ):
             return quantity, price_unit
 
+        if self._is_number(price_unit) and self._is_positive_number(quantity):
+            if self._line_uses_price_with_tax(line):
+                return converted_quantity, (price_unit * quantity) / converted_quantity
         if self._is_number(amount_untaxed):
             return converted_quantity, amount_untaxed / converted_quantity
         if self._is_number(price_unit) and self._is_positive_number(quantity):
