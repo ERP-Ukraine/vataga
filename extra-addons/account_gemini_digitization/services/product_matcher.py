@@ -4,7 +4,7 @@ import re
 
 from odoo import _
 
-from .supplier_code import SupplierArticleNormalizer
+from .supplier_code import SupplierArticleNormalizer, TechnicalCodeNormalizer
 
 
 _logger = logging.getLogger(__name__)
@@ -46,6 +46,10 @@ class ProductMatcher:
         'box',
         'cover',
         'plastic',
+        '\u043a\u043b\u0435\u043c\u0430',
+        '\u043a\u043b\u0435\u043c\u043c\u0430',
+        '\u043a\u0440\u0438\u0448\u043a\u0430',
+        '\u043a\u0440\u044b\u0448\u043a\u0430',
         'алюмінієвий',
         'алюминиевый',
         'бокс',
@@ -59,6 +63,21 @@ class ProductMatcher:
         'універсальний',
         'герметичний',
     }
+    NAME_TOKEN_CANONICALS = {
+        '\u043a\u043b\u0435\u043c\u043c\u0430': '\u043a\u043b\u0435\u043c\u0430',
+        '\u043a\u0440\u044b\u0448\u043a\u0430': '\u043a\u0440\u0438\u0448\u043a\u0430',
+        '\u0447\u0435\u0440\u0432\u043e\u043d\u0430': 'color_red',
+        '\u0447\u0435\u0440\u0432\u043e\u043d\u0438\u0439': 'color_red',
+        '\u043a\u0440\u0430\u0441\u043d\u0430\u044f': 'color_red',
+        '\u043a\u0440\u0430\u0441\u043d\u044b\u0439': 'color_red',
+        'red': 'color_red',
+        '\u0447\u043e\u0440\u043d\u0430': 'color_black',
+        '\u0447\u043e\u0440\u043d\u0438\u0439': 'color_black',
+        '\u0447\u0435\u0440\u043d\u0430\u044f': 'color_black',
+        '\u0447\u0435\u0440\u043d\u044b\u0439': 'color_black',
+        'black': 'color_black',
+    }
+    NAME_COLOR_TOKENS = {'color_black', 'color_red'}
     INTERNAL_PRODUCT_TERMS = (
         'модифікований',
         'модифицированный',
@@ -944,6 +963,10 @@ class ProductMatcher:
                 match_note,
                 self._partial_assignment_diagnostic_text(line, assignment, assigned),
             )
+        if values['match_status'] == 'not_found':
+            technical_message = self._unmatched_technical_code_message(line)
+            if technical_message:
+                match_note = self._append_text(match_note, technical_message)
         values['match_note'] = match_note
         values['match_summary'] = self._build_match_summary(
             line,
@@ -963,11 +986,15 @@ class ProductMatcher:
             values['match_summary'] = _(
                 'Не вдалося однозначно визначити рядок документа.'
             )
+        elif values['match_status'] == 'not_found' and self._unmatched_technical_code_message(line):
+            values['match_summary'] = self._unmatched_technical_code_message(line)
         elif values['match_status'] == 'not_found':
             values['match_summary'] = _(
                 'Не знайдено відповідний товарний рядок документа.'
             )
         line.write(values)
+        if values['match_status'] in ('ambiguous', 'not_found'):
+            self._log_technical_match(line, candidates)
         if values['match_status'] == 'not_found':
             self._log_unmatched_supplier_article(line, candidates)
 
@@ -1135,6 +1162,18 @@ class ProductMatcher:
             method,
             notes,
         )
+        technical_score, technical_method, technical_notes, technical_details = (
+            self._score_technical_move_line_match(line, move_line, partner)
+        )
+        if technical_score > score or (
+            technical_score == score == 1.0
+            and technical_method == 'technical_code_exact'
+        ):
+            score = technical_score
+            method = technical_method
+        elif score and technical_score >= 0.80:
+            score += min(0.03, (technical_score - 0.80) * 0.15)
+        notes.extend(technical_notes)
         score, method = self._score_move_line_text(line, move_line, score, method)
         notes.append(
             'Partial bill candidate is limited to the current vendor bill line; '
@@ -1148,6 +1187,7 @@ class ProductMatcher:
             'notes': notes,
             'extracted_codes': self._line_codes(line),
             'candidate_codes': self._candidate_codes(product, move_line, partner),
+            'technical_details': technical_details,
         }
 
     def _score_partial_delivery_service_match(self, line, move_line, score, method, notes):
@@ -1710,6 +1750,16 @@ class ProductMatcher:
             return 0.0
         return 0.03 if self._product_sellers(product, partner) else 0.0
 
+    def _score_technical_move_line_match(self, line, move_line, partner):
+        product = move_line.product_id
+        line_profile = self._line_technical_profile(line)
+        candidate_profile = self._move_line_technical_profile(move_line, product, partner)
+        return self._score_technical_profiles(
+            line_profile,
+            candidate_profile,
+            'document line/product/supplier text',
+        )
+
     def _score_technical_product_match(self, line, product, partner):
         line_profile = self._line_technical_profile(line)
         product_profile = self._product_technical_profile(product, partner)
@@ -1819,20 +1869,22 @@ class ProductMatcher:
             candidate_profile['full_codes'],
         )
         if full_exact:
-            score = 0.96
-            method = 'historical_technical_full_code' if historical else 'technical_full_code'
+            score = 1.0
+            method = 'historical_technical_code_exact' if historical else 'technical_code_exact'
             details['matched_full_code'] = full_exact
+            details['exact_matches'] = [full_exact]
             notes.append(
-                'Full technical code match in %s: %s ~= %s.'
+                'Exact full technical code match in %s: %s == %s.'
                 % (source_label, full_exact[0], full_exact[1])
             )
-            score, notes = self._apply_technical_color_penalty(
-                line_profile,
-                candidate_profile,
-                score,
-                notes,
-            )
             return score, method, notes, details
+
+        if line_profile['full_codes'] and candidate_profile['full_codes']:
+            details['unmatched_segments'] = list(line_profile['important_segments'])
+            notes.append(
+                'Full technical codes differ; prefix and segment-only matches are rejected to preserve final model suffixes.'
+            )
+            return 0.0, False, notes, details
 
         full_prefix = self._find_contained_technical_value(
             line_profile['full_codes'],
@@ -1997,6 +2049,22 @@ class ProductMatcher:
             ])
         return self._technical_profile_from_values(values)
 
+    def _move_line_technical_profile(self, move_line, product, partner):
+        values = [
+            getattr(move_line, 'name', False),
+            getattr(product, 'default_code', False),
+            getattr(product, 'barcode', False),
+            getattr(product, 'display_name', False),
+            getattr(product, 'name', False),
+        ]
+        for seller in self._product_sellers(product, partner):
+            values.extend([
+                getattr(seller, 'product_code', False),
+                getattr(seller, 'product_name', False),
+                getattr(seller, 'name', False),
+            ])
+        return self._technical_profile_from_values(values)
+
     def _technical_profile_from_values(self, values):
         full_codes = []
         segments = []
@@ -2055,9 +2123,7 @@ class ProductMatcher:
 
     def _extract_full_technical_codes(self, prepared_text):
         codes = []
-        pattern = r'\b[A-Z]{1,12}\d[A-Z0-9]*(?:[-/][A-Z0-9]+){1,8}\b'
-        for match in re.findall(pattern, prepared_text or ''):
-            code = match.strip(':-.,;')
+        for code in TechnicalCodeNormalizer.extract(prepared_text):
             if self._looks_like_code(code):
                 codes.append(code)
         return codes
@@ -2134,10 +2200,7 @@ class ProductMatcher:
     def _prepare_code_text(self, value):
         if not value:
             return ''
-        value = str(value).translate(self.CYRILLIC_LATIN_LOOKALIKES)
-        value = value.translate(self.DASH_TRANSLATION)
-        value = re.sub(r'\s+', ' ', value)
-        return value.upper().strip()
+        return TechnicalCodeNormalizer.normalize(value)
 
     def _unique_technical_values(self, values):
         result = []
@@ -2154,7 +2217,7 @@ class ProductMatcher:
         return result
 
     def _technical_variant_keys(self, value):
-        normalized = self._normalize_code(value).upper()
+        normalized = TechnicalCodeNormalizer.key(value)
         if not normalized:
             return set()
         variants = {normalized}
@@ -2544,6 +2607,10 @@ class ProductMatcher:
             diagnostics=diagnostics,
             status=values['match_status'],
         )
+        if values['match_status'] == 'not_found':
+            technical_message = self._unmatched_technical_code_message(line)
+            if technical_message:
+                values['match_note'] = self._append_text(values['match_note'], technical_message)
         values['match_summary'] = self._build_match_summary(
             line,
             values,
@@ -2552,6 +2619,8 @@ class ProductMatcher:
             visible_candidates,
         )
         line.write(values)
+        if values['match_status'] in ('ambiguous', 'not_found'):
+            self._log_technical_match(line, candidates)
         if values['match_status'] == 'not_found':
             self._log_unmatched_supplier_article(line, candidates)
 
@@ -2579,6 +2648,32 @@ class ProductMatcher:
                 ', '.join(candidate_codes[:30]) if candidate_codes else 'none',
                 getattr(line.job_id, 'mode', False) or 'unknown',
             )
+        return True
+
+    def _log_technical_match(self, line, candidates):
+        line_profile = self._line_technical_profile(line)
+        ocr_codes = line_profile.get('full_codes') or []
+        if not ocr_codes:
+            return False
+        candidate_codes = []
+        exact_matches = []
+        for candidate in candidates or []:
+            details = candidate.get('technical_details') or {}
+            candidate_codes.extend(details.get('candidate_full_codes') or [])
+            exact_matches.extend(
+                '%s=%s' % (left, right)
+                for left, right in (details.get('exact_matches') or [])
+            )
+            matched_full = details.get('matched_full_code')
+            if matched_full and matched_full not in (details.get('exact_matches') or []):
+                exact_matches.append('%s~%s' % (matched_full[0], matched_full[1]))
+        _logger.info(
+            'Gemini OCR technical match: ocr_codes=%s candidate_codes=%s exact_matches=%s mode=%s',
+            ', '.join(dict.fromkeys(ocr_codes)) or 'none',
+            ', '.join(dict.fromkeys(candidate_codes)) or 'none',
+            ', '.join(dict.fromkeys(exact_matches)) or 'none',
+            getattr(line.job_id, 'mode', False) or 'unknown',
+        )
         return True
 
     def _can_match_best_gap(self, visible_candidates, allow_best_gap_match):
@@ -2644,6 +2739,9 @@ class ProductMatcher:
                 'score': score,
             }
         if status == 'not_found':
+            technical_message = self._unmatched_technical_code_message(line)
+            if technical_message:
+                return technical_message
             return _('Not found: no product matched %(code)s') % {'code': code or _('recognized line')}
         if status == 'error':
             return _('Error: product matching failed.')
@@ -2659,6 +2757,20 @@ class ProductMatcher:
         if code:
             return code
         return getattr(line, 'supplier_product_name', False) or getattr(line, 'description', False) or ''
+
+    def _unmatched_technical_code_message(self, line):
+        code = self._primary_technical_code(line)
+        if not code:
+            return False
+        return _('Не вдалося зіставити товар за технічним кодом «%(code)s».') % {
+            'code': code,
+        }
+
+    def _primary_technical_code(self, line):
+        profile = self._line_technical_profile(line)
+        if profile['full_codes']:
+            return profile['full_codes'][0]
+        return False
 
     def _short_product_name(self, product, limit=90):
         if not product:
@@ -2726,6 +2838,7 @@ class ProductMatcher:
         line_product_lines = line_source['line_product_lines']
         move_lines = line_source['product_lines']
         extracted_codes = self._line_codes(line)
+        technical_profile = self._line_technical_profile(line)
         supplier_articles = self._line_supplier_articles(line)
         create_line_count = len(self._partial_create_lines(job))
         diagnostics = [
@@ -2744,6 +2857,11 @@ class ProductMatcher:
             ),
             'Extracted supplier/internal codes: %s.' % (
                 ', '.join(extracted_codes) if extracted_codes else 'none'
+            ),
+            'Technical full codes: %s.' % (
+                ', '.join(technical_profile['full_codes'])
+                if technical_profile['full_codes']
+                else 'none'
             ),
             '%s: %s.' % (line_source.get('source_total_label'), len(invoice_lines)),
             '%s: %s.' % (line_source.get('source_product_label'), len(invoice_product_lines)),
@@ -2894,6 +3012,20 @@ class ProductMatcher:
             values.append('  boosts: %s' % '; '.join(candidate['boosts']))
         if candidate.get('penalties'):
             values.append('  penalties: %s' % '; '.join(candidate['penalties']))
+        technical_details = candidate.get('technical_details') or {}
+        if technical_details:
+            values.extend([
+                '  OCR technical full codes=%s; candidate technical full codes=%s'
+                % (
+                    ', '.join(technical_details.get('line_full_codes') or []) or 'none',
+                    ', '.join(technical_details.get('candidate_full_codes') or []) or 'none',
+                ),
+                '  matched technical segments=%s; unmatched OCR segments=%s'
+                % (
+                    ', '.join(technical_details.get('matched_segments') or []) or 'none',
+                    ', '.join(technical_details.get('unmatched_segments') or []) or 'none',
+                ),
+            ])
         if candidate.get('notes'):
             values.append('  why: %s' % '; '.join(candidate['notes']))
         return values
@@ -3813,10 +3945,12 @@ class ProductMatcher:
         value = value or ''
         prepared_value = self._prepare_code_text(value)
         codes = []
+        codes.extend(TechnicalCodeNormalizer.extract(value))
         codes.extend(self._extract_bracket_codes(value))
         codes.extend(self._extract_leading_codes(value))
         codes.extend(self._extract_embedded_codes(value))
         if prepared_value and prepared_value != value:
+            codes.extend(TechnicalCodeNormalizer.extract(prepared_value))
             codes.extend(self._extract_leading_codes(prepared_value))
             codes.extend(self._extract_embedded_codes(prepared_value))
         return self._expand_code_tokens(codes)
@@ -3928,7 +4062,19 @@ class ProductMatcher:
         similarity = max(
             difflib.SequenceMatcher(None, query_normalized, target_normalized).ratio(),
             self._token_similarity(query_normalized, target_normalized),
+            self._weighted_name_similarity(query_normalized, target_normalized),
         )
+        meaningful_overlap = self._meaningful_name_token_overlap(
+            query_normalized,
+            target_normalized,
+        )
+        color_overlap = self._name_colors(query_normalized) & self._name_colors(target_normalized)
+        if color_overlap and meaningful_overlap:
+            similarity = min(1.0, similarity + 0.03)
+        elif color_overlap and not meaningful_overlap:
+            similarity = min(similarity, 0.69)
+        if not meaningful_overlap:
+            similarity = min(similarity, 0.69)
         if similarity >= 0.90:
             return min(0.89, 0.84 + (similarity - 0.90) * 0.5)
         if similarity >= 0.80:
@@ -3943,6 +4089,47 @@ class ProductMatcher:
         if not left_tokens or not right_tokens:
             return 0.0
         return len(left_tokens & right_tokens) / len(left_tokens | right_tokens)
+
+    def _weighted_name_similarity(self, left, right):
+        left_tokens = set(self._canonical_name_tokens(left))
+        right_tokens = set(self._canonical_name_tokens(right))
+        if not left_tokens or not right_tokens:
+            return 0.0
+        return len(left_tokens & right_tokens) / len(left_tokens | right_tokens)
+
+    def _canonical_name_tokens(self, normalized_text):
+        tokens = []
+        for token in (normalized_text or '').split():
+            canonical = self.NAME_TOKEN_CANONICALS.get(token, token)
+            if canonical:
+                tokens.append(canonical)
+        return tokens
+
+    def _name_colors(self, normalized_text):
+        return {
+            token
+            for token in self._canonical_name_tokens(normalized_text)
+            if token in self.NAME_COLOR_TOKENS
+        }
+
+    def _meaningful_name_token_overlap(self, left, right):
+        left_tokens = self._meaningful_name_tokens(left)
+        right_tokens = self._meaningful_name_tokens(right)
+        return left_tokens & right_tokens
+
+    def _meaningful_name_tokens(self, normalized_text):
+        tokens = set()
+        for token in self._canonical_name_tokens(normalized_text):
+            if token in self.NAME_COLOR_TOKENS:
+                continue
+            if token in self.GENERIC_NAME_TOKENS:
+                continue
+            if self._is_low_value_code(token):
+                continue
+            if token.isdigit() or len(token) < 3:
+                continue
+            tokens.add(token)
+        return tokens
 
     def _choose_score(self, current_score, current_method, candidate_score, method):
         if candidate_score > current_score:
@@ -3982,6 +4169,7 @@ class ProductMatcher:
         }))
         normalized = self._normalize_text(value)
         normalized = re.sub(r'\b(?:\u0456\u0437|\u0437\u0456)\b', '\u0437', normalized)
+        normalized = ' '.join(self._canonical_name_tokens(normalized))
         normalized = re.sub(r'\s+', ' ', normalized).strip(' .,;:-')
         return normalized
 
