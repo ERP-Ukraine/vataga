@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="purchase_order_form_gemini_digitization" model="ir.ui.view">
+        <field name="name">purchase.order.form.gemini.digitization</field>
+        <field name="model">purchase.order</field>
+        <field name="inherit_id" ref="purchase.purchase_order_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form/header" position="inside">
+                <field name="message_attachment_count" invisible="1"/>
+                <field name="gemini_has_attachment" invisible="1"/>
+                <field name="gemini_has_supported_attachment" invisible="1"/>
+                <button
+                    name="action_create_gemini_digitization_job"
+                    string="Оцифрувати через Gemini"
+                    type="object"
+                    class="oe_highlight"
+                    invisible="state not in ('draft', 'sent') or not gemini_has_attachment"
+                />
+            </xpath>
+            <xpath expr="//div[hasclass('oe_chatter')]/field[@name='message_ids']" position="attributes">
+                <attribute name="options">{'post_refresh': 'always'}</attribute>
+            </xpath>
+        </field>
+    </record>
+</odoo>

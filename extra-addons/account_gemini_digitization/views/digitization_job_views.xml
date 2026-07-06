@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <delete
+        model="ir.ui.menu"
+        search="[('name', 'in', ['Gemini Digitization Jobs', 'Завдання оцифрування Gemini'])]"
+    />
+    <delete
+        model="ir.ui.menu"
+        search="[('name', 'in', ['Gemini Digitization', 'Оцифрування Gemini'])]"
+    />
+    <delete
+        model="ir.actions.act_window"
+        search="[('res_model', '=', 'account.gemini.digitization.job')]"
+    />
+    <delete
+        model="ir.ui.view"
+        search="[('model', '=', 'account.gemini.digitization.job')]"
+    />
+</odoo>
