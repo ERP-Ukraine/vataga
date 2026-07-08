@@ -1,6 +1,6 @@
 {
     'name': 'Product Analogs',
-    'version': '17.0.1.3',
+    'version': '17.0.1.6',
     'category': 'Inventory',
     'author': 'Vataga',
     'license': 'LGPL-3',
@@ -16,7 +16,10 @@
     'data': [
         'security/ir.model.access.csv',
         'views/product_template_views.xml',
+        'views/product_list_views.xml',
         'views/product_analytic_views.xml',
+        'views/purchase_order_views.xml',
+        'views/account_move_views.xml',
         'views/mrp_bom_views.xml',
         'views/mrp_production_views.xml',
     ],

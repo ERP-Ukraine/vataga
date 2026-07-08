@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="purchase_order_form_view_analog_original_product" model="ir.ui.view">
+        <field name="name">purchase.order.form.analog.original.product</field>
+        <field name="model">purchase.order</field>
+        <field name="inherit_id" ref="purchase.purchase_order_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='order_line']//tree//field[@name='product_id']" position="after">
+                <field name="analog_original_product_ids" column_invisible="1"/>
+                <field name="has_analog_original_options" column_invisible="1"/>
+                <field name="has_multiple_analog_original_options" column_invisible="1"/>
+                <field
+                    name="analog_original_product_id"
+                    string="Оригінал аналога"
+                    optional="show"
+                    readonly="not has_multiple_analog_original_options"
+                    invisible="not has_analog_original_options"
+                />
+            </xpath>
+        </field>
+    </record>
+</odoo>
