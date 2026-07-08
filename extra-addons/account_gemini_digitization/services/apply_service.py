@@ -189,13 +189,21 @@ class _JobApplyContext:
         if set(order.order_line.ids) != existing_line_ids:
             raise UserError(_('Apply must not create or delete purchase order lines.'))
 
+        header_warnings = self._apply_purchase_order_header(order)
+
         job.write({
             'state': 'done',
-            'error_message': False,
+            'error_message': self._format_warnings(header_warnings) if header_warnings else False,
             'matching_message': False,
         })
 
-        return self._get_purchase_order_form_action(order)
+        action = self._get_purchase_order_form_action(order)
+        if header_warnings:
+            action.update({
+                'gemini_header_warnings': header_warnings,
+                'gemini_notification_type': 'warning',
+            })
+        return action
 
     def _apply_full_bill(self):
         job = self.job_id
@@ -517,9 +525,10 @@ class _JobApplyContext:
                 ),
             })
 
+        header_warnings = self._apply_purchase_order_header(order)
         job.write({
             'state': 'done',
-            'error_message': False,
+            'error_message': self._format_warnings(header_warnings) if header_warnings else False,
             'matching_message': False,
         })
         action = self._get_purchase_order_form_action(order)
@@ -531,7 +540,8 @@ class _JobApplyContext:
             'gemini_applied_count': applied_count,
             'gemini_skipped_count': skipped_count,
             'gemini_status': 'partial_applied' if skipped_count else 'applied',
-            'gemini_notification_type': 'warning' if skipped_count else 'success',
+            'gemini_notification_type': 'warning' if skipped_count or header_warnings else 'success',
+            'gemini_header_warnings': header_warnings,
         })
         return action
 
@@ -1738,6 +1748,117 @@ class _JobApplyContext:
             'views': [(False, 'form')],
             'target': 'current',
         }
+
+    def _apply_purchase_order_header(self, order):
+        self.ensure_one()
+        values = {}
+        warnings = []
+
+        if self.recognized_invoice_number:
+            current_ref = (order.partner_ref or '').strip()
+            recognized_ref = str(self.recognized_invoice_number).strip()
+            if not current_ref:
+                values['partner_ref'] = recognized_ref
+            elif current_ref != recognized_ref:
+                warnings.append(_(
+                    'Референс постачальника вже заповнений іншим значенням: %(old)s. '
+                    'Розпізнаний номер документа: %(new)s.'
+                ) % {
+                    'old': current_ref,
+                    'new': recognized_ref,
+                })
+
+        if self.recognized_invoice_date:
+            date_field_name = self._get_purchase_order_supplier_document_date_field(order)
+            if date_field_name:
+                date_warning = self._prepare_purchase_order_date_header_value(
+                    order,
+                    date_field_name,
+                    values,
+                )
+                if date_warning:
+                    warnings.append(date_warning)
+            else:
+                warnings.append(_(
+                    'Розпізнану дату документа постачальника не перенесено, '
+                    'бо в замовленні на закупівлю немає відповідного поля.'
+                ))
+
+        if values:
+            order.write(values)
+        for warning in warnings:
+            _logger.info(
+                'Gemini OCR purchase order header warning for purchase.order %s: %s',
+                order.id,
+                warning,
+            )
+        return warnings
+
+    def _get_purchase_order_supplier_document_date_field(self, order):
+        candidate_fields = (
+            'supplier_invoice_date',
+            'supplier_document_date',
+            'vendor_invoice_date',
+            'vendor_document_date',
+            'partner_invoice_date',
+            'partner_document_date',
+            'document_date',
+            'invoice_date',
+            'date_order',
+        )
+        for field_name in candidate_fields:
+            field = order._fields.get(field_name)
+            if field and field.type in ('date', 'datetime'):
+                return field_name
+        return False
+
+    def _prepare_purchase_order_date_header_value(self, order, field_name, values):
+        recognized_date = fields.Date.to_date(self.recognized_invoice_date)
+        if not recognized_date:
+            return False
+
+        field = order._fields[field_name]
+        current_value = order[field_name]
+        current_date = self._to_header_date(current_value)
+        if not current_date:
+            values[field_name] = self._get_purchase_order_header_date_write_value(
+                recognized_date,
+                field,
+            )
+            return False
+        if current_date == recognized_date:
+            return False
+        if self._can_replace_purchase_order_header_date(order, field_name, current_date):
+            values[field_name] = self._get_purchase_order_header_date_write_value(
+                recognized_date,
+                field,
+            )
+            return False
+        return _(
+            'Дата документа постачальника вже заповнена іншим значенням: %(old)s. '
+            'Розпізнана дата документа: %(new)s.'
+        ) % {
+            'old': fields.Date.to_string(current_date),
+            'new': fields.Date.to_string(recognized_date),
+        }
+
+    def _get_purchase_order_header_date_write_value(self, recognized_date, field):
+        if field.type == 'datetime':
+            return fields.Datetime.to_datetime(recognized_date)
+        return recognized_date
+
+    def _to_header_date(self, value):
+        if not value:
+            return False
+        if hasattr(value, 'date'):
+            return value.date()
+        return fields.Date.to_date(value)
+
+    def _can_replace_purchase_order_header_date(self, order, field_name, current_date):
+        if field_name != 'date_order':
+            return False
+        create_date = self._to_header_date(order.create_date)
+        return bool(create_date and current_date == create_date)
 
     def _prepare_full_purchase_order_line_values(self, plan, order):
         line = plan['line']

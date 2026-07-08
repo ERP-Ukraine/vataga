@@ -314,6 +314,13 @@ class AccountGeminiDigitizationJob(models.Model):
             }
 
         message = self._get_automatic_success_message(apply_result)
+        if isinstance(apply_result, dict):
+            header_warnings = apply_result.get('gemini_header_warnings') or []
+            if header_warnings:
+                message = '%s\n%s' % (
+                    message,
+                    '\n'.join(str(warning) for warning in header_warnings),
+                )
         self._post_automatic_pipeline_message(message)
         notification_type = 'success'
         status = 'applied'
