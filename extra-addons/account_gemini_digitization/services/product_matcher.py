@@ -77,8 +77,49 @@ class ProductMatcher:
         'универсальний',
         'універсальний',
         'герметичний',
+        'adapter',
+        'black',
+        'board',
+        'cable',
+        'camera',
+        'analog',
+        'module',
+        'fpv',
+        'output',
+        'plate',
+        'product',
+        'pro',
+        'service',
+        'ac',
+        'dc',
+        'to',
+        'with',
+        'white',
+        'адаптер',
+        'кабель',
+        'камера',
+        'клема',
+        'модуль',
+        'напруга',
+        'напруги',
+        'напряжение',
+        'напряжения',
+        'перетворювач',
+        'плата',
+        'послуга',
+        'товар',
+        'шт',
     }
     NAME_TOKEN_CANONICALS = {
+        'camera': 'camera',
+        'kamepa': 'camera',
+        'камера': 'camera',
+        'підвищувальний': 'boost_converter',
+        'підвищуючий': 'boost_converter',
+        'повышающий': 'boost_converter',
+        'понижувальний': 'buck_converter',
+        'понижуючий': 'buck_converter',
+        'понижающий': 'buck_converter',
         '\u043a\u043b\u0435\u043c\u043c\u0430': '\u043a\u043b\u0435\u043c\u0430',
         '\u043a\u0440\u044b\u0448\u043a\u0430': '\u043a\u0440\u0438\u0448\u043a\u0430',
         '\u0447\u0435\u0440\u0432\u043e\u043d\u0430': 'color_red',
@@ -93,6 +134,9 @@ class ProductMatcher:
         'black': 'color_black',
     }
     NAME_COLOR_TOKENS = {'color_black', 'color_red'}
+    NAME_GENERIC_WEIGHT = 0.08
+    NAME_CHARACTERISTIC_WEIGHT = 0.26
+    NAME_MEANINGFUL_WEIGHT_THRESHOLD = 0.70
     INTERNAL_PRODUCT_TERMS = (
         'модифікований',
         'модифицированный',
@@ -213,12 +257,14 @@ class ProductMatcher:
         for line in job.line_ids:
             try:
                 products = self._find_full_bill_products(line, partner)
+                name_token_frequencies = self._product_name_token_frequencies(products)
                 candidates = [
                     self._score_product(
                         line,
                         product,
                         partner,
                         strict_code_profile=True,
+                        name_token_frequencies=name_token_frequencies,
                     )
                     for product in products
                 ]
@@ -572,13 +618,19 @@ class ProductMatcher:
         move_lines = line_source['product_lines']
         create_lines = self._partial_create_lines(job).sorted('sequence')
         create_line_count = len(create_lines)
+        name_token_frequencies = self._move_line_name_token_frequencies(move_lines)
         candidate_map = {}
         diagnostics_map = {}
 
         for line in create_lines:
             try:
                 candidates = [
-                    self._score_move_line(line, move_line, partner)
+                    self._score_move_line(
+                        line,
+                        move_line,
+                        partner,
+                        name_token_frequencies=name_token_frequencies,
+                    )
                     for move_line in move_lines
                 ]
                 self._apply_single_line_partial_fallback(
@@ -984,6 +1036,7 @@ class ProductMatcher:
         line.write(values)
         if values['match_status'] in ('ambiguous', 'not_found'):
             self._log_technical_match(line, candidates)
+            self._log_name_model_match(line, candidates, values['match_status'])
         if values['match_status'] == 'not_found':
             self._log_unmatched_supplier_article(line, candidates)
 
@@ -1125,7 +1178,7 @@ class ProductMatcher:
             self._append_unique(products, getattr(history_line, 'product_id', False))
         return products
 
-    def _score_move_line(self, line, move_line, partner):
+    def _score_move_line(self, line, move_line, partner, name_token_frequencies=False):
         product = move_line.product_id
         score, method, notes = self._score_product_identity(line, product, partner)
         score, method, notes = self._score_supplierinfo_article_exact(
@@ -1163,6 +1216,22 @@ class ProductMatcher:
         elif score and technical_score >= 0.80:
             score += min(0.03, (technical_score - 0.80) * 0.15)
         notes.extend(technical_notes)
+
+        name_model_score, name_model_method, name_model_notes, name_model_details = (
+            self._score_move_line_name_model_match(
+                line,
+                move_line,
+                product,
+                name_token_frequencies=name_token_frequencies,
+            )
+        )
+        if name_model_score > score:
+            score = name_model_score
+            method = name_model_method
+        elif score and name_model_score >= 0.80:
+            score += min(0.04, (name_model_score - 0.80) * 0.20)
+        notes.extend(name_model_notes)
+
         score, method = self._score_move_line_text(line, move_line, score, method)
         notes.append(
             'Partial bill candidate is limited to the current vendor bill line; '
@@ -1177,6 +1246,7 @@ class ProductMatcher:
             'extracted_codes': self._line_codes(line),
             'candidate_codes': self._candidate_codes(product, move_line, partner),
             'technical_details': technical_details,
+            'name_model_details': name_model_details,
         }
 
     def _score_partial_delivery_service_match(self, line, move_line, score, method, notes):
@@ -1238,9 +1308,21 @@ class ProductMatcher:
             break
         return score, method, notes
 
-    def _score_product(self, line, product, partner, strict_code_profile=False):
+    def _score_product(
+        self,
+        line,
+        product,
+        partner,
+        strict_code_profile=False,
+        name_token_frequencies=False,
+    ):
         if strict_code_profile:
-            return self._score_product_strict(line, product, partner)
+            return self._score_product_strict(
+                line,
+                product,
+                partner,
+                name_token_frequencies=name_token_frequencies,
+            )
 
         score, method, notes = self._score_product_identity(line, product, partner)
         score, method, notes = self._score_product_code_match(
@@ -1261,7 +1343,13 @@ class ProductMatcher:
             'candidate_codes': self._product_candidate_codes(product, partner),
         }
 
-    def _score_product_strict(self, line, product, partner):
+    def _score_product_strict(
+        self,
+        line,
+        product,
+        partner,
+        name_token_frequencies=False,
+    ):
         profile = self._line_code_profile(line)
         primary_codes = profile['primary_codes']
         secondary_codes = profile['secondary_codes']
@@ -1344,6 +1432,24 @@ class ProductMatcher:
                     score += boost
                     boosts.append('plain_name +%.2f' % boost)
             notes.extend(name_notes)
+
+        name_model_score, name_model_method, name_model_notes, name_model_details = (
+            self._score_product_name_model_match(
+                line,
+                product,
+                name_token_frequencies=name_token_frequencies,
+            )
+        )
+        if name_model_score:
+            if name_model_score > score:
+                score = name_model_score
+                method = name_model_method
+            elif score and name_model_score >= 0.80:
+                boost = min(0.04, (name_model_score - 0.80) * 0.20)
+                if boost > 0:
+                    score += boost
+                    boosts.append('name_model +%.2f' % boost)
+            notes.extend(name_model_notes)
 
         history_name_score, history_name_method, history_name_notes, history_name_details = (
             self._score_historical_name_product_match(line, product, partner)
@@ -1448,6 +1554,7 @@ class ProductMatcher:
             'penalties': penalties,
             'technical_details': technical_details,
             'name_details': name_details,
+            'name_model_details': name_model_details,
             'history_name_details': history_name_details,
         }
 
@@ -1618,6 +1725,174 @@ class ProductMatcher:
             return 0.90, 'product_name_substring', notes, details
 
         return 0.0, False, notes, details
+
+    def _score_product_name_model_match(self, line, product, name_token_frequencies=False):
+        return self._score_name_model_match(
+            self._line_name_model_values(line),
+            self._product_name_model_values(product),
+            source_label='product',
+            name_token_frequencies=name_token_frequencies,
+        )
+
+    def _score_move_line_name_model_match(
+        self,
+        line,
+        move_line,
+        product,
+        name_token_frequencies=False,
+    ):
+        return self._score_name_model_match(
+            self._line_name_model_values(line),
+            self._move_line_name_model_values(move_line, product),
+            source_label='document line/product',
+            name_token_frequencies=name_token_frequencies,
+        )
+
+    def _score_name_model_match(
+        self,
+        line_values,
+        candidate_values,
+        source_label,
+        name_token_frequencies=False,
+    ):
+        notes = []
+        line_profile = self._name_model_token_profile(
+            line_values,
+            name_token_frequencies=name_token_frequencies,
+        )
+        candidate_profile = self._name_model_token_profile(
+            candidate_values,
+            name_token_frequencies=name_token_frequencies,
+        )
+        details = {
+            'source': source_label,
+            'ocr_tokens': line_profile['tokens'],
+            'candidate_tokens': candidate_profile['tokens'],
+            'ocr_meaningful_tokens': line_profile['meaningful_tokens'],
+            'candidate_meaningful_tokens': candidate_profile['meaningful_tokens'],
+            'token_weights': line_profile['weights'],
+            'matched_tokens': [],
+            'matched_phrases': [],
+            'generic_matches': [],
+            'conflicting_tokens': [],
+            'missing_meaningful_tokens': [],
+            'token_weight_score': 0.0,
+            'phrase_score': 0.0,
+            'conflict_penalty': 0.0,
+        }
+        if not line_profile['tokens'] or not candidate_profile['tokens']:
+            return 0.0, False, notes, details
+
+        candidate_tokens = set(candidate_profile['tokens'])
+        overlap = set(line_profile['tokens']) & candidate_tokens
+        matched_meaningful = [
+            token
+            for token in line_profile['meaningful_tokens']
+            if token in overlap
+        ]
+        generic_matches = [
+            token
+            for token in overlap
+            if token not in matched_meaningful
+        ]
+        matched_weight = sum(
+            line_profile['weights'].get(token, 0.0)
+            for token in matched_meaningful
+        )
+        total_meaningful_weight = sum(
+            line_profile['weights'].get(token, 0.0)
+            for token in line_profile['meaningful_tokens']
+        )
+        high_value_matches = [
+            token
+            for token in matched_meaningful
+            if line_profile['weights'].get(token, 0.0) >= 0.55
+        ]
+        matched_phrases = self._matching_name_model_phrases(
+            line_profile,
+            candidate_profile,
+        )
+        phrase_score = self._name_model_phrase_score(
+            matched_phrases,
+            line_profile['weights'],
+        )
+        conflicting_tokens = self._conflicting_name_model_tokens(
+            line_profile,
+            candidate_profile,
+            matched_meaningful,
+        )
+        conflict_penalty = self._name_model_conflict_penalty(conflicting_tokens)
+        missing_meaningful = [
+            token
+            for token in line_profile['meaningful_tokens']
+            if token not in overlap
+        ]
+        details.update({
+            'matched_tokens': matched_meaningful,
+            'matched_phrases': matched_phrases,
+            'generic_matches': sorted(generic_matches),
+            'conflicting_tokens': conflicting_tokens,
+            'missing_meaningful_tokens': missing_meaningful,
+            'token_weight_score': self._clamp_score(matched_weight),
+            'phrase_score': self._clamp_score(phrase_score),
+            'conflict_penalty': self._clamp_score(conflict_penalty),
+        })
+
+        if not matched_meaningful:
+            if generic_matches:
+                notes.append(
+                    'Name-only match rejected in %s: only generic tokens matched: %s.'
+                    % (source_label, ', '.join(sorted(generic_matches)))
+                )
+            return 0.0, False, notes, details
+
+        coverage = (
+            matched_weight / total_meaningful_weight
+            if total_meaningful_weight
+            else 0.0
+        )
+        score = 0.0
+        method = False
+        if (
+            matched_weight >= self.NAME_MEANINGFUL_WEIGHT_THRESHOLD
+            and high_value_matches
+        ) or (
+            matched_weight >= self.NAME_MEANINGFUL_WEIGHT_THRESHOLD + 0.35
+            and len(matched_meaningful) >= 2
+        ) or matched_phrases:
+            score = 0.58 + min(0.26, matched_weight * 0.11) + min(0.14, coverage * 0.16)
+            score += phrase_score
+            score -= conflict_penalty
+            method = 'name_weighted_match'
+            if high_value_matches:
+                method = 'name_weighted_model_match'
+        else:
+            score = min(0.69, 0.36 + matched_weight * 0.10 + phrase_score)
+            score -= min(conflict_penalty, 0.12)
+            method = 'weak_name_weighted_overlap'
+
+        if score:
+            notes.append(
+                'Weighted name match in %s: OCR tokens=%s; candidate tokens=%s; '
+                'matched tokens=%s; matched phrases=%s; generic matches=%s; '
+                'conflicting tokens=%s; matched_weight=%.2f; coverage=%.2f; '
+                'phrase_score=%.2f; conflict_penalty=%.2f; score=%.2f.'
+                % (
+                    source_label,
+                    ', '.join(line_profile['tokens']) or 'none',
+                    ', '.join(candidate_profile['tokens']) or 'none',
+                    ', '.join(matched_meaningful) or 'none',
+                    ', '.join(matched_phrases) or 'none',
+                    ', '.join(sorted(generic_matches)) or 'none',
+                    ', '.join(conflicting_tokens) or 'none',
+                    matched_weight,
+                    coverage,
+                    phrase_score,
+                    conflict_penalty,
+                    score,
+                )
+            )
+        return self._clamp_score(score), method, notes, details
 
     def _score_historical_name_product_match(self, line, product, partner):
         notes = []
@@ -2616,6 +2891,7 @@ class ProductMatcher:
         line.write(values)
         if values['match_status'] in ('ambiguous', 'not_found'):
             self._log_technical_match(line, candidates)
+            self._log_name_model_match(line, candidates, values['match_status'])
         if values['match_status'] == 'not_found':
             self._log_unmatched_supplier_article(line, candidates)
 
@@ -2848,6 +3124,60 @@ class ProductMatcher:
             ', '.join(dict.fromkeys(exact_matches)) or 'none',
             getattr(line.job_id, 'mode', False) or 'unknown',
         )
+        return True
+
+    def _log_name_model_match(self, line, candidates, decision):
+        line_values = self._line_name_model_values(line)
+        if not line_values:
+            return False
+        ocr_profile = self._name_model_token_profile(line_values)
+        if not ocr_profile['tokens']:
+            return False
+        scored_candidates = sorted(
+            [
+                candidate
+                for candidate in candidates or []
+                if candidate.get('product')
+            ],
+            key=lambda candidate: candidate.get('score') or 0.0,
+            reverse=True,
+        )
+        second_score = (
+            scored_candidates[1].get('score') or 0.0
+            if len(scored_candidates) > 1
+            else 0.0
+        )
+        for candidate in scored_candidates[:10]:
+            product = candidate.get('product')
+            details = candidate.get('name_model_details') or {}
+            if not product or not details:
+                continue
+            _logger.info(
+                'Gemini OCR name match: mode=%s ocr_name="%s" ocr_tokens=%s '
+                'ocr_meaningful_tokens=%s candidate=%s/%s candidate_tokens=%s '
+                'matched_tokens=%s matched_phrases=%s generic_matches=%s '
+                'conflicting_tokens=%s token_weight_score=%.2f phrase_score=%.2f '
+                'final_score=%.2f second_score=%.2f method=%s decision=%s',
+                getattr(line.job_id, 'mode', False) or 'unknown',
+                ' | '.join(str(value) for value in line_values if value),
+                ', '.join(ocr_profile['tokens']) or 'none',
+                ', '.join(ocr_profile['meaningful_tokens']) or 'none',
+                getattr(product, 'id', False) or 'unknown',
+                getattr(product, 'display_name', False)
+                or getattr(product, 'name', False)
+                or '',
+                ', '.join(details.get('candidate_tokens') or []) or 'none',
+                ', '.join(details.get('matched_tokens') or []) or 'none',
+                ', '.join(details.get('matched_phrases') or []) or 'none',
+                ', '.join(details.get('generic_matches') or []) or 'none',
+                ', '.join(details.get('conflicting_tokens') or []) or 'none',
+                details.get('token_weight_score') or 0.0,
+                details.get('phrase_score') or 0.0,
+                candidate.get('score') or 0.0,
+                second_score,
+                candidate.get('method') or 'none',
+                decision,
+            )
         return True
 
     def _can_match_best_gap(self, visible_candidates, allow_best_gap_match):
@@ -3406,6 +3736,27 @@ class ProductMatcher:
                     ', '.join(name_details.get('product_names') or []) or 'none',
                 )
             )
+        name_model_details = candidate.get('name_model_details') or {}
+        if name_model_details:
+            values.extend([
+                '  name_model_source=%s; OCR tokens=%s; meaningful OCR tokens=%s; candidate tokens=%s'
+                % (
+                    name_model_details.get('source') or 'none',
+                    ', '.join(name_model_details.get('ocr_tokens') or []) or 'none',
+                    ', '.join(name_model_details.get('ocr_meaningful_tokens') or []) or 'none',
+                    ', '.join(name_model_details.get('candidate_tokens') or []) or 'none',
+                ),
+                '  weighted name match: matched=%s; phrases=%s; generic=%s; conflicts=%s; token_score=%.2f; phrase_score=%.2f; conflict_penalty=%.2f'
+                % (
+                    ', '.join(name_model_details.get('matched_tokens') or []) or 'none',
+                    ', '.join(name_model_details.get('matched_phrases') or []) or 'none',
+                    ', '.join(name_model_details.get('generic_matches') or []) or 'none',
+                    ', '.join(name_model_details.get('conflicting_tokens') or []) or 'none',
+                    name_model_details.get('token_weight_score') or 0.0,
+                    name_model_details.get('phrase_score') or 0.0,
+                    name_model_details.get('conflict_penalty') or 0.0,
+                ),
+            ])
         history_name_details = candidate.get('history_name_details') or {}
         if history_name_details:
             values.append(
@@ -3921,6 +4272,249 @@ class ProductMatcher:
                 names.append(normalized)
         return list(dict.fromkeys(names))
 
+    def _line_name_model_values(self, line):
+        return [
+            value
+            for value in (
+                getattr(line, 'supplier_product_name', False),
+                getattr(line, 'description', False),
+                getattr(line, 'note', False),
+                getattr(line, 'source_columns', False),
+            )
+            if value
+        ]
+
+    def _product_name_model_values(self, product):
+        return [
+            value
+            for value in (
+                getattr(product, 'display_name', False),
+                getattr(product, 'name', False),
+            )
+            if value
+        ]
+
+    def _move_line_name_model_values(self, move_line, product):
+        values = self._product_name_model_values(product)
+        line_name = getattr(move_line, 'name', False)
+        if line_name:
+            values.append(line_name)
+        return values
+
+    def _name_model_token_profile(self, values, name_token_frequencies=False):
+        tokens = []
+        for value in values or []:
+            for token in self._extract_name_model_tokens(value):
+                if token not in tokens:
+                    tokens.append(token)
+        weights = {
+            token: self._name_model_token_weight(
+                token,
+                frequency=(name_token_frequencies or {}).get(token, 1),
+            )
+            for token in tokens
+        }
+        meaningful_tokens = [
+            token
+            for token in tokens
+            if weights.get(token, 0.0) >= 0.18
+        ]
+        phrases = self._name_model_phrases(tokens, weights)
+        return {
+            'tokens': tokens,
+            'meaningful_tokens': meaningful_tokens,
+            'weights': weights,
+            'phrases': phrases,
+        }
+
+    def _extract_name_model_tokens(self, value):
+        text = self._prepare_name_model_text(value)
+        if not text:
+            return []
+        tokens = []
+        for token in re.findall(
+            r'[a-z0-9\u0400-\u04ff]+(?:[-/][a-z0-9\u0400-\u04ff]+)*',
+            text,
+            flags=re.I | re.U,
+        ):
+            for expanded in self._expand_name_model_token(token):
+                if expanded and expanded not in tokens:
+                    tokens.append(expanded)
+        return tokens
+
+    def _prepare_name_model_text(self, value):
+        if not value:
+            return ''
+        value = str(value).translate(self.DASH_TRANSLATION)
+        value = value.replace('\u0401', '\u0415').replace('\u0451', '\u0435')
+        value = re.sub(r'(?<=\d)\s*[*×хx]\s*(?=\d)', 'x', value, flags=re.U)
+        value = re.sub(r'(?<=[\u0400-\u04ff])(?=[A-Za-z])', ' ', value, flags=re.U)
+        value = re.sub(r'(?<=[A-Za-z])(?=[\u0400-\u04ff])', ' ', value, flags=re.U)
+        value = value.lower()
+        value = re.sub(r'[^\w\s/-]', ' ', value, flags=re.U)
+        value = value.replace('_', ' ')
+        return re.sub(r'\s+', ' ', value).strip()
+
+    def _expand_name_model_token(self, token):
+        token = (token or '').strip(' ./-')
+        if not token:
+            return []
+        canonical = self.NAME_TOKEN_CANONICALS.get(token, token)
+        if canonical.endswith('fpv') and len(canonical) > 3:
+            return [canonical[:-3], 'fpv']
+        tokens = [canonical]
+        compact = re.sub(r'[-/\s]+', '', canonical)
+        if compact and compact != canonical and self._looks_like_name_model_token(compact):
+            tokens.append(compact)
+        for part in re.split(r'[-/]+', canonical):
+            part = part.strip()
+            if part and self._looks_like_name_model_token(part):
+                tokens.append(part)
+        return list(dict.fromkeys(tokens))
+
+    def _looks_like_name_model_token(self, token):
+        if not token:
+            return False
+        if token in self.GENERIC_NAME_TOKENS:
+            return False
+        if token.isdigit() or len(token) < 3:
+            return False
+        if token in self.TECHNICAL_MODEL_TOKEN_ALLOWLIST:
+            return True
+        if '-' in token or '/' in token:
+            return any(char.isdigit() for char in token) and any(char.isalpha() for char in token)
+        return any(char.isdigit() for char in token) and any(char.isalpha() for char in token)
+
+    def _name_model_token_weight(self, token, frequency=1):
+        if not token:
+            return 0.0
+        if token.isdigit() or len(token) < 2:
+            return 0.0
+        if token in self.GENERIC_NAME_TOKENS:
+            return self.NAME_GENERIC_WEIGHT
+        if token in self.NAME_COLOR_TOKENS:
+            return 0.10
+
+        base = 0.34
+        if self._is_characteristic_name_token(token):
+            base = self.NAME_CHARACTERISTIC_WEIGHT
+        if self._looks_like_name_model_token(token):
+            base = 0.68
+        elif len(token) >= 6:
+            base += 0.18
+        elif len(token) >= 5:
+            base += 0.14
+        elif len(token) >= 4:
+            base += 0.08
+
+        if '-' in token or '/' in token:
+            base += 0.18
+        if any(char.isdigit() for char in token) and any(char.isalpha() for char in token):
+            base += 0.18
+        if len(token) >= 8:
+            base += 0.08
+
+        base *= self._name_token_frequency_factor(frequency)
+        if self._is_characteristic_name_token(token):
+            base = min(base, 0.42)
+        return self._clamp_score(base)
+
+    def _name_token_frequency_factor(self, frequency):
+        frequency = frequency or 1
+        if frequency <= 1:
+            return 1.18
+        if frequency <= 3:
+            return 1.0
+        if frequency <= 6:
+            return 0.78
+        return 0.55
+
+    def _is_characteristic_name_token(self, token):
+        return bool(re.match(
+            r'^(?:\d+(?:[.,]\d+)?(?:v|a|w|tvl|mah|mm|cm|mp|s)|\d+(?:x\d+){1,3})$',
+            token or '',
+            flags=re.I,
+        ))
+
+    def _name_model_phrases(self, tokens, weights):
+        phrases = []
+        for size in (2, 3):
+            for index in range(0, max(len(tokens) - size + 1, 0)):
+                phrase_tokens = tokens[index:index + size]
+                phrase_weight = sum(weights.get(token, 0.0) for token in phrase_tokens)
+                if phrase_weight < 0.55:
+                    continue
+                if all(weights.get(token, 0.0) <= 0.12 for token in phrase_tokens):
+                    continue
+                phrases.append(' '.join(phrase_tokens))
+        return phrases
+
+    def _matching_name_model_phrases(self, line_profile, candidate_profile):
+        candidate_phrases = set(candidate_profile.get('phrases') or [])
+        return [
+            phrase
+            for phrase in line_profile.get('phrases') or []
+            if phrase in candidate_phrases
+        ]
+
+    def _name_model_phrase_score(self, matched_phrases, weights):
+        score = 0.0
+        for phrase in matched_phrases:
+            phrase_tokens = phrase.split()
+            phrase_weight = sum(weights.get(token, 0.0) for token in phrase_tokens)
+            if phrase_weight >= 1.0:
+                score += 0.06
+            elif phrase_weight >= 0.70:
+                score += 0.04
+            else:
+                score += 0.02
+        return min(0.16, score)
+
+    def _conflicting_name_model_tokens(self, line_profile, candidate_profile, matched_tokens):
+        matched_tokens = set(matched_tokens or [])
+        line_high_tokens = {
+            token
+            for token in line_profile.get('meaningful_tokens') or []
+            if line_profile['weights'].get(token, 0.0) >= 0.55
+        }
+        candidate_high_tokens = {
+            token
+            for token in candidate_profile.get('meaningful_tokens') or []
+            if candidate_profile['weights'].get(token, 0.0) >= 0.55
+        }
+        missing_line_high = line_high_tokens - matched_tokens
+        extra_candidate_high = candidate_high_tokens - matched_tokens
+        if not missing_line_high or not extra_candidate_high:
+            return []
+        return sorted(missing_line_high | extra_candidate_high)
+
+    def _name_model_conflict_penalty(self, conflicting_tokens):
+        if not conflicting_tokens:
+            return 0.0
+        return min(0.24, 0.08 + len(conflicting_tokens) * 0.04)
+
+    def _product_name_token_frequencies(self, products):
+        return self._name_token_frequencies(
+            self._product_name_model_values(product)
+            for product in products
+        )
+
+    def _move_line_name_token_frequencies(self, move_lines):
+        return self._name_token_frequencies(
+            self._move_line_name_model_values(move_line, move_line.product_id)
+            for move_line in move_lines
+        )
+
+    def _name_token_frequencies(self, values_iterable):
+        frequencies = {}
+        for values in values_iterable:
+            tokens = set()
+            for value in values or []:
+                tokens.update(self._extract_name_model_tokens(value))
+            for token in tokens:
+                frequencies[token] = frequencies.get(token, 0) + 1
+        return frequencies
+
     def _line_search_terms(self, line):
         terms = []
         for value in self._line_name_terms(line):
@@ -3940,6 +4534,7 @@ class ProductMatcher:
 
     def _full_bill_search_terms(self, line, profile):
         terms = list(profile['primary_codes'])
+        terms.extend(self._line_weighted_name_search_terms(line))
         for value in self._line_name_terms(line):
             for token in self._meaningful_tokens(value):
                 if token in self.GENERIC_NAME_TOKENS:
@@ -3953,6 +4548,17 @@ class ProductMatcher:
             if not self._is_low_value_code(code)
         )
         return list(dict.fromkeys(term for term in terms if term))
+
+    def _line_weighted_name_search_terms(self, line):
+        name_profile = self._name_model_token_profile(self._line_name_model_values(line))
+        weighted_terms = [
+            (token, name_profile['weights'].get(token, 0.0))
+            for token in name_profile['meaningful_tokens']
+            if name_profile['weights'].get(token, 0.0) >= 0.25
+            and token not in self.GENERIC_NAME_TOKENS
+        ]
+        weighted_terms.sort(key=lambda item: (-item[1], item[0]))
+        return [token for token, _weight in weighted_terms[:8]]
 
     def _line_code_profile(self, line):
         primary_codes = []
@@ -4275,6 +4881,9 @@ class ProductMatcher:
         tokens = []
         for token in (normalized_text or '').split():
             canonical = self.NAME_TOKEN_CANONICALS.get(token, token)
+            if canonical.endswith('fpv') and len(canonical) > 3:
+                tokens.extend([canonical[:-3], 'fpv'])
+                continue
             if canonical:
                 tokens.append(canonical)
         return tokens
@@ -4315,6 +4924,10 @@ class ProductMatcher:
             return ''
         value = str(value)
         value = re.sub(r'\[[^\]]+\]', ' ', value)
+        value = value.translate(self.DASH_TRANSLATION)
+        value = re.sub(r'(?<=\d)\s*[*×хx]\s*(?=\d)', 'x', value, flags=re.U)
+        value = re.sub(r'(?<=[\u0400-\u04ff])(?=[A-Za-z])', ' ', value, flags=re.U)
+        value = re.sub(r'(?<=[A-Za-z])(?=[\u0400-\u04ff])', ' ', value, flags=re.U)
         value = value.translate(self.CYRILLIC_LATIN_LOOKALIKES)
         value = value.lower().strip()
         value = re.sub(r'([^\W\d_]+)(\d+)', r'\1 \2', value, flags=re.U)
