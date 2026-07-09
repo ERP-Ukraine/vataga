@@ -746,6 +746,10 @@ class TestProductAnalog(TransactionCase):
             self.assertFalse(purchase.ua_contract_id)
         self.assertEqual(purchase.order_line.seller_contract_id, contract)
         self.assertFalse(purchase.order_line.analog_original_product_id)
+        self.assertEqual(
+            set(purchase.order_line.analog_original_product_ids.ids),
+            {product_a.id, product_c.id},
+        )
         with self.assertRaisesRegex(
             ValidationError,
             'Для товару-аналога необхідно вибрати оригінал аналога.',
@@ -784,6 +788,120 @@ class TestProductAnalog(TransactionCase):
         )[0]
         self.assertEqual(pivot_total['in_invoice'], 100)
         self.assertEqual(pivot_total['qty_received'], 100)
+
+    def test_purchase_main_product_shows_only_direct_analog_counterpart(self):
+        product_a = self._create_product('Bidirectional purchase main A')
+        product_b = self._create_product('Bidirectional purchase shared analog B')
+        product_c = self._create_product('Bidirectional purchase main C')
+        contract = self._create_seller_contract('Bidirectional Purchase Contract')
+        self._create_analog_line(product_a, product_b)
+        self._create_analog_line(product_c, product_b)
+        analytic_a = self._create_sale_demand(product_a, contract, 20)
+        analytic_c = self._create_sale_demand(product_c, contract, 20)
+
+        purchase_a = self._create_received_purchase(product_a, contract, 5)
+        self.assertFalse(purchase_a.order_line.analog_original_product_id)
+        self.assertEqual(
+            set(purchase_a.order_line.analog_original_product_ids.ids),
+            {product_b.id},
+        )
+
+        purchase_c = self.env['purchase.order'].create(
+            {
+                'partner_id': self.partner.id,
+                'seller_contract_id': contract.id,
+                'order_line': [
+                    Command.create(
+                        {
+                            'product_id': product_c.id,
+                            'product_qty': 1,
+                            'price_unit': 1,
+                        }
+                    ),
+                ],
+            }
+        )
+        self.assertFalse(purchase_c.order_line.analog_original_product_id)
+        self.assertEqual(
+            set(purchase_c.order_line.analog_original_product_ids.ids),
+            {product_b.id},
+        )
+
+        self._recompute_analytic_rollups(analytic_a, analytic_c)
+        self.assertEqual(analytic_a.qty_received, 5)
+        self.assertEqual(analytic_c.qty_received, 0)
+        self.assertFalse(
+            self.ProductAnalytic.search(
+                [
+                    ('product_id', '=', product_b.id),
+                    ('sale_contract_id', '=', contract.id),
+                ],
+                limit=1,
+            )
+        )
+
+        bill = self._create_vendor_bill_from_distribution(
+            product_a,
+            {str(contract.id): 100},
+            4,
+            analog_original_product=product_b,
+        )
+        self.assertEqual(bill.invoice_line_ids.analog_original_product_id, product_b)
+        analog_analytic = self.ProductAnalytic.search(
+            [
+                ('product_id', '=', product_b.id),
+                ('sale_contract_id', '=', contract.id),
+            ],
+            limit=1,
+        )
+        self.assertTrue(analog_analytic)
+        self._recompute_analytic_rollups(analytic_a, analytic_c, analog_analytic)
+
+        self.assertEqual(analytic_a.in_invoice, 0)
+        self.assertEqual(analytic_c.in_invoice, 0)
+        self.assertEqual(analog_analytic.in_invoice, 4)
+
+        purchase_b = self._create_received_purchase(
+            product_a,
+            contract,
+            3,
+            analog_original_product=product_b,
+        )
+        self.assertEqual(purchase_b.order_line.analog_original_product_id, product_b)
+        self._recompute_analytic_rollups(analytic_a, analytic_c, analog_analytic)
+
+        self.assertEqual(analytic_a.qty_received, 5)
+        self.assertEqual(analytic_c.qty_received, 0)
+        self.assertEqual(analog_analytic.qty_received, 3)
+
+        bill_from_purchase = self._create_vendor_bill_from_distribution(
+            product_a,
+            {str(contract.id): 100},
+            2,
+            purchase_line=purchase_b.order_line,
+        )
+        self.assertEqual(
+            bill_from_purchase.invoice_line_ids.analog_original_product_id,
+            product_b,
+        )
+        self._recompute_analytic_rollups(analytic_a, analytic_c, analog_analytic)
+
+        self.assertEqual(analytic_a.in_invoice, 0)
+        self.assertEqual(analytic_c.in_invoice, 0)
+        self.assertEqual(analog_analytic.in_invoice, 6)
+
+    def test_analog_origin_field_is_editable_with_single_direct_option(self):
+        label = '\u041e\u0440\u0438\u0433\u0456\u043d\u0430\u043b \u0430\u043d\u0430\u043b\u043e\u0433\u0430'
+        readonly_rule = 'readonly="not has_multiple_analog_original_options"'
+        view_xmlids = [
+            'product_alternatives_vataga.purchase_order_form_view_analog_original_product',
+            'product_alternatives_vataga.account_move_form_view_analog_original_product',
+        ]
+
+        for xmlid in view_xmlids:
+            arch = self.env.ref(xmlid).arch_db
+            self.assertIn(label, arch)
+            self.assertNotIn(readonly_rule, arch)
 
     def test_single_analog_original_is_autofilled(self):
         product_a = self._create_product('Single origin main A')

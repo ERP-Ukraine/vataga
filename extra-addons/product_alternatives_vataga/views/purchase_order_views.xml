@@ -13,7 +13,6 @@
                     name="analog_original_product_id"
                     string="Оригінал аналога"
                     optional="show"
-                    readonly="not has_multiple_analog_original_options"
                     invisible="not has_analog_original_options"
                 />
             </xpath>
