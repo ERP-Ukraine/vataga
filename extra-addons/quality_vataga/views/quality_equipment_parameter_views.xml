@@ -7,6 +7,8 @@
             <tree string="Параметри обладнання" editable="bottom" default_order="sequence, name">
                 <field name="sequence" widget="handle"/>
                 <field name="name"/>
+                <field name="parameter_type"/>
+                <field name="unit"/>
                 <field name="active"/>
             </tree>
         </field>
@@ -27,8 +29,10 @@
                     </div>
                     <group>
                         <group>
-                            <field name="active"/>
+                            <field name="parameter_type"/>
+                            <field name="unit"/>
                             <field name="sequence"/>
+                            <field name="active"/>
                         </group>
                     </group>
                     <group>
@@ -44,7 +48,8 @@
         <field name="model">quality.equipment.parameter</field>
         <field name="arch" type="xml">
             <search string="Пошук параметрів обладнання">
-                <field name="name" string="Назва параметра"/>
+                <field name="name" string="Назва"/>
+                <field name="parameter_type"/>
                 <filter string="Архівні" name="inactive" domain="[('active', '=', False)]"/>
             </search>
         </field>

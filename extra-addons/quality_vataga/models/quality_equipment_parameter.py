@@ -9,7 +9,18 @@ class QualityEquipmentParameter(models.Model):
     _description = 'Параметр обладнання'
     _order = 'sequence, name, id'
 
-    name = fields.Char(string='Назва параметра', required=True)
+    name = fields.Char(string='Назва', required=True)
+    parameter_type = fields.Selection(
+        selection=[
+            ('numeric', 'Числовий'),
+            ('boolean', 'Булевий'),
+            ('string', 'Рядковий'),
+        ],
+        string='Тип',
+        required=True,
+        default='numeric',
+    )
+    unit = fields.Char(string='Одиниця вимірювання')
     active = fields.Boolean(string='Активний', default=True)
     sequence = fields.Integer(string='Послідовність', default=10)
     description = fields.Text(string='Опис')

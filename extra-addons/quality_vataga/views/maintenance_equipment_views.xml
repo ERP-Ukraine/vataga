@@ -1,19 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+    <!-- Keep the old equipment-tab view inactive on upgrades from 17.0.1.0. -->
     <record id="maintenance_equipment_view_form_parameters" model="ir.ui.view">
-        <field name="name">maintenance.equipment.form.parameters</field>
+        <field name="name">maintenance.equipment.form.parameters.inactive</field>
         <field name="model">maintenance.equipment</field>
         <field name="inherit_id" ref="maintenance.hr_equipment_view_form"/>
+        <field name="active" eval="False"/>
         <field name="arch" type="xml">
-            <xpath expr="//page[@name='product_information']" position="after">
-                <page string="Параметри" name="parameters">
-                    <field name="parameter_ids" nolabel="1">
-                        <tree string="Параметри обладнання">
-                            <field name="name"/>
-                            <field name="description"/>
-                        </tree>
-                    </field>
-                </page>
+            <xpath expr="//sheet" position="inside">
+                <field name="active" invisible="1"/>
             </xpath>
         </field>
     </record>
