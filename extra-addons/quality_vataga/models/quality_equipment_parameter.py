@@ -44,6 +44,13 @@ class QualityEquipmentParameter(models.Model):
         for parameter in self:
             parameter.normalized_name = self._normalize_name(parameter.name)
 
+    @api.depends('name', 'unit')
+    def _compute_display_name(self):
+        for parameter in self:
+            name = parameter.name or ''
+            unit = (parameter.unit or '').strip()
+            parameter.display_name = f'{name}, {unit}' if unit else name
+
     @api.constrains('name')
     def _check_normalized_name(self):
         for parameter in self:
