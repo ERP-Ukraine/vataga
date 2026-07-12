@@ -43,6 +43,7 @@ wait_for_build() {
                 ;;
             failed)
                 echo "✗ Build failed!" >&2
+                echo "$response" | jq . >&2
                 return 1
                 ;;
         esac
