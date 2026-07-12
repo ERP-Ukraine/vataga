@@ -9,6 +9,7 @@ set -e
 readonly API_BASE_URL="${ERPUSAAS_API_URL}"
 readonly MAX_WAIT_ATTEMPTS=60
 readonly POLL_INTERVAL=5
+readonly FAILURE_LOG_LIMIT=12000
 
 # Check dependencies
 for cmd in curl jq; do
@@ -44,6 +45,7 @@ wait_for_build() {
             failed)
                 echo "✗ Build failed!" >&2
                 echo "$response" | jq . >&2
+                print_failure_details "$build_id" "$token" "$response"
                 return 1
                 ;;
         esac
@@ -53,6 +55,61 @@ wait_for_build() {
 
     echo "⏱ Timeout: Build did not complete within $((MAX_WAIT_ATTEMPTS * POLL_INTERVAL)) seconds" >&2
     return 2
+}
+
+print_failure_details() {
+    local build_id="$1"
+    local token="$2"
+    local response="$3"
+    local external_build_id
+    local path
+    local url
+    local tmp_file
+
+    external_build_id=$(echo "$response" | jq -r '.external_build_id // empty')
+    tmp_file=$(mktemp)
+
+    echo "Failure diagnostics:" >&2
+    for path in \
+        "erpusaas/build/${build_id}" \
+        "erpusaas/build/${build_id}/log" \
+        "erpusaas/build/${build_id}/logs" \
+        "erpusaas/build/${build_id}/traceback" \
+        "erpusaas/build/${build_id}/result" \
+        "erpusaas/build/${build_id}/steps" \
+        "erpusaas/build/${build_id}/status?include=logs"
+    do
+        url="$API_BASE_URL/$path"
+        echo "--- GET /$path ---" >&2
+        curl -sS -L \
+            -H "Authorization: Bearer $token" \
+            -w "\nHTTP_STATUS:%{http_code}\n" \
+            "$url" > "$tmp_file" || true
+        head -c "$FAILURE_LOG_LIMIT" "$tmp_file" >&2 || true
+        echo >&2
+    done
+
+    if [ -n "$external_build_id" ]; then
+        for path in \
+            "erpusaas/external_build/${external_build_id}" \
+            "erpusaas/external_build/${external_build_id}/log" \
+            "erpusaas/external_build/${external_build_id}/logs" \
+            "erpusaas/external-build/${external_build_id}" \
+            "erpusaas/external-build/${external_build_id}/log" \
+            "erpusaas/external-build/${external_build_id}/logs"
+        do
+            url="$API_BASE_URL/$path"
+            echo "--- GET /$path ---" >&2
+            curl -sS -L \
+                -H "Authorization: Bearer $token" \
+                -w "\nHTTP_STATUS:%{http_code}\n" \
+                "$url" > "$tmp_file" || true
+            head -c "$FAILURE_LOG_LIMIT" "$tmp_file" >&2 || true
+            echo >&2
+        done
+    fi
+
+    rm -f "$tmp_file"
 }
 
 trigger_rebuild() {
