@@ -63,11 +63,8 @@ print_failure_details() {
     local response="$3"
     local external_build_id
     local path
-    local url
-    local tmp_file
 
     external_build_id=$(echo "$response" | jq -r '.external_build_id // empty')
-    tmp_file=$(mktemp)
 
     echo "Failure diagnostics:" >&2
     for path in \
@@ -77,16 +74,11 @@ print_failure_details() {
         "erpusaas/build/${build_id}/traceback" \
         "erpusaas/build/${build_id}/result" \
         "erpusaas/build/${build_id}/steps" \
-        "erpusaas/build/${build_id}/status?include=logs"
+        "erpusaas/build/${build_id}/status?include=logs" \
+        "erpusaas/build/${build_id}/status?include_logs=1" \
+        "erpusaas/build/${build_id}/status?logs=1"
     do
-        url="$API_BASE_URL/$path"
-        echo "--- GET /$path ---" >&2
-        curl -sS -L \
-            -H "Authorization: Bearer $token" \
-            -w "\nHTTP_STATUS:%{http_code}\n" \
-            "$url" > "$tmp_file" || true
-        head -c "$FAILURE_LOG_LIMIT" "$tmp_file" >&2 || true
-        echo >&2
+        probe_failure_path "$path" "$token"
     done
 
     if [ -n "$external_build_id" ]; then
@@ -98,18 +90,45 @@ print_failure_details() {
             "erpusaas/external-build/${external_build_id}/log" \
             "erpusaas/external-build/${external_build_id}/logs"
         do
-            url="$API_BASE_URL/$path"
-            echo "--- GET /$path ---" >&2
-            curl -sS -L \
-                -H "Authorization: Bearer $token" \
-                -w "\nHTTP_STATUS:%{http_code}\n" \
-                "$url" > "$tmp_file" || true
-            head -c "$FAILURE_LOG_LIMIT" "$tmp_file" >&2 || true
-            echo >&2
+            probe_failure_path "$path" "$token"
         done
     fi
+}
 
-    rm -f "$tmp_file"
+probe_failure_path() {
+    local path="$1"
+    local token="$2"
+    local url="$API_BASE_URL/$path"
+    local body_file
+    local header_file
+    local http_status
+    local content_type
+
+    body_file=$(mktemp)
+    header_file=$(mktemp)
+    http_status=$(
+        curl -sS -L \
+            -D "$header_file" \
+            -o "$body_file" \
+            -H "Authorization: Bearer $token" \
+            -w "%{http_code}" \
+            "$url" || true
+    )
+    content_type=$(
+        grep -i '^content-type:' "$header_file" \
+            | tail -n 1 \
+            | sed 's/^[Cc]ontent-[Tt]ype:[[:space:]]*//' \
+            | tr -d '\r'
+    )
+
+    echo "--- GET /$path -> HTTP $http_status; ${content_type:-unknown} ---" >&2
+    if [ "$http_status" != "404" ] \
+        && ! echo "$content_type" | grep -qi 'text/html'; then
+        head -c "$FAILURE_LOG_LIMIT" "$body_file" >&2 || true
+        echo >&2
+    fi
+
+    rm -f "$body_file" "$header_file"
 }
 
 trigger_rebuild() {
