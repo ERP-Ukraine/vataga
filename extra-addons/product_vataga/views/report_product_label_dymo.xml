@@ -1,24 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <data>
-        <record id="paperformat_label_sheet_dymo_60x40" model="report.paperformat">
-            <field name="name">Vataga Dymo Label Sheet 60x40</field>
-            <field name="format">custom</field>
-            <field name="page_width">60</field>
-            <field name="page_height">40</field>
-            <field name="orientation">Portrait</field>
-            <field name="margin_top">0</field>
-            <field name="margin_bottom">0</field>
-            <field name="margin_left">0</field>
-            <field name="margin_right">0</field>
-            <field name="dpi">96</field>
-            <field name="disable_shrinking" eval="True"/>
-        </record>
-
-        <record id="product.report_product_template_label_dymo" model="ir.actions.report">
-            <field name="paperformat_id" ref="product_vataga.paperformat_label_sheet_dymo_60x40"/>
-        </record>
-
         <template
             id="report_simple_label_dymo"
             name="Dymo label without price"
