@@ -2,6 +2,15 @@
 <odoo>
     <data>
         <!-- Transfer/package labels are disabled. -->
+        <delete
+            model="ir.actions.report"
+            search="[('report_name', '=', 'product_vataga.report_stock_picking_transfer_label_v2')]"
+        />
+        <delete
+            model="ir.ui.view"
+            search="[('key', '=', 'product_vataga.report_stock_picking_transfer_label_v2')]"
+        />
+
         <!--
         <record id="action_report_stock_picking_transfer_labels_v2" model="ir.actions.report">
             <field name="name">Transfer Labels</field>
