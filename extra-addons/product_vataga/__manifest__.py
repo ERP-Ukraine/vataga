@@ -1,6 +1,6 @@
 {
     'name': 'Product and transaction labels',
-    'version': '1.5',
+    'version': '1.6',
     'category': 'Inventory',
     'author': 'Vataga',
     'license': 'LGPL-3',
@@ -14,8 +14,8 @@
     ],
     'data': [
         'views/report_product_label_dymo.xml',
-        # Cleanup stale transfer/package label records from older installs.
-        'views/stock_picking_views.xml',
-        'report/stock_picking_transfer_label.xml',
+        # Transfer/package labels are disabled; keep only the product label override active.
+        # 'views/stock_picking_views.xml',
+        # 'report/stock_picking_transfer_label.xml',
     ],
 }
