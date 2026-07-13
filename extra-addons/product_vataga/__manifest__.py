@@ -1,6 +1,6 @@
 {
     'name': 'Product and transaction labels',
-    'version': '1.0',
+    'version': '1.4',
     'category': 'Inventory',
     'author': 'Vataga',
     'license': 'LGPL-3',
