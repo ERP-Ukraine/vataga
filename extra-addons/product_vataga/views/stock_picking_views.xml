@@ -2,11 +2,6 @@
 <odoo>
     <data>
         <!-- Transfer/package labels are disabled. -->
-        <delete
-            model="ir.ui.view"
-            search="[('key', '=', 'product_vataga.view_picking_form_box_count')]"
-        />
-
         <!--
         <record id="view_picking_form_box_count" model="ir.ui.view">
             <field name="name">stock.picking.form.box.count</field>

@@ -9,7 +9,6 @@ set -e
 readonly API_BASE_URL="${ERPUSAAS_API_URL}"
 readonly MAX_WAIT_ATTEMPTS=60
 readonly POLL_INTERVAL=5
-readonly FAILURE_LOG_LIMIT=12000
 
 # Check dependencies
 for cmd in curl jq; do
@@ -44,8 +43,6 @@ wait_for_build() {
                 ;;
             failed)
                 echo "✗ Build failed!" >&2
-                echo "$response" | jq . >&2
-                print_failure_details "$build_id" "$token" "$response"
                 return 1
                 ;;
         esac
@@ -55,80 +52,6 @@ wait_for_build() {
 
     echo "⏱ Timeout: Build did not complete within $((MAX_WAIT_ATTEMPTS * POLL_INTERVAL)) seconds" >&2
     return 2
-}
-
-print_failure_details() {
-    local build_id="$1"
-    local token="$2"
-    local response="$3"
-    local external_build_id
-    local path
-
-    external_build_id=$(echo "$response" | jq -r '.external_build_id // empty')
-
-    echo "Failure diagnostics:" >&2
-    for path in \
-        "erpusaas/build/${build_id}" \
-        "erpusaas/build/${build_id}/log" \
-        "erpusaas/build/${build_id}/logs" \
-        "erpusaas/build/${build_id}/traceback" \
-        "erpusaas/build/${build_id}/result" \
-        "erpusaas/build/${build_id}/steps" \
-        "erpusaas/build/${build_id}/status?include=logs" \
-        "erpusaas/build/${build_id}/status?include_logs=1" \
-        "erpusaas/build/${build_id}/status?logs=1"
-    do
-        probe_failure_path "$path" "$token"
-    done
-
-    if [ -n "$external_build_id" ]; then
-        for path in \
-            "erpusaas/external_build/${external_build_id}" \
-            "erpusaas/external_build/${external_build_id}/log" \
-            "erpusaas/external_build/${external_build_id}/logs" \
-            "erpusaas/external-build/${external_build_id}" \
-            "erpusaas/external-build/${external_build_id}/log" \
-            "erpusaas/external-build/${external_build_id}/logs"
-        do
-            probe_failure_path "$path" "$token"
-        done
-    fi
-}
-
-probe_failure_path() {
-    local path="$1"
-    local token="$2"
-    local url="$API_BASE_URL/$path"
-    local body_file
-    local header_file
-    local http_status
-    local content_type
-
-    body_file=$(mktemp)
-    header_file=$(mktemp)
-    http_status=$(
-        curl -sS -L \
-            -D "$header_file" \
-            -o "$body_file" \
-            -H "Authorization: Bearer $token" \
-            -w "%{http_code}" \
-            "$url" || true
-    )
-    content_type=$(
-        grep -i '^content-type:' "$header_file" \
-            | tail -n 1 \
-            | sed 's/^[Cc]ontent-[Tt]ype:[[:space:]]*//' \
-            | tr -d '\r'
-    )
-
-    echo "--- GET /$path -> HTTP $http_status; ${content_type:-unknown} ---" >&2
-    if [ "$http_status" != "404" ] \
-        && ! echo "$content_type" | grep -qi 'text/html'; then
-        head -c "$FAILURE_LOG_LIMIT" "$body_file" >&2 || true
-        echo >&2
-    fi
-
-    rm -f "$body_file" "$header_file"
 }
 
 trigger_rebuild() {
