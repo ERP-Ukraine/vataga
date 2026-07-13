@@ -1,7 +1,7 @@
 {
     'name': 'Параметри якості обладнання Vataga',
     'summary': 'Параметри якості для обладнання',
-    'version': '17.0.1.2',
+    'version': '17.0.1.3',
     'category': 'Manufacturing/Maintenance',
     'author': 'Vataga',
     'license': 'LGPL-3',

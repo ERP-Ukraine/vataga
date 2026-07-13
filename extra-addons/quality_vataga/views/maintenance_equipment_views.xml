@@ -6,7 +6,7 @@
         <field name="inherit_id" ref="maintenance.hr_equipment_view_form"/>
         <field name="active" eval="True"/>
         <field name="arch" type="xml">
-            <xpath expr="//page[@name='product_information']" position="after">
+            <xpath expr="//sheet/notebook" position="inside">
                 <page string="Параметри" name="parameters">
                     <field
                         name="applicable_parameter_ids"
