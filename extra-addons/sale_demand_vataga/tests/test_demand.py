@@ -1,6 +1,5 @@
-from odoo import Command
+from odoo import Command, fields
 from odoo.tests.common import TransactionCase, tagged
-from odoo import fields
 
 
 @tagged('post_install', '-at_install')
@@ -449,6 +448,7 @@ class TestDemand(TransactionCase):
         reversal = move_reversal.reverse_moves()
         reversed_move = self.env['account.move'].browse(reversal['res_id'])
         reversed_move.action_post()
+        return reversed_move
 
     def test_in_invoice_without_sale(self):
         self._create_test_vendor_bill(self.sell_analytic_1)
@@ -678,3 +678,210 @@ class TestDemand(TransactionCase):
         self._create_refund_vendor_bill(bill)
         self.assertEqual(buy_product1_analytic.in_invoice, 0)
         self.assertEqual(buy_product2_analytic.in_invoice, 0)
+
+    def test_correct_account_move_ids(self):
+        self.env['mrp.bom'].search(
+            [('product_id', '=', self.sell_product_1.id)]
+        ).company_id = self.env.company
+        self.env['sale.order'].create(
+            [
+                {
+                    'partner_id': self.partner.id,
+                    'order_line': [
+                        Command.create(
+                            {
+                                'product_id': self.sell_product_1.id,
+                                'analytic_distribution': {
+                                    f'{self.sell_analytic_1.id}': 100
+                                },
+                                'product_uom_qty': 1,
+                            }
+                        ),
+                    ],
+                },
+                {
+                    'partner_id': self.partner.id,
+                    'order_line': [
+                        Command.create(
+                            {
+                                'product_id': self.sell_product_1.id,
+                                'analytic_distribution': {
+                                    f'{self.sell_analytic_2.id}': 100
+                                },
+                                'product_uom_qty': 1,
+                            }
+                        ),
+                    ],
+                },
+                {
+                    'partner_id': self.partner.id,
+                    'order_line': [
+                        Command.create(
+                            {
+                                'product_id': self.sell_product_2.id,
+                                'analytic_distribution': {
+                                    f'{self.sell_analytic_1.id}': 100
+                                },
+                                'product_uom_qty': 1,
+                            }
+                        ),
+                    ],
+                },
+            ]
+        ).action_confirm()
+        while self.env['sale.order.line.purchase'].search(
+            [
+                ('sale_contract_id', '!=', False),
+                ('product_analytic_id', '=', False),
+                ('state', '=', 'sale'),
+            ],
+        ):
+            self.env['product.analytic']._cron_create_product_analytic()
+        all_product_analytics = self.env['product.analytic'].search(
+            [
+                ('sale_contract_id', 'in', (self.sell_analytic_1 + self.sell_analytic_2).ids)
+            ]
+        )
+        product_analytic_buy_product1_analytic_1 = self.env['product.analytic'].search(
+            [
+                ('sale_contract_id', '=', self.sell_analytic_1.id),
+                ('product_id', '=', self.buy_product1.id),
+            ]
+        )
+        product_analytic_buy_product1_analytic_2 = self.env['product.analytic'].search(
+            [
+                ('sale_contract_id', '=', self.sell_analytic_2.id),
+                ('product_id', '=', self.buy_product1.id),
+            ]
+        )
+        product_analytic_buy_product2_analytic_1 = self.env['product.analytic'].search(
+            [
+                ('sale_contract_id', '=', self.sell_analytic_1.id),
+                ('product_id', '=', self.buy_product2.id),
+            ]
+        )
+
+        # Check correct update account_move_ids for different product.analytic by sale_contract_id
+        bill_1 = self._create_test_vendor_bill(
+            self.sell_analytic_1, product=self.buy_product1
+        )
+        bill_2 = self._create_test_vendor_bill(
+            self.sell_analytic_1, product=self.buy_product1
+        )
+        all_product_analytics._recompute_account_move_ids()
+        self.assertEqual(
+            len(product_analytic_buy_product1_analytic_1.account_move_ids), 2
+        )
+        self.assertEqual(
+            len(product_analytic_buy_product1_analytic_2.account_move_ids), 0
+        )
+
+        bill_3 = self._create_test_vendor_bill(
+            self.sell_analytic_2, product=self.buy_product1
+        )
+        all_product_analytics._recompute_account_move_ids()
+        self.assertEqual(
+            len(product_analytic_buy_product1_analytic_1.account_move_ids), 2
+        )
+        self.assertEqual(
+            len(product_analytic_buy_product1_analytic_2.account_move_ids), 1
+        )
+
+        ref_1 = self._create_refund_vendor_bill(bill_1)
+        ref_2 = self._create_refund_vendor_bill(bill_2)
+        all_product_analytics._recompute_account_move_ids()
+        self.assertEqual(
+            len(product_analytic_buy_product1_analytic_1.account_move_ids), 4
+        )
+        self.assertEqual(
+            len(product_analytic_buy_product1_analytic_2.account_move_ids), 1
+        )
+
+        ref_3 = self._create_refund_vendor_bill(bill_3)
+        all_product_analytics._recompute_account_move_ids()
+        self.assertEqual(
+            len(product_analytic_buy_product1_analytic_1.account_move_ids), 4
+        )
+        self.assertEqual(
+            len(product_analytic_buy_product1_analytic_2.account_move_ids), 2
+        )
+
+        self.assertEqual(
+            product_analytic_buy_product1_analytic_1.account_move_ids,
+            bill_1 + bill_2 + ref_1 + ref_2,
+        )
+        self.assertEqual(
+            product_analytic_buy_product1_analytic_2.account_move_ids,
+            bill_3 + ref_3,
+        )
+
+        # Check correct update account_move_ids for different product.analytic by product_id
+        self.assertEqual(
+            len(product_analytic_buy_product2_analytic_1.account_move_ids), 0
+        )
+        bill_1 = self._create_test_vendor_bill(
+            self.sell_analytic_1, product=self.buy_product2
+        )
+        bill_2 = self._create_test_vendor_bill(
+            self.sell_analytic_1, product=self.buy_product2
+        )
+        ref_1 = self._create_refund_vendor_bill(bill_1)
+        ref_2 = self._create_refund_vendor_bill(bill_2)
+        all_product_analytics._recompute_account_move_ids()
+        self.assertEqual(
+            product_analytic_buy_product2_analytic_1.account_move_ids,
+            bill_1 + bill_2 + ref_1 + ref_2,
+        )
+        self.assertEqual(
+            len(product_analytic_buy_product1_analytic_1.account_move_ids), 4
+        )
+        self.assertEqual(
+            len(product_analytic_buy_product1_analytic_2.account_move_ids), 2
+        )
+
+        # Check kit product ( add account move for buy_product1 and buy_product2 product analytics with correct sale_contract_id)
+        bill_1 = self._create_test_vendor_bill(
+            self.sell_analytic_1, product=self.kit_product
+        )
+        all_product_analytics._recompute_account_move_ids()
+        self.assertIn(
+            bill_1, product_analytic_buy_product1_analytic_1.account_move_ids
+        )
+        self.assertIn(
+            bill_1, product_analytic_buy_product2_analytic_1.account_move_ids
+        )
+        self.assertNotIn(
+            bill_1, product_analytic_buy_product1_analytic_2.account_move_ids
+        )
+
+        bill_2 = self._create_test_vendor_bill(
+            self.sell_analytic_2, product=self.kit_product
+        )
+        all_product_analytics._recompute_account_move_ids()
+        self.assertNotIn(
+            bill_2, product_analytic_buy_product1_analytic_1.account_move_ids
+        )
+        self.assertNotIn(
+            bill_2, product_analytic_buy_product2_analytic_1.account_move_ids
+        )
+        self.assertIn(
+            bill_2, product_analytic_buy_product1_analytic_2.account_move_ids
+        )
+
+        ref_1 = self._create_refund_vendor_bill(bill_1)
+        all_product_analytics._recompute_account_move_ids()
+        self.assertIn(ref_1, product_analytic_buy_product1_analytic_1.account_move_ids)
+        self.assertIn(ref_1, product_analytic_buy_product2_analytic_1.account_move_ids)
+        self.assertNotIn(
+            ref_1, product_analytic_buy_product1_analytic_2.account_move_ids
+        )
+
+        ref_2 = self._create_refund_vendor_bill(bill_2)
+        all_product_analytics._recompute_account_move_ids()
+        self.assertNotIn(
+            ref_2, product_analytic_buy_product1_analytic_1.account_move_ids
+        )
+        self.assertNotIn(
+            ref_2, product_analytic_buy_product2_analytic_1.account_move_ids
+        )
+        self.assertIn(ref_2, product_analytic_buy_product1_analytic_2.account_move_ids)
