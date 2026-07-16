@@ -1226,3 +1226,174 @@ class TestProductAnalog(TransactionCase):
             [],
         )[0]
         self.assertEqual(pivot_total['qty_received'], 0)
+
+    def test_backfill_clears_stale_stored_values_without_sources(self):
+        contract = self._create_seller_contract('Stale values contract')
+        stale_invoice_analytic = self._create_product_analytic(
+            self._create_product('Stale invoice product'),
+            contract,
+        )
+        stale_received_analytic = self._create_product_analytic(
+            self._create_product('Stale received product'),
+            contract,
+        )
+        stale_closed_analytic = self._create_product_analytic(
+            self._create_product('Stale closed product'),
+            contract,
+        )
+        stale_move_analytic = self._create_product_analytic(
+            self._create_product('Stale move product'),
+            contract,
+        )
+        draft_bill = self.env['account.move'].create(
+            {
+                'move_type': 'in_invoice',
+                'partner_id': self.partner.id,
+                'journal_id': self.purchase_journal.id,
+                'invoice_date': fields.Date.today(),
+                'date': fields.Date.today(),
+            }
+        )
+        stale_move_analytic.account_move_ids = draft_bill
+        analytics = (
+            stale_invoice_analytic
+            | stale_received_analytic
+            | stale_closed_analytic
+            | stale_move_analytic
+        )
+        analytics.flush_recordset(
+            ['demand', 'in_invoice', 'qty_received', 'closed', 'account_move_ids']
+        )
+        self.env.cr.execute(
+            '''
+                UPDATE product_analytic
+                   SET in_invoice = CASE WHEN id = %s THEN 3 ELSE in_invoice END,
+                       qty_received = CASE WHEN id = %s THEN 4 ELSE qty_received END,
+                       closed = CASE WHEN id = %s THEN 0.5 ELSE closed END
+                 WHERE id IN %s
+            ''',
+            [
+                stale_invoice_analytic.id,
+                stale_received_analytic.id,
+                stale_closed_analytic.id,
+                tuple(analytics.ids),
+            ],
+        )
+        analytics.invalidate_recordset(
+            ['demand', 'in_invoice', 'qty_received', 'closed', 'account_move_ids']
+        )
+        self.assertEqual(stale_invoice_analytic.in_invoice, 3)
+        self.assertEqual(stale_received_analytic.qty_received, 4)
+        self.assertEqual(stale_closed_analytic.closed, 0.5)
+        self.assertEqual(stale_move_analytic.account_move_ids, draft_bill)
+
+        dry_run = (
+            self.ProductAnalytic._backfill_analog_rollup_product_analytics(
+                dry_run=True,
+            )
+        )
+        self.assertGreaterEqual(dry_run['would_recompute_count'], 4)
+        analytics.invalidate_recordset(
+            ['in_invoice', 'qty_received', 'closed', 'account_move_ids']
+        )
+        self.assertEqual(stale_invoice_analytic.in_invoice, 3)
+        self.assertEqual(stale_received_analytic.qty_received, 4)
+        self.assertEqual(stale_closed_analytic.closed, 0.5)
+        self.assertEqual(stale_move_analytic.account_move_ids, draft_bill)
+
+        self.ProductAnalytic._backfill_analog_rollup_product_analytics()
+        analytics.invalidate_recordset(
+            ['demand', 'in_invoice', 'qty_received', 'closed', 'account_move_ids']
+        )
+        for product_analytic in analytics:
+            self.assertEqual(product_analytic.demand, 0)
+            self.assertEqual(product_analytic.in_invoice, 0)
+            self.assertEqual(product_analytic.qty_received, 0)
+            self.assertEqual(product_analytic.closed, 0)
+            self.assertFalse(product_analytic.account_move_ids)
+
+    def test_confirmed_purchase_header_contract_moves_received_quantity(self):
+        main_product = self._create_product('Header contract main')
+        analog_product = self._create_product('Header contract analog')
+        old_contract = self._create_seller_contract('Header contract old')
+        new_contract = self._create_seller_contract('Header contract new')
+        self._create_analog_line(main_product, analog_product)
+        old_analog_analytic = self._create_product_analytic(
+            analog_product,
+            old_contract,
+        )
+        new_analog_analytic = self._create_product_analytic(
+            analog_product,
+            new_contract,
+        )
+        purchase = self.env['purchase.order'].create(
+            {
+                'partner_id': self.partner.id,
+                'seller_contract_id': old_contract.id,
+                'order_line': [
+                    Command.create(
+                        {
+                            'product_id': analog_product.id,
+                            'product_qty': 6,
+                            'price_unit': 1,
+                            'analog_original_product_id': main_product.id,
+                        }
+                    ),
+                ],
+            }
+        )
+        purchase.order_line.write({'analytic_distribution': False})
+        self.assertFalse(purchase.order_line.analytic_distribution)
+        self.assertFalse(purchase.order_line.seller_contract_id)
+        self.assertEqual(
+            purchase.order_line._get_demand_report_seller_contracts(),
+            old_contract,
+        )
+        purchase.button_confirm()
+        purchase.picking_ids.button_validate()
+        old_main_analytic = self.ProductAnalytic.search(
+            [
+                ('product_id', '=', main_product.id),
+                ('sale_contract_id', '=', old_contract.id),
+            ],
+            limit=1,
+        )
+        old_main_analytic.invalidate_recordset(['qty_received'])
+        self.assertEqual(old_main_analytic.qty_received, 6)
+        self.assertEqual(old_analog_analytic.qty_received, 0)
+
+        purchase.write({'seller_contract_id': new_contract.id})
+        new_main_analytic = self.ProductAnalytic.search(
+            [
+                ('product_id', '=', main_product.id),
+                ('sale_contract_id', '=', new_contract.id),
+            ],
+            limit=1,
+        )
+        self.assertEqual(
+            purchase.order_line._get_demand_report_seller_contracts(),
+            new_contract,
+        )
+        old_main_analytic.invalidate_recordset(['qty_received'])
+        new_main_analytic.invalidate_recordset(['qty_received'])
+        old_analog_analytic.invalidate_recordset(['qty_received'])
+        new_analog_analytic.invalidate_recordset(['qty_received'])
+        self.assertEqual(old_main_analytic.qty_received, 0)
+        self.assertEqual(new_main_analytic.qty_received, 6)
+        self.assertEqual(old_analog_analytic.qty_received, 0)
+        self.assertEqual(new_analog_analytic.qty_received, 0)
+
+        grouped_totals = self.ProductAnalytic.read_group(
+            [
+                ('product_id', 'in', (main_product | analog_product).ids),
+                ('sale_contract_id', 'in', (old_contract | new_contract).ids),
+            ],
+            ['qty_received:sum'],
+            ['sale_contract_id'],
+        )
+        totals_by_contract = {
+            group['sale_contract_id'][0]: group['qty_received']
+            for group in grouped_totals
+        }
+        self.assertEqual(totals_by_contract[old_contract.id], 0)
+        self.assertEqual(totals_by_contract[new_contract.id], 6)

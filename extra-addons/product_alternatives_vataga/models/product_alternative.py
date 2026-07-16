@@ -547,6 +547,29 @@ class PurchaseOrder(models.Model):
         self.order_line._recompute_analog_product_analytics()
         return res
 
+    def write(self, vals):
+        should_recompute = 'seller_contract_id' in vals
+        old_analytics = (
+            self.filtered(
+                lambda order: order.state in ('purchase', 'done')
+            ).order_line._get_analog_product_analytic_recompute_targets()
+            if should_recompute
+            else self.env['product.analytic']
+        )
+        res = super().write(vals)
+        if should_recompute:
+            confirmed_lines = self.filtered(
+                lambda order: order.state in ('purchase', 'done')
+            ).order_line
+            confirmed_lines._ensure_analog_rollup_target_product_analytics()
+            new_analytics = (
+                confirmed_lines._get_analog_product_analytic_recompute_targets()
+            )
+            analytics = old_analytics | new_analytics
+            analytics._recompute_analog_rollup_fields()
+            analytics._compute_ua_purchase_contract_ids()
+        return res
+
 
 class PurchaseOrderLine(models.Model):
     _inherit = 'purchase.order.line'
@@ -625,7 +648,7 @@ class PurchaseOrderLine(models.Model):
             ]
         )
 
-    def _get_seller_contracts_for_analog_target(self):
+    def _get_demand_report_seller_contracts(self):
         contracts = (
             self.mapped('seller_contract_id')
             | self._get_seller_contracts_from_analytic_distribution()
@@ -638,14 +661,14 @@ class PurchaseOrderLine(models.Model):
         affected_pairs = set()
         for line in self:
             target_product = line._get_analog_original_product_for_rollup()
-            if not target_product:
-                continue
-            contracts = line._get_seller_contracts_for_analog_target()
+            contracts = line._get_demand_report_seller_contracts()
             for contract in contracts:
+                affected_pairs.add((line.product_id.id, contract.id))
+                if not target_product:
+                    continue
                 target_pair = (target_product.id, contract.id)
                 target_pairs.add(target_pair)
                 affected_pairs.add(target_pair)
-                affected_pairs.add((line.product_id.id, contract.id))
         return target_pairs, affected_pairs
 
     def _ensure_analog_rollup_target_product_analytics(self):
@@ -984,14 +1007,22 @@ class ProductAnalytic(models.Model):
         affected_analytics = self._find_analog_rollup_product_analytics(
             affected_pairs
         )
-        demand_analytics = self.sudo().search(
+        stored_value_analytics = self.sudo().search(
             [
+                '|',
+                '|',
+                '|',
+                '|',
                 '|',
                 ('need_to_purchase_ids', '!=', False),
                 ('demand', '!=', 0),
+                ('in_invoice', '!=', 0),
+                ('qty_received', '!=', 0),
+                ('closed', '!=', 0),
+                ('account_move_ids', '!=', False),
             ]
         )
-        existing_to_recompute = affected_analytics | demand_analytics
+        existing_to_recompute = affected_analytics | stored_value_analytics
         planned_recompute_count = (
             len(existing_to_recompute) + len(missing_target_pairs)
         )
@@ -1182,19 +1213,18 @@ class ProductAnalytic(models.Model):
         if not products:
             return self.env['purchase.order.line']
         rollup_product = rollup_product or self.product_id
-        purchase_line_model = self.env['purchase.order.line']
         domain = [
             ('product_id', 'in', products.ids),
             ('order_id.state', 'in', ['purchase', 'done']),
         ]
-        if 'seller_contract_id' in purchase_line_model._fields:
-            domain.append(('seller_contract_id', '=', self.sale_contract_id.id))
-        else:
-            domain.append(('order_id.seller_contract_id', '=', self.sale_contract_id.id))
-        return purchase_line_model.search(domain).filtered(
-            lambda line: self._is_purchase_line_related_to_rollup_product(
-                line,
-                rollup_product,
+        return self.env['purchase.order.line'].search(domain).filtered(
+            lambda line: (
+                self.sale_contract_id
+                in line._get_demand_report_seller_contracts()
+                and self._is_purchase_line_related_to_rollup_product(
+                    line,
+                    rollup_product,
+                )
             )
         )
 
@@ -1350,6 +1380,16 @@ class ProductAnalytic(models.Model):
         'sale_contract_id.seller_purchase_line_ids.product_uom',
         'sale_contract_id.seller_purchase_line_ids.product_id',
         'sale_contract_id.seller_purchase_line_ids.analog_original_product_id',
+        'sale_contract_id.seller_purchase_ids',
+        'sale_contract_id.seller_purchase_ids.state',
+        'sale_contract_id.seller_purchase_ids.order_line',
+        'sale_contract_id.seller_purchase_ids.order_line.qty_received',
+        'sale_contract_id.seller_purchase_ids.order_line.product_qty',
+        'sale_contract_id.seller_purchase_ids.order_line.product_uom',
+        'sale_contract_id.seller_purchase_ids.order_line.product_id',
+        'sale_contract_id.seller_purchase_ids.order_line.analytic_distribution',
+        'sale_contract_id.seller_purchase_ids.order_line.seller_contract_id',
+        'sale_contract_id.seller_purchase_ids.order_line.analog_original_product_id',
         'kit_bom_ids',
         'product_id.product_tmpl_id.analog_line_ids.product_id',
         'product_id.product_tmpl_id.analog_line_ids.is_primary_link',
