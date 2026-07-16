@@ -631,7 +631,7 @@ class PurchaseOrderLine(models.Model):
         self.ensure_one()
         return self.product_id._get_default_analog_counterpart_product()
 
-    def _get_seller_contracts_from_analytic_distribution(self):
+    def _get_analytic_distribution_account_ids(self):
         analytic_ids = set()
         for line in self:
             for key in (line.analytic_distribution or {}):
@@ -639,6 +639,10 @@ class PurchaseOrderLine(models.Model):
                     analytic_id = analytic_id.strip()
                     if analytic_id.isdigit():
                         analytic_ids.add(int(analytic_id))
+        return analytic_ids
+
+    def _get_seller_contracts_from_analytic_distribution(self):
+        analytic_ids = self._get_analytic_distribution_account_ids()
         if not analytic_ids:
             return self.env['account.analytic.account']
         return self.env['account.analytic.account'].search(
@@ -656,17 +660,37 @@ class PurchaseOrderLine(models.Model):
         )
         return contracts
 
+    def _has_demand_report_seller_contract(self, contract):
+        self.ensure_one()
+        return bool(
+            contract
+            and (
+                self.seller_contract_id == contract
+                or self.order_id.seller_contract_id == contract
+                or contract.id in self._get_analytic_distribution_account_ids()
+            )
+        )
+
     def _get_analog_rollup_product_analytic_pairs(self):
         target_pairs = set()
         affected_pairs = set()
+        distribution_contract_ids = set(
+            self._get_seller_contracts_from_analytic_distribution().ids
+        )
         for line in self:
             target_product = line._get_analog_original_product_for_rollup()
-            contracts = line._get_demand_report_seller_contracts()
-            for contract in contracts:
-                affected_pairs.add((line.product_id.id, contract.id))
+            contract_ids = set(
+                (line.seller_contract_id | line.order_id.seller_contract_id).ids
+            )
+            contract_ids.update(
+                line._get_analytic_distribution_account_ids()
+                & distribution_contract_ids
+            )
+            for contract_id in contract_ids:
+                affected_pairs.add((line.product_id.id, contract_id))
                 if not target_product:
                     continue
-                target_pair = (target_product.id, contract.id)
+                target_pair = (target_product.id, contract_id)
                 target_pairs.add(target_pair)
                 affected_pairs.add(target_pair)
         return target_pairs, affected_pairs
@@ -1099,15 +1123,10 @@ class ProductAnalytic(models.Model):
             return False
         if self._get_related_invoice_lines_for_products(analog_products):
             return True
-        analog_product_ids = set(analog_products.ids)
         return bool(
-            self.sale_contract_id.seller_purchase_line_ids.filtered(
-                lambda line: line.product_id.id in analog_product_ids
-                and line.order_id.state in ('purchase', 'done')
-                and self._is_purchase_line_related_to_rollup_product(
-                    line,
-                    self.product_id,
-                )
+            self._get_related_purchase_contract_lines_for_products(
+                analog_products,
+                self.product_id,
             )
         )
 
@@ -1219,8 +1238,7 @@ class ProductAnalytic(models.Model):
         ]
         return self.env['purchase.order.line'].search(domain).filtered(
             lambda line: (
-                self.sale_contract_id
-                in line._get_demand_report_seller_contracts()
+                line._has_demand_report_seller_contract(self.sale_contract_id)
                 and self._is_purchase_line_related_to_rollup_product(
                     line,
                     rollup_product,

@@ -482,6 +482,7 @@ class TestProductAnalog(TransactionCase):
     def test_confirmed_production_raw_move_can_be_replaced_with_analog(self):
         component_product = self._create_product('Confirmed MO component A')
         analog_product = self._create_product('Confirmed MO analog B')
+        (component_product | analog_product).write({'type': 'product'})
         self._create_analog_line(component_product, analog_product)
         production, bom, move = self._create_production_from_bom(
             component_product,
