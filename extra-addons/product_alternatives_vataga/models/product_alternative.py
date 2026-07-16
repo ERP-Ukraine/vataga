@@ -128,6 +128,15 @@ class ProductProduct(models.Model):
             )
         return products - self
 
+    def _get_allowed_analog_rollup_target_products(self):
+        if not self:
+            return self.env['product.product']
+        self.ensure_one()
+        counterpart_products = self._get_direct_analog_counterpart_products()
+        if not counterpart_products:
+            return counterpart_products
+        return self | counterpart_products
+
     def _get_bidirectional_analog_group_products(self):
         products = self.env['product.product']
         line_model = self.env['product.analog']
@@ -154,7 +163,10 @@ class ProductProduct(models.Model):
         if not self:
             return self.env['product.product']
         self.ensure_one()
-        if selected_product and selected_product in self._get_direct_analog_counterpart_products():
+        if (
+            selected_product
+            and selected_product in self._get_allowed_analog_rollup_target_products()
+        ):
             return selected_product
         return self.env['product.product']
 
@@ -602,20 +614,25 @@ class PurchaseOrderLine(models.Model):
 
     @api.depends(
         'product_id',
+        'product_id.product_tmpl_id.analog_line_ids',
+        'product_id.product_tmpl_id.analog_line_ids.product_id',
+        'product_id.product_tmpl_id.analog_line_ids.is_primary_link',
         'product_id.analog_source_line_ids',
         'product_id.analog_source_line_ids.is_primary_link',
         'product_id.analog_source_line_ids.product_tmpl_id',
     )
     def _compute_analog_original_product_fields(self):
         for line in self:
-            original_products = line.product_id._get_direct_analog_counterpart_products()
+            original_products = (
+                line.product_id._get_allowed_analog_rollup_target_products()
+            )
             line.analog_original_product_ids = original_products
             line.has_analog_original_options = bool(original_products)
             line.has_multiple_analog_original_options = len(original_products) > 1
 
     def _get_allowed_analog_original_products(self):
         self.ensure_one()
-        return self.product_id._get_direct_analog_counterpart_products()
+        return self.product_id._get_allowed_analog_rollup_target_products()
 
     def _requires_analog_original_product(self):
         self.ensure_one()
@@ -727,15 +744,24 @@ class PurchaseOrderLine(models.Model):
             self.analog_original_product_id = False
 
     @api.model
-    def _prepare_analog_original_product_vals(self, vals):
+    def _prepare_analog_original_product_vals(
+        self,
+        vals,
+        current_selected_product=False,
+    ):
         vals = dict(vals)
         product_id = vals.get('product_id')
         if not product_id:
             return vals
 
         product = self.env['product.product'].browse(product_id)
-        allowed_products = product._get_direct_analog_counterpart_products()
+        allowed_products = product._get_allowed_analog_rollup_target_products()
         selected_id = vals.get('analog_original_product_id')
+        if (
+            'analog_original_product_id' not in vals
+            and current_selected_product
+        ):
+            selected_id = current_selected_product.id
         if not allowed_products:
             vals['analog_original_product_id'] = False
         elif selected_id and selected_id in allowed_products.ids:
@@ -820,8 +846,18 @@ class PurchaseOrderLine(models.Model):
             if should_recompute
             else self.env['product.analytic']
         )
+        current_selected_product = self.env['product.product']
+        if self and all(
+            line.analog_original_product_id
+            == self[0].analog_original_product_id
+            for line in self
+        ):
+            current_selected_product = self[0].analog_original_product_id
         write_vals = (
-            self._prepare_analog_original_product_vals(vals)
+            self._prepare_analog_original_product_vals(
+                vals,
+                current_selected_product=current_selected_product,
+            )
             if 'product_id' in vals
             else vals
         )
@@ -1497,13 +1533,18 @@ class AccountMoveLine(models.Model):
 
     @api.depends(
         'product_id',
+        'product_id.product_tmpl_id.analog_line_ids',
+        'product_id.product_tmpl_id.analog_line_ids.product_id',
+        'product_id.product_tmpl_id.analog_line_ids.is_primary_link',
         'product_id.analog_source_line_ids',
         'product_id.analog_source_line_ids.is_primary_link',
         'product_id.analog_source_line_ids.product_tmpl_id',
     )
     def _compute_analog_original_product_fields(self):
         for line in self:
-            original_products = line.product_id._get_direct_analog_counterpart_products()
+            original_products = (
+                line.product_id._get_allowed_analog_rollup_target_products()
+            )
             line.analog_original_product_ids = original_products
             line.has_analog_original_options = bool(original_products)
             line.has_multiple_analog_original_options = len(original_products) > 1
@@ -1586,7 +1627,9 @@ class AccountMoveLine(models.Model):
     def _set_default_analog_original_product(self):
         self.ensure_one()
         purchase_line_origin = self._get_purchase_line_analog_original_product()
-        allowed_products = self.product_id._get_direct_analog_counterpart_products()
+        allowed_products = (
+            self.product_id._get_allowed_analog_rollup_target_products()
+        )
         if purchase_line_origin and purchase_line_origin in allowed_products:
             self.analog_original_product_id = purchase_line_origin
             return
@@ -1605,7 +1648,11 @@ class AccountMoveLine(models.Model):
             self.analog_original_product_id = False
 
     @api.model
-    def _prepare_analog_original_product_vals(self, vals):
+    def _prepare_analog_original_product_vals(
+        self,
+        vals,
+        current_selected_product=False,
+    ):
         vals = dict(vals)
         product_id = vals.get('product_id')
         if not product_id:
@@ -1618,11 +1665,16 @@ class AccountMoveLine(models.Model):
         purchase_line_origin = purchase_line.mapped('analog_original_product_id')
 
         product = self.env['product.product'].browse(product_id)
-        allowed_products = product._get_direct_analog_counterpart_products()
+        allowed_products = product._get_allowed_analog_rollup_target_products()
         if len(purchase_line_origin) == 1 and purchase_line_origin in allowed_products:
             vals['analog_original_product_id'] = purchase_line_origin.id
             return vals
         selected_id = vals.get('analog_original_product_id')
+        if (
+            'analog_original_product_id' not in vals
+            and current_selected_product
+        ):
+            selected_id = current_selected_product.id
         if not allowed_products:
             vals['analog_original_product_id'] = False
         elif selected_id and selected_id in allowed_products.ids:
@@ -1635,7 +1687,9 @@ class AccountMoveLine(models.Model):
     def _get_analog_sync_target_product(self):
         self.ensure_one()
         purchase_line_origin = self._get_purchase_line_analog_original_product()
-        allowed_products = self.product_id._get_direct_analog_counterpart_products()
+        allowed_products = (
+            self.product_id._get_allowed_analog_rollup_target_products()
+        )
         if purchase_line_origin and purchase_line_origin in allowed_products:
             return purchase_line_origin
         if not allowed_products:
@@ -1664,7 +1718,7 @@ class AccountMoveLine(models.Model):
             if not line.analog_original_product_id:
                 continue
             if line.analog_original_product_id not in (
-                line.product_id._get_direct_analog_counterpart_products()
+                line.product_id._get_allowed_analog_rollup_target_products()
             ):
                 raise ValidationError(
                     _('Обраний оригінал аналога не відповідає товару рядка.')
@@ -1779,8 +1833,18 @@ class AccountMoveLine(models.Model):
             if should_recompute
             else self.env['product.analytic']
         )
+        current_selected_product = self.env['product.product']
+        if self and all(
+            line.analog_original_product_id
+            == self[0].analog_original_product_id
+            for line in self
+        ):
+            current_selected_product = self[0].analog_original_product_id
         write_vals = (
-            self._prepare_analog_original_product_vals(vals)
+            self._prepare_analog_original_product_vals(
+                vals,
+                current_selected_product=current_selected_product,
+            )
             if 'product_id' in vals
             else vals
         )
