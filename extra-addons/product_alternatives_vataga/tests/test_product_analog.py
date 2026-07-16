@@ -1005,3 +1005,224 @@ class TestProductAnalog(TransactionCase):
 
         self.assertEqual(main_analytic.in_invoice, 0)
         self.assertEqual(old_analog_analytic.in_invoice, 4)
+
+    def test_backfill_historical_invoice_creates_target_once(self):
+        main_product = self._create_product('Historical invoice main')
+        analog_product = self._create_product('Historical invoice analog')
+        contract = self._create_seller_contract('Historical invoice contract')
+        self._create_analog_line(main_product, analog_product)
+        analog_analytic = self._create_product_analytic(
+            analog_product,
+            contract,
+        )
+        bill = self._create_vendor_bill(
+            analog_product,
+            contract,
+            7,
+        )
+        main_domain = [
+            ('product_id', '=', main_product.id),
+            ('sale_contract_id', '=', contract.id),
+        ]
+        self.ProductAnalytic.search(main_domain).unlink()
+        self.assertFalse(self.ProductAnalytic.search(main_domain))
+
+        dry_run = (
+            self.ProductAnalytic._backfill_analog_rollup_product_analytics(
+                batch_size=1,
+                dry_run=True,
+            )
+        )
+        self.assertGreaterEqual(dry_run['missing_target_count'], 1)
+        self.assertEqual(
+            dry_run['would_create_count'],
+            dry_run['missing_target_count'],
+        )
+        self.assertGreaterEqual(dry_run['would_recompute_count'], 2)
+        self.assertEqual(dry_run['created_count'], 0)
+        self.assertEqual(dry_run['recomputed_count'], 0)
+        self.assertFalse(self.ProductAnalytic.search(main_domain))
+
+        first_result = (
+            self.ProductAnalytic._backfill_analog_rollup_product_analytics(
+                batch_size=1,
+            )
+        )
+        main_analytic = self.ProductAnalytic.search(main_domain)
+        self.assertEqual(len(main_analytic), 1)
+        self.assertGreaterEqual(first_result['created_count'], 1)
+        self.assertEqual(main_analytic.in_invoice, 7)
+        self.assertEqual(main_analytic.qty_received, 0)
+        self.assertIn(bill, main_analytic.account_move_ids)
+        self.assertEqual(analog_analytic.in_invoice, 0)
+        self.assertEqual(analog_analytic.qty_received, 0)
+
+        pivot_total = self.ProductAnalytic.read_group(
+            [
+                ('sale_contract_id', '=', contract.id),
+                ('product_id', 'in', (main_product | analog_product).ids),
+            ],
+            ['in_invoice:sum', 'qty_received:sum'],
+            [],
+        )[0]
+        self.assertEqual(pivot_total['in_invoice'], 7)
+        self.assertEqual(pivot_total['qty_received'], 0)
+
+        second_result = (
+            self.ProductAnalytic._backfill_analog_rollup_product_analytics(
+                batch_size=1,
+            )
+        )
+        self.assertEqual(second_result['created_count'], 0)
+        self.assertEqual(self.ProductAnalytic.search_count(main_domain), 1)
+
+    def test_backfill_received_purchase_without_invoice(self):
+        main_product = self._create_product('Historical receipt main')
+        analog_product = self._create_product('Historical receipt analog')
+        contract = self._create_seller_contract('Historical receipt contract')
+        self._create_analog_line(main_product, analog_product)
+        analog_analytic = self._create_product_analytic(
+            analog_product,
+            contract,
+        )
+        purchase = self._create_received_purchase(
+            analog_product,
+            contract,
+            9,
+            analog_original_product=main_product,
+        )
+        self.assertFalse(purchase.invoice_ids)
+        main_domain = [
+            ('product_id', '=', main_product.id),
+            ('sale_contract_id', '=', contract.id),
+        ]
+        self.ProductAnalytic.search(main_domain).unlink()
+
+        result = self.ProductAnalytic._backfill_analog_rollup_product_analytics(
+            batch_size=1,
+        )
+        main_analytic = self.ProductAnalytic.search(main_domain)
+        self.assertGreaterEqual(result['created_count'], 1)
+        self.assertEqual(len(main_analytic), 1)
+        self.assertEqual(main_analytic.in_invoice, 0)
+        self.assertEqual(main_analytic.qty_received, 9)
+        self.assertEqual(analog_analytic.in_invoice, 0)
+        self.assertEqual(analog_analytic.qty_received, 0)
+
+        pivot_total = self.ProductAnalytic.read_group(
+            [
+                ('sale_contract_id', '=', contract.id),
+                ('product_id', 'in', (main_product | analog_product).ids),
+            ],
+            ['in_invoice:sum', 'qty_received:sum'],
+            [],
+        )[0]
+        self.assertEqual(pivot_total['in_invoice'], 0)
+        self.assertEqual(pivot_total['qty_received'], 9)
+
+    def test_backfill_recomputes_stale_demand_without_documents(self):
+        product = self._create_product('Demand-only product')
+        contract = self._create_seller_contract('Demand-only contract')
+        product_analytic = self._create_sale_demand(product, contract, 13)
+        self.assertEqual(product_analytic.demand, 13)
+        self.assertFalse(
+            self.env['account.move.line'].search(
+                [
+                    ('product_id', '=', product.id),
+                    ('move_id.state', '=', 'posted'),
+                    ('move_id.move_type', 'in', ('in_invoice', 'in_refund')),
+                ]
+            )
+        )
+        self.assertFalse(
+            self.env['purchase.order.line'].search(
+                [
+                    ('product_id', '=', product.id),
+                    ('order_id.state', 'in', ('purchase', 'done')),
+                ]
+            )
+        )
+
+        product_analytic.flush_recordset(['demand'])
+        self.env.cr.execute(
+            'UPDATE product_analytic SET demand = 0 WHERE id = %s',
+            [product_analytic.id],
+        )
+        product_analytic.invalidate_recordset(['demand'])
+        self.assertEqual(product_analytic.demand, 0)
+
+        dry_run = (
+            self.ProductAnalytic._backfill_analog_rollup_product_analytics(
+                dry_run=True,
+            )
+        )
+        self.assertGreaterEqual(dry_run['would_recompute_count'], 1)
+        product_analytic.invalidate_recordset(['demand'])
+        self.assertEqual(product_analytic.demand, 0)
+
+        self.ProductAnalytic._backfill_analog_rollup_product_analytics()
+        product_analytic.invalidate_recordset(
+            ['demand', 'in_invoice', 'closed']
+        )
+        self.assertEqual(product_analytic.demand, 13)
+        self.assertEqual(product_analytic.in_invoice, 0)
+        self.assertEqual(product_analytic.closed, 0)
+
+    def test_unlink_purchase_line_recomputes_previous_target(self):
+        main_product = self._create_product('Deleted purchase main')
+        analog_product = self._create_product('Deleted purchase analog')
+        contract = self._create_seller_contract('Deleted purchase contract')
+        self._create_analog_line(main_product, analog_product)
+        analog_analytic = self._create_product_analytic(
+            analog_product,
+            contract,
+        )
+        purchase = self.env['purchase.order'].create(
+            {
+                'partner_id': self.partner.id,
+                'seller_contract_id': contract.id,
+                'order_line': [
+                    Command.create(
+                        {
+                            'product_id': analog_product.id,
+                            'product_qty': 5,
+                            'price_unit': 1,
+                            'analytic_distribution': {str(contract.id): 100},
+                            'analog_original_product_id': main_product.id,
+                        }
+                    ),
+                ],
+            }
+        )
+        purchase.button_confirm()
+        main_analytic = self.ProductAnalytic.search(
+            [
+                ('product_id', '=', main_product.id),
+                ('sale_contract_id', '=', contract.id),
+            ],
+            limit=1,
+        )
+        purchase.button_cancel()
+        main_analytic.flush_recordset(['qty_received'])
+        self.env.cr.execute(
+            'UPDATE product_analytic SET qty_received = 5 WHERE id = %s',
+            [main_analytic.id],
+        )
+        main_analytic.invalidate_recordset(['qty_received'])
+        self.assertEqual(main_analytic.qty_received, 5)
+
+        purchase.order_line.unlink()
+        main_analytic.invalidate_recordset(['qty_received'])
+        analog_analytic.invalidate_recordset(['qty_received'])
+        self.assertEqual(main_analytic.qty_received, 0)
+        self.assertEqual(analog_analytic.qty_received, 0)
+
+        pivot_total = self.ProductAnalytic.read_group(
+            [
+                ('sale_contract_id', '=', contract.id),
+                ('product_id', 'in', (main_product | analog_product).ids),
+            ],
+            ['qty_received:sum'],
+            [],
+        )[0]
+        self.assertEqual(pivot_total['qty_received'], 0)

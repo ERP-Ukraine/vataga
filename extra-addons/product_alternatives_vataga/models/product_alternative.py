@@ -1,5 +1,19 @@
+import logging
+
+from psycopg2 import IntegrityError, errorcodes
+from psycopg2.errors import SerializationFailure
+
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
+
+
+_logger = logging.getLogger(__name__)
+
+
+class RetryableProductAnalyticCreationError(SerializationFailure):
+    @property
+    def pgcode(self):
+        return errorcodes.SERIALIZATION_FAILURE
 
 
 class ProductTemplate(models.Model):
@@ -521,17 +535,29 @@ class PurchaseOrder(models.Model):
 
     def button_confirm(self):
         self._check_required_analog_original_products()
+        res = super().button_confirm()
         self.order_line._ensure_analog_rollup_target_product_analytics()
-        return super().button_confirm()
+        self.order_line._recompute_analog_product_analytics()
+        return res
 
     def button_approve(self, force=False):
         self._check_required_analog_original_products()
+        res = super().button_approve(force=force)
         self.order_line._ensure_analog_rollup_target_product_analytics()
-        return super().button_approve(force=force)
+        self.order_line._recompute_analog_product_analytics()
+        return res
 
 
 class PurchaseOrderLine(models.Model):
     _inherit = 'purchase.order.line'
+
+    ANALOG_RECOMPUTE_FIELDS = {
+        'product_id',
+        'analog_original_product_id',
+        'analytic_distribution',
+        'seller_contract_id',
+        'order_id',
+    }
 
     analog_original_product_ids = fields.Many2many(
         comodel_name='product.product',
@@ -582,28 +608,53 @@ class PurchaseOrderLine(models.Model):
         self.ensure_one()
         return self.product_id._get_default_analog_counterpart_product()
 
-    def _ensure_analog_rollup_target_product_analytics(self):
-        ProductAnalytic = self.env['product.analytic'].sudo()
+    def _get_seller_contracts_from_analytic_distribution(self):
+        analytic_ids = set()
+        for line in self:
+            for key in (line.analytic_distribution or {}):
+                for analytic_id in str(key).split(','):
+                    analytic_id = analytic_id.strip()
+                    if analytic_id.isdigit():
+                        analytic_ids.add(int(analytic_id))
+        if not analytic_ids:
+            return self.env['account.analytic.account']
+        return self.env['account.analytic.account'].search(
+            [
+                ('id', 'in', list(analytic_ids)),
+                ('is_plan_seller_contract', '=', True),
+            ]
+        )
+
+    def _get_seller_contracts_for_analog_target(self):
+        contracts = (
+            self.mapped('seller_contract_id')
+            | self._get_seller_contracts_from_analytic_distribution()
+            | self.mapped('order_id.seller_contract_id')
+        )
+        return contracts
+
+    def _get_analog_rollup_product_analytic_pairs(self):
+        target_pairs = set()
+        affected_pairs = set()
         for line in self:
             target_product = line._get_analog_original_product_for_rollup()
-            contract = line.seller_contract_id | line.order_id.seller_contract_id
-            if not target_product or not contract:
+            if not target_product:
                 continue
-            for sale_contract in contract:
-                existing = ProductAnalytic.search(
-                    [
-                        ('product_id', '=', target_product.id),
-                        ('sale_contract_id', '=', sale_contract.id),
-                    ],
-                    limit=1,
-                )
-                if not existing:
-                    ProductAnalytic.create(
-                        {
-                            'product_id': target_product.id,
-                            'sale_contract_id': sale_contract.id,
-                        }
-                    )
+            contracts = line._get_seller_contracts_for_analog_target()
+            for contract in contracts:
+                target_pair = (target_product.id, contract.id)
+                target_pairs.add(target_pair)
+                affected_pairs.add(target_pair)
+                affected_pairs.add((line.product_id.id, contract.id))
+        return target_pairs, affected_pairs
+
+    def _ensure_analog_rollup_target_product_analytics(self):
+        target_pairs, _affected_pairs = (
+            self._get_analog_rollup_product_analytic_pairs()
+        )
+        return self.env['product.analytic']._ensure_analog_rollup_pairs(
+            target_pairs
+        )[0]
 
     @api.onchange('product_id')
     def _onchange_product_id_analog_original_product_id(self):
@@ -659,22 +710,22 @@ class PurchaseOrderLine(models.Model):
             return self.analog_original_product_id
         return self._get_default_analog_original_product()
 
-    def _recompute_analog_product_analytics(self):
-        products = self.mapped('product_id') | self.mapped('analog_original_product_id')
-        contracts = self.mapped('seller_contract_id') | self.mapped('order_id.seller_contract_id')
-        if not products or not contracts:
-            return
-        analytics = self.env['product.analytic'].sudo().search(
-            [
-                ('product_id', 'in', products.ids),
-                ('sale_contract_id', 'in', contracts.ids),
-            ]
+    def _get_analog_product_analytic_recompute_targets(self):
+        confirmed_lines = self.filtered(
+            lambda line: line.order_id.state in ('purchase', 'done')
         )
-        analytics._compute_numbers()
-        analytics._compute_qty_received()
-        analytics._compute_demand_comment()
+        _target_pairs, affected_pairs = (
+            confirmed_lines._get_analog_rollup_product_analytic_pairs()
+        )
+        return self.env[
+            'product.analytic'
+        ]._find_analog_rollup_product_analytics(affected_pairs)
+
+    def _recompute_analog_product_analytics(self):
+        analytics = self._get_analog_product_analytic_recompute_targets()
+        analytics._recompute_analog_rollup_fields()
         analytics._compute_ua_purchase_contract_ids()
-        analytics._compute_account_move_ids()
+        return analytics
 
     def _sync_analog_original_product(self):
         if self.env.context.get('product_alternatives_skip_analog_origin_sync'):
@@ -705,11 +756,23 @@ class PurchaseOrderLine(models.Model):
             self._prepare_analog_original_product_vals(vals)
             for vals in vals_list
         ]
-        return super().create(vals_list)
+        lines = super().create(vals_list)
+        confirmed_lines = lines.filtered(
+            lambda line: line.order_id.state in ('purchase', 'done')
+        )
+        confirmed_lines._ensure_analog_rollup_target_product_analytics()
+        confirmed_lines._recompute_analog_product_analytics()
+        return lines
 
     def write(self, vals):
         if self.env.context.get('product_alternatives_skip_analog_origin_sync'):
             return super().write(vals)
+        should_recompute = bool(self.ANALOG_RECOMPUTE_FIELDS & set(vals))
+        old_analytics = (
+            self._get_analog_product_analytic_recompute_targets()
+            if should_recompute
+            else self.env['product.analytic']
+        )
         write_vals = (
             self._prepare_analog_original_product_vals(vals)
             if 'product_id' in vals
@@ -718,8 +781,29 @@ class PurchaseOrderLine(models.Model):
         res = super().write(write_vals)
         if {'product_id', 'analog_original_product_id'} & set(vals):
             self._sync_analog_original_product()
-            self._ensure_analog_rollup_target_product_analytics()
-            self._recompute_analog_product_analytics()
+        if should_recompute:
+            confirmed_lines = self.filtered(
+                lambda line: line.order_id.state in ('purchase', 'done')
+            )
+            confirmed_lines._ensure_analog_rollup_target_product_analytics()
+            new_analytics = (
+                confirmed_lines._get_analog_product_analytic_recompute_targets()
+            )
+            analytics = old_analytics | new_analytics
+            analytics._recompute_analog_rollup_fields()
+            analytics._compute_ua_purchase_contract_ids()
+        return res
+
+    def unlink(self):
+        _target_pairs, affected_pairs = (
+            self._get_analog_rollup_product_analytic_pairs()
+        )
+        analytics = self.env[
+            'product.analytic'
+        ]._find_analog_rollup_product_analytics(affected_pairs)
+        res = super().unlink()
+        analytics._recompute_analog_rollup_fields()
+        analytics._compute_ua_purchase_contract_ids()
         return res
 
 
@@ -733,6 +817,212 @@ class ProductAnalytic(models.Model):
         group_operator='max',
         string='Comment',
     )
+
+    @api.model
+    def _find_analog_rollup_product_analytics(self, pair_keys):
+        pair_keys = {
+            (int(product_id), int(contract_id))
+            for product_id, contract_id in pair_keys
+            if product_id and contract_id
+        }
+        if not pair_keys:
+            return self.browse()
+
+        product_analytics = self.sudo().search(
+            [
+                ('product_id', 'in', list({key[0] for key in pair_keys})),
+                ('sale_contract_id', 'in', list({key[1] for key in pair_keys})),
+            ]
+        )
+        return product_analytics.filtered(
+            lambda analytic: (
+                analytic.product_id.id,
+                analytic.sale_contract_id.id,
+            )
+            in pair_keys
+        )
+
+    @api.model
+    def _ensure_analog_rollup_pairs(self, pair_keys):
+        """Return matching analytics and the subset created by this call.
+
+        The savepoint handles a concurrent transaction creating the same pair
+        after our lookup but before our insert.  After the conflicting insert
+        rolls back to the savepoint, the winning row is fetched and reused.
+        """
+        pair_keys = {
+            (int(product_id), int(contract_id))
+            for product_id, contract_id in pair_keys
+            if product_id and contract_id
+        }
+        existing = self._find_analog_rollup_product_analytics(pair_keys)
+        existing_keys = {
+            (analytic.product_id.id, analytic.sale_contract_id.id)
+            for analytic in existing
+        }
+        created = self.browse()
+        product_analytics = existing
+        ProductAnalytic = self.sudo()
+        for product_id, contract_id in sorted(pair_keys - existing_keys):
+            analytic = ProductAnalytic.search(
+                [
+                    ('product_id', '=', product_id),
+                    ('sale_contract_id', '=', contract_id),
+                ],
+                limit=1,
+            )
+            if not analytic:
+                try:
+                    with self.env.cr.savepoint():
+                        analytic = ProductAnalytic.create(
+                            {
+                                'product_id': product_id,
+                                'sale_contract_id': contract_id,
+                            }
+                        )
+                    created |= analytic
+                except IntegrityError as error:
+                    if (
+                        error.pgcode != errorcodes.UNIQUE_VIOLATION
+                        or error.diag.constraint_name
+                        != 'product_analytic_product_and_seller_uniq'
+                    ):
+                        raise
+                    analytic = ProductAnalytic.search(
+                        [
+                            ('product_id', '=', product_id),
+                            ('sale_contract_id', '=', contract_id),
+                        ],
+                        limit=1,
+                    )
+                    if not analytic:
+                        # Odoo uses REPEATABLE READ.  A concurrently committed
+                        # winner may therefore be enforced by the unique index
+                        # but remain invisible to this transaction's snapshot.
+                        # Convert that race to Odoo's standard retryable error
+                        # instead of leaking a unique-constraint failure.
+                        raise RetryableProductAnalyticCreationError(
+                            'Concurrent product analytic pair creation; retry.'
+                        ) from error
+            product_analytics |= analytic
+        return product_analytics, created
+
+    def _recompute_analog_rollup_fields(self, batch_size=500):
+        analytic_ids = sorted(set(self.ids))
+        recomputed_count = 0
+        for start in range(0, len(analytic_ids), batch_size):
+            product_analytics = self.sudo().browse(
+                analytic_ids[start:start + batch_size]
+            ).exists()
+            if not product_analytics:
+                continue
+            product_analytics._compute_numbers()
+            product_analytics._compute_qty_received()
+            product_analytics._compute_account_move_ids()
+            product_analytics._compute_demand_comment()
+            recomputed_count += len(product_analytics)
+        return recomputed_count
+
+    @api.model
+    def _backfill_analog_rollup_product_analytics(
+        self,
+        batch_size=500,
+        dry_run=False,
+    ):
+        target_pairs = set()
+        affected_pairs = set()
+        source_counts = {
+            'invoice_line_count': 0,
+            'purchase_line_count': 0,
+        }
+        sources = (
+            (
+                self.env['account.move.line'].sudo(),
+                [
+                    ('product_id', '!=', False),
+                    ('move_id.state', '=', 'posted'),
+                    ('move_id.move_type', 'in', ('in_invoice', 'in_refund')),
+                ],
+                'invoice_line_count',
+            ),
+            (
+                self.env['purchase.order.line'].sudo(),
+                [
+                    ('product_id', '!=', False),
+                    ('order_id.state', 'in', ('purchase', 'done')),
+                ],
+                'purchase_line_count',
+            ),
+        )
+        for source_model, domain, count_key in sources:
+            last_id = 0
+            while True:
+                lines = source_model.search(
+                    domain + [('id', '>', last_id)],
+                    order='id',
+                    limit=batch_size,
+                )
+                if not lines:
+                    break
+                line_target_pairs, line_affected_pairs = (
+                    lines._get_analog_rollup_product_analytic_pairs()
+                )
+                target_pairs.update(line_target_pairs)
+                affected_pairs.update(line_affected_pairs)
+                source_counts[count_key] += len(lines)
+                last_id = lines[-1].id
+
+        existing_targets = self._find_analog_rollup_product_analytics(
+            target_pairs
+        )
+        existing_target_pairs = {
+            (analytic.product_id.id, analytic.sale_contract_id.id)
+            for analytic in existing_targets
+        }
+        missing_target_pairs = target_pairs - existing_target_pairs
+
+        affected_analytics = self._find_analog_rollup_product_analytics(
+            affected_pairs
+        )
+        demand_analytics = self.sudo().search(
+            [
+                '|',
+                ('need_to_purchase_ids', '!=', False),
+                ('demand', '!=', 0),
+            ]
+        )
+        existing_to_recompute = affected_analytics | demand_analytics
+        planned_recompute_count = (
+            len(existing_to_recompute) + len(missing_target_pairs)
+        )
+        result = {
+            **source_counts,
+            'target_pair_count': len(target_pairs),
+            'missing_target_count': len(missing_target_pairs),
+            'would_create_count': len(missing_target_pairs),
+            'would_recompute_count': planned_recompute_count,
+            'created_count': 0,
+            'recomputed_count': 0,
+            'dry_run': bool(dry_run),
+        }
+        if dry_run:
+            _logger.info('Analog rollup backfill dry run: %s', result)
+            return result
+
+        ensured_targets, created = self._ensure_analog_rollup_pairs(
+            target_pairs
+        )
+        to_recompute = existing_to_recompute | ensured_targets
+        result.update(
+            {
+                'created_count': len(created),
+                'recomputed_count': to_recompute._recompute_analog_rollup_fields(
+                    batch_size=batch_size
+                ),
+            }
+        )
+        _logger.info('Analog rollup backfill completed: %s', result)
+        return result
 
     @api.depends(
         'comment',
@@ -1054,6 +1344,7 @@ class ProductAnalytic(models.Model):
     @api.depends(
         'sale_contract_id.seller_purchase_line_ids',
         'sale_contract_id.seller_purchase_line_ids.seller_contract_id',
+        'sale_contract_id.seller_purchase_line_ids.order_id.state',
         'sale_contract_id.seller_purchase_line_ids.qty_received',
         'sale_contract_id.seller_purchase_line_ids.product_qty',
         'sale_contract_id.seller_purchase_line_ids.product_uom',
@@ -1207,27 +1498,27 @@ class AccountMoveLine(models.Model):
             contracts |= self.move_id.seller_contract_id
         return contracts
 
-    def _ensure_analog_rollup_target_product_analytics(self):
-        ProductAnalytic = self.env['product.analytic'].sudo()
+    def _get_analog_rollup_product_analytic_pairs(self):
+        target_pairs = set()
+        affected_pairs = set()
         for line in self:
             target_product = line._get_analog_original_product_for_rollup()
             if not target_product:
                 continue
             for contract in line._get_seller_contracts_for_analog_target():
-                existing = ProductAnalytic.search(
-                    [
-                        ('product_id', '=', target_product.id),
-                        ('sale_contract_id', '=', contract.id),
-                    ],
-                    limit=1,
-                )
-                if not existing:
-                    ProductAnalytic.create(
-                        {
-                            'product_id': target_product.id,
-                            'sale_contract_id': contract.id,
-                        }
-                    )
+                target_pair = (target_product.id, contract.id)
+                target_pairs.add(target_pair)
+                affected_pairs.add(target_pair)
+                affected_pairs.add((line.product_id.id, contract.id))
+        return target_pairs, affected_pairs
+
+    def _ensure_analog_rollup_target_product_analytics(self):
+        target_pairs, _affected_pairs = (
+            self._get_analog_rollup_product_analytic_pairs()
+        )
+        return self.env['product.analytic']._ensure_analog_rollup_pairs(
+            target_pairs
+        )[0]
 
     @api.onchange('product_id')
     def _onchange_product_id_analog_original_product_id(self):
