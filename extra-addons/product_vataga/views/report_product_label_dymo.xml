@@ -7,6 +7,15 @@
             inherit_id="product.report_simple_label_dymo"
             priority="99"
         >
+            <xpath
+                expr="//div[contains(@class, 'o_label_sheet') and contains(@class, 'o_label_dymo')]"
+                position="attributes"
+            >
+                <attribute name="t-att-style">
+                    'width:60mm; height:40mm; padding:0; margin:0; box-sizing:border-box; overflow:hidden;'
+                </attribute>
+            </xpath>
+
             <xpath expr="//div[contains(@class, 'o_label_full')]" position="replace">
                 <style type="text/css">
                     @font-face {
@@ -15,10 +24,20 @@
                         font-weight: 700;
                         src: url('/product_vataga/static/src/fonts/RobotoCondensed-Bold.ttf') format('truetype');
                     }
+
+                    .o_vataga_product_label,
+                    .o_vataga_product_label div {
+                        box-sizing: border-box;
+                    }
+
+                    .o_vataga_product_label div {
+                        padding: 0 !important;
+                        margin: 0 !important;
+                    }
                 </style>
                 <div
-                    class="o_label_full"
-                    t-att-style="(table_style or '') + '; position: relative; overflow: hidden; box-sizing: border-box; background-color: #fff; padding: 0; height: 40mm; min-height: 40mm; width: 60mm; border-radius: 0;'"
+                    class="o_label_full o_vataga_product_label"
+                    style="position: relative; width: 100%; height: 100%; min-height: 100%; overflow: hidden; box-sizing: border-box; background-color: #fff; padding: 0; margin: 0; border-radius: 0;"
                 >
                     <t t-if="barcode">
                         <div style="position: absolute; left: 2mm; top: 1.3mm; width: 56mm; height: 7mm; text-align: center; margin: 0; padding: 0; overflow: hidden;">
