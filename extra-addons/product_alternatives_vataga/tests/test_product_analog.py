@@ -128,13 +128,21 @@ class TestProductAnalog(TransactionCase):
             }
         )
 
-    def _create_vendor_bill(self, product, contract, quantity, move_type='in_invoice'):
+    def _create_vendor_bill(
+        self,
+        product,
+        contract,
+        quantity,
+        move_type='in_invoice',
+        analog_original_product=False,
+    ):
         return self._create_vendor_bill_from_distribution(
             product,
             {str(contract.id): 100},
             quantity,
             move_type=move_type,
             seller_contract=contract,
+            analog_original_product=analog_original_product,
         )
 
     def _create_vendor_bill_from_distribution(
@@ -425,7 +433,7 @@ class TestProductAnalog(TransactionCase):
         main_product_analytic.invalidate_recordset(['demand_comment'])
         analog_product_analytic.invalidate_recordset(['demand_comment'])
 
-        self.assertEqual(main_product_analytic.demand_comment, 'Need substitute (A)')
+        self.assertEqual(main_product_analytic.demand_comment, 'Need substitute')
         self.assertEqual(analog_product_analytic.demand_comment, 'Need substitute (A)')
 
     def test_bom_line_shows_component_analogs(self):
@@ -582,6 +590,7 @@ class TestProductAnalog(TransactionCase):
             product_b,
             {str(contract.id): 100},
             1,
+            analog_original_product=product_a,
         )
         self.assertFalse(analog_bill.seller_contract_id)
         self.assertIn(
@@ -625,6 +634,7 @@ class TestProductAnalog(TransactionCase):
             product_b,
             {str(contract.id): 100},
             1,
+            analog_original_product=product_a,
         )
         main_analytic.invalidate_recordset(['in_invoice', 'closed'])
         analog_analytic.invalidate_recordset(['demand', 'in_invoice', 'closed'])
@@ -654,6 +664,7 @@ class TestProductAnalog(TransactionCase):
             {str(contract.id): 100},
             1,
             move_type='in_refund',
+            analog_original_product=product_a,
         )
         main_analytic.invalidate_recordset(['in_invoice', 'closed'])
         analog_analytic.invalidate_recordset(['demand', 'in_invoice', 'closed'])
@@ -685,14 +696,13 @@ class TestProductAnalog(TransactionCase):
             product_b,
             {f'{contract_1.id},{contract_2.id}': 100},
             1,
+            analog_original_product=product_a,
             post=False,
         )
-        self.assertFalse(bill.invoice_line_ids.analog_original_product_id)
-
-        with self.assertRaises(ValidationError):
-            bill.action_post()
-
-        bill.invoice_line_ids.analog_original_product_id = product_a
+        self.assertEqual(
+            bill.invoice_line_ids.analog_original_product_id,
+            product_a,
+        )
         bill.action_post()
         targets = bill.invoice_line_ids._get_analog_product_analytic_recompute_targets()
 
@@ -746,19 +756,14 @@ class TestProductAnalog(TransactionCase):
         if 'ua_contract_id' in purchase._fields:
             self.assertFalse(purchase.ua_contract_id)
         self.assertEqual(purchase.order_line.seller_contract_id, contract)
-        self.assertFalse(purchase.order_line.analog_original_product_id)
+        self.assertEqual(
+            purchase.order_line.analog_original_product_id,
+            product_b,
+        )
         self.assertEqual(
             set(purchase.order_line.analog_original_product_ids.ids),
             {product_a.id, product_b.id, product_c.id},
         )
-        with self.assertRaisesRegex(
-            ValidationError,
-            'Для товару-аналога необхідно вибрати оригінал аналога.',
-        ):
-            purchase.button_confirm()
-
-        purchase.order_line.write({'analog_original_product_id': product_b.id})
-        self.assertEqual(purchase.order_line.analog_original_product_id, product_b)
         purchase.order_line.analog_original_product_id = product_a
         purchase.button_confirm()
         purchase.picking_ids.button_validate()
@@ -803,7 +808,10 @@ class TestProductAnalog(TransactionCase):
         analytic_c = self._create_sale_demand(product_c, contract, 20)
 
         purchase_a = self._create_received_purchase(product_a, contract, 5)
-        self.assertFalse(purchase_a.order_line.analog_original_product_id)
+        self.assertEqual(
+            purchase_a.order_line.analog_original_product_id,
+            product_a,
+        )
         self.assertEqual(
             set(purchase_a.order_line.analog_original_product_ids.ids),
             {product_a.id, product_b.id},
@@ -824,7 +832,10 @@ class TestProductAnalog(TransactionCase):
                 ],
             }
         )
-        self.assertFalse(purchase_c.order_line.analog_original_product_id)
+        self.assertEqual(
+            purchase_c.order_line.analog_original_product_id,
+            product_c,
+        )
         self.assertEqual(
             set(purchase_c.order_line.analog_original_product_ids.ids),
             {product_b.id, product_c.id},
@@ -1019,7 +1030,7 @@ class TestProductAnalog(TransactionCase):
             self.assertIn(label, arch)
             self.assertNotIn(readonly_rule, arch)
 
-    def test_single_analog_original_is_autofilled(self):
+    def test_analog_rollup_target_defaults_to_line_product(self):
         product_a = self._create_product('Single origin main A')
         product_b = self._create_product('Single origin analog B')
         contract = self._create_seller_contract('Single Origin Contract')
@@ -1041,14 +1052,369 @@ class TestProductAnalog(TransactionCase):
             }
         )
 
-        self.assertEqual(purchase.order_line.analog_original_product_id, product_a)
+        self.assertEqual(purchase.order_line.analog_original_product_id, product_b)
 
         unrelated_product = self._create_product('Single origin unrelated')
         purchase.order_line.product_id = unrelated_product
         self.assertFalse(purchase.order_line.analog_original_product_id)
 
         purchase.order_line.product_id = product_b
-        self.assertEqual(purchase.order_line.analog_original_product_id, product_a)
+        self.assertEqual(purchase.order_line.analog_original_product_id, product_b)
+
+    def test_defaults_and_document_sync_use_line_product(self):
+        main_product = self._create_product('Default self main')
+        analog_product = self._create_product('Default self analog')
+        shared_main = self._create_product('Default self shared main')
+        ordinary_product = self._create_product('Default self ordinary')
+        contract = self._create_seller_contract('Default self contract')
+        self._create_analog_line(main_product, analog_product)
+        self._create_analog_line(shared_main, analog_product)
+
+        purchase = self.env['purchase.order'].create(
+            {
+                'partner_id': self.partner.id,
+                'seller_contract_id': contract.id,
+                'order_line': [
+                    Command.create(
+                        {
+                            'product_id': main_product.id,
+                            'product_qty': 1,
+                            'price_unit': 1,
+                        }
+                    ),
+                    Command.create(
+                        {
+                            'product_id': analog_product.id,
+                            'product_qty': 1,
+                            'price_unit': 1,
+                            'analog_original_product_id': False,
+                        }
+                    ),
+                    Command.create(
+                        {
+                            'product_id': ordinary_product.id,
+                            'product_qty': 1,
+                            'price_unit': 1,
+                        }
+                    ),
+                ],
+            }
+        )
+        purchase_lines = purchase.order_line.sorted('id')
+        self.assertEqual(
+            purchase_lines[0].analog_original_product_id,
+            main_product,
+        )
+        self.assertEqual(
+            purchase_lines[1].analog_original_product_id,
+            analog_product,
+        )
+        self.assertFalse(purchase_lines[2].analog_original_product_id)
+        self.assertFalse(purchase_lines[2].has_analog_original_options)
+
+        onchange_purchase_line = self.env['purchase.order.line'].new(
+            {'product_id': analog_product.id}
+        )
+        onchange_purchase_line._onchange_product_id_analog_original_product_id()
+        self.assertEqual(
+            onchange_purchase_line.analog_original_product_id,
+            analog_product,
+        )
+
+        purchase_lines[1].flush_recordset(['analog_original_product_id'])
+        self.env.cr.execute(
+            '''
+                UPDATE purchase_order_line
+                   SET analog_original_product_id = NULL
+                 WHERE id = %s
+            ''',
+            [purchase_lines[1].id],
+        )
+        purchase_lines[1].invalidate_recordset(['analog_original_product_id'])
+        self.assertFalse(purchase_lines[1].analog_original_product_id)
+        purchase.button_confirm()
+        self.assertEqual(
+            purchase_lines[1].analog_original_product_id,
+            analog_product,
+        )
+
+        bill = self.env['account.move'].create(
+            {
+                'move_type': 'in_invoice',
+                'partner_id': self.partner.id,
+                'journal_id': self.purchase_journal.id,
+                'invoice_date': fields.Date.today(),
+                'date': fields.Date.today(),
+                'seller_contract_id': contract.id,
+                'invoice_line_ids': [
+                    Command.create(
+                        {
+                            'product_id': analog_product.id,
+                            'quantity': 1,
+                            'name': analog_product.display_name,
+                            'price_unit': 1,
+                            'account_id': self.expense_account.id,
+                            'product_uom_id': analog_product.uom_id.id,
+                            'analog_original_product_id': False,
+                        }
+                    ),
+                ],
+            }
+        )
+        invoice_line = bill.invoice_line_ids
+        self.assertEqual(
+            invoice_line.analog_original_product_id,
+            analog_product,
+        )
+        onchange_invoice_line = self.env['account.move.line'].new(
+            {'product_id': main_product.id}
+        )
+        onchange_invoice_line._onchange_product_id_analog_original_product_id()
+        self.assertEqual(
+            onchange_invoice_line.analog_original_product_id,
+            main_product,
+        )
+
+        invoice_line.flush_recordset(['analog_original_product_id'])
+        self.env.cr.execute(
+            '''
+                UPDATE account_move_line
+                   SET analog_original_product_id = NULL
+                 WHERE id = %s
+            ''',
+            [invoice_line.id],
+        )
+        invoice_line.invalidate_recordset(['analog_original_product_id'])
+        self.assertFalse(invoice_line.analog_original_product_id)
+        bill.action_post()
+        self.assertEqual(
+            invoice_line.analog_original_product_id,
+            analog_product,
+        )
+
+    def test_counterpart_survives_writes_confirmation_and_posting(self):
+        main_product = self._create_product('Preserved target main')
+        analog_product = self._create_product('Preserved target analog')
+        other_main = self._create_product('Changed product main')
+        other_analog = self._create_product('Changed product analog')
+        contract = self._create_seller_contract('Preserved target contract')
+        self._create_analog_line(main_product, analog_product)
+        self._create_analog_line(other_main, other_analog)
+
+        purchase = self.env['purchase.order'].create(
+            {
+                'partner_id': self.partner.id,
+                'seller_contract_id': contract.id,
+                'order_line': [
+                    Command.create(
+                        {
+                            'product_id': analog_product.id,
+                            'product_qty': 2,
+                            'price_unit': 1,
+                            'analog_original_product_id': main_product.id,
+                        }
+                    ),
+                ],
+            }
+        )
+        purchase_line = purchase.order_line
+        purchase_line.write({'product_id': analog_product.id})
+        purchase_line.write({'price_unit': 2})
+        self.assertEqual(
+            purchase_line.analog_original_product_id,
+            main_product,
+        )
+        purchase.button_confirm()
+        self.assertEqual(
+            purchase_line.analog_original_product_id,
+            main_product,
+        )
+
+        bill = self._create_vendor_bill_from_distribution(
+            analog_product,
+            {str(contract.id): 100},
+            2,
+            analog_original_product=main_product,
+            post=False,
+        )
+        invoice_line = bill.invoice_line_ids
+        invoice_line.write({'product_id': analog_product.id})
+        invoice_line.write({'quantity': 3})
+        self.assertEqual(
+            invoice_line.analog_original_product_id,
+            main_product,
+        )
+        bill.action_post()
+        self.assertEqual(
+            invoice_line.analog_original_product_id,
+            main_product,
+        )
+
+        changed_purchase = self.env['purchase.order'].create(
+            {
+                'partner_id': self.partner.id,
+                'seller_contract_id': contract.id,
+                'order_line': [
+                    Command.create(
+                        {
+                            'product_id': analog_product.id,
+                            'product_qty': 1,
+                            'price_unit': 1,
+                            'analog_original_product_id': main_product.id,
+                        }
+                    ),
+                ],
+            }
+        )
+        changed_line = changed_purchase.order_line
+        changed_line.write({'product_id': other_main.id})
+        self.assertEqual(changed_line.analog_original_product_id, other_main)
+        changed_line.write(
+            {
+                'product_id': other_analog.id,
+                'analog_original_product_id': other_main.id,
+            }
+        )
+        self.assertEqual(changed_line.analog_original_product_id, other_main)
+
+    def test_multi_record_write_preserves_each_selected_target(self):
+        main_product = self._create_product('Multi write main')
+        analog_product = self._create_product('Multi write analog')
+        contract = self._create_seller_contract('Multi write contract')
+        self._create_analog_line(main_product, analog_product)
+
+        purchase = self.env['purchase.order'].create(
+            {
+                'partner_id': self.partner.id,
+                'seller_contract_id': contract.id,
+                'order_line': [
+                    Command.create(
+                        {
+                            'product_id': analog_product.id,
+                            'product_qty': 1,
+                            'price_unit': 1,
+                            'analog_original_product_id': main_product.id,
+                        }
+                    ),
+                    Command.create(
+                        {
+                            'product_id': analog_product.id,
+                            'product_qty': 1,
+                            'price_unit': 1,
+                            'analog_original_product_id': analog_product.id,
+                        }
+                    ),
+                ],
+            }
+        )
+        purchase_lines = purchase.order_line.sorted('id')
+        purchase_lines.write({'product_id': analog_product.id})
+        self.assertEqual(
+            purchase_lines.mapped('analog_original_product_id'),
+            main_product | analog_product,
+        )
+
+        bill = self.env['account.move'].create(
+            {
+                'move_type': 'in_invoice',
+                'partner_id': self.partner.id,
+                'journal_id': self.purchase_journal.id,
+                'invoice_date': fields.Date.today(),
+                'date': fields.Date.today(),
+                'seller_contract_id': contract.id,
+                'invoice_line_ids': [
+                    Command.create(
+                        {
+                            'product_id': analog_product.id,
+                            'quantity': 1,
+                            'name': 'Counterpart target',
+                            'price_unit': 1,
+                            'account_id': self.expense_account.id,
+                            'product_uom_id': analog_product.uom_id.id,
+                            'analog_original_product_id': main_product.id,
+                        }
+                    ),
+                    Command.create(
+                        {
+                            'product_id': analog_product.id,
+                            'quantity': 1,
+                            'name': 'Self target',
+                            'price_unit': 1,
+                            'account_id': self.expense_account.id,
+                            'product_uom_id': analog_product.uom_id.id,
+                            'analog_original_product_id': analog_product.id,
+                        }
+                    ),
+                ],
+            }
+        )
+        invoice_lines = bill.invoice_line_ids.sorted('id')
+        invoice_lines.write({'product_id': analog_product.id})
+        self.assertEqual(
+            invoice_lines.mapped('analog_original_product_id'),
+            main_product | analog_product,
+        )
+
+    def test_switching_rollup_target_clears_previous_analytics(self):
+        main_product = self._create_product('Switch target main')
+        analog_product = self._create_product('Switch target analog')
+        contract = self._create_seller_contract('Switch target contract')
+        self._create_analog_line(main_product, analog_product)
+        main_analytic = self._create_product_analytic(main_product, contract)
+        analog_analytic = self._create_product_analytic(analog_product, contract)
+
+        purchase = self._create_received_purchase(
+            analog_product,
+            contract,
+            5,
+        )
+        bill = self._create_vendor_bill(
+            analog_product,
+            contract,
+            4,
+        )
+        self._recompute_analytic_rollups(main_analytic, analog_analytic)
+        self.assertEqual(main_analytic.qty_received, 0)
+        self.assertEqual(main_analytic.in_invoice, 0)
+        self.assertEqual(analog_analytic.qty_received, 5)
+        self.assertEqual(analog_analytic.in_invoice, 4)
+
+        purchase.order_line.write(
+            {'analog_original_product_id': main_product.id}
+        )
+        bill.invoice_line_ids.write(
+            {'analog_original_product_id': main_product.id}
+        )
+        main_analytic.invalidate_recordset(['in_invoice', 'qty_received'])
+        analog_analytic.invalidate_recordset(['in_invoice', 'qty_received'])
+        self.assertEqual(main_analytic.qty_received, 5)
+        self.assertEqual(main_analytic.in_invoice, 4)
+        self.assertEqual(analog_analytic.qty_received, 0)
+        self.assertEqual(analog_analytic.in_invoice, 0)
+
+        purchase.order_line.write(
+            {'analog_original_product_id': analog_product.id}
+        )
+        bill.invoice_line_ids.write(
+            {'analog_original_product_id': analog_product.id}
+        )
+        main_analytic.invalidate_recordset(['in_invoice', 'qty_received'])
+        analog_analytic.invalidate_recordset(['in_invoice', 'qty_received'])
+        self.assertEqual(main_analytic.qty_received, 0)
+        self.assertEqual(main_analytic.in_invoice, 0)
+        self.assertEqual(analog_analytic.qty_received, 5)
+        self.assertEqual(analog_analytic.in_invoice, 4)
+
+        pivot_total = self.ProductAnalytic.read_group(
+            [
+                ('sale_contract_id', '=', contract.id),
+                ('product_id', 'in', (main_product | analog_product).ids),
+            ],
+            ['in_invoice:sum', 'qty_received:sum'],
+            [],
+        )[0]
+        self.assertEqual(pivot_total['in_invoice'], 4)
+        self.assertEqual(pivot_total['qty_received'], 5)
 
     def test_product_analytic_rolls_invoice_and_received_to_main_product(self):
         product_a = self._create_product('Rollup main A')
@@ -1058,10 +1424,26 @@ class TestProductAnalog(TransactionCase):
         main_analytic = self._create_sale_demand(product_a, contract, 10)
         analog_analytic = self._create_product_analytic(product_b, contract)
 
-        self._create_vendor_bill(product_b, contract, 4)
+        self._create_vendor_bill(
+            product_b,
+            contract,
+            4,
+            analog_original_product=product_a,
+        )
         self._create_vendor_bill(product_a, contract, 2)
-        self._create_vendor_bill(product_b, contract, 1, move_type='in_refund')
-        self._create_received_purchase(product_b, contract, 3)
+        self._create_vendor_bill(
+            product_b,
+            contract,
+            1,
+            move_type='in_refund',
+            analog_original_product=product_a,
+        )
+        self._create_received_purchase(
+            product_b,
+            contract,
+            3,
+            analog_original_product=product_a,
+        )
         self._create_received_purchase(product_a, contract, 2)
         self._recompute_analytic_rollups(main_analytic, analog_analytic)
 
@@ -1092,10 +1474,30 @@ class TestProductAnalog(TransactionCase):
         analytic_1 = self._create_sale_demand(product_a, contract_1, 8)
         analytic_2 = self._create_sale_demand(product_a, contract_2, 6)
 
-        self._create_vendor_bill(product_b, contract_1, 3)
-        self._create_vendor_bill(product_b, contract_2, 5)
-        self._create_received_purchase(product_b, contract_1, 2)
-        self._create_received_purchase(product_b, contract_2, 4)
+        self._create_vendor_bill(
+            product_b,
+            contract_1,
+            3,
+            analog_original_product=product_a,
+        )
+        self._create_vendor_bill(
+            product_b,
+            contract_2,
+            5,
+            analog_original_product=product_a,
+        )
+        self._create_received_purchase(
+            product_b,
+            contract_1,
+            2,
+            analog_original_product=product_a,
+        )
+        self._create_received_purchase(
+            product_b,
+            contract_2,
+            4,
+            analog_original_product=product_a,
+        )
         self._recompute_analytic_rollups(analytic_1, analytic_2)
 
         self.assertEqual(analytic_1.in_invoice, 3)
@@ -1112,7 +1514,12 @@ class TestProductAnalog(TransactionCase):
         main_analytic = self._create_sale_demand(product_a, contract, 10)
         old_analog_analytic = self._create_product_analytic(product_b, contract)
 
-        self._create_vendor_bill(product_b, contract, 4)
+        self._create_vendor_bill(
+            product_b,
+            contract,
+            4,
+            analog_original_product=product_a,
+        )
         self._recompute_analytic_rollups(main_analytic, old_analog_analytic)
         self.assertEqual(main_analytic.in_invoice, 4)
         self.assertEqual(old_analog_analytic.in_invoice, 0)
@@ -1127,21 +1534,37 @@ class TestProductAnalog(TransactionCase):
         analog_product = self._create_product('Historical invoice analog')
         contract = self._create_seller_contract('Historical invoice contract')
         self._create_analog_line(main_product, analog_product)
-        analog_analytic = self._create_product_analytic(
-            analog_product,
-            contract,
-        )
         bill = self._create_vendor_bill(
             analog_product,
             contract,
             7,
+            analog_original_product=main_product,
         )
         main_domain = [
             ('product_id', '=', main_product.id),
             ('sale_contract_id', '=', contract.id),
         ]
-        self.ProductAnalytic.search(main_domain).unlink()
-        self.assertFalse(self.ProductAnalytic.search(main_domain))
+        analog_domain = [
+            ('product_id', '=', analog_product.id),
+            ('sale_contract_id', '=', contract.id),
+        ]
+        main_analytic = self.ProductAnalytic.search(main_domain)
+        self.ProductAnalytic.search(analog_domain).unlink()
+        self.assertEqual(main_analytic.in_invoice, 7)
+        self.assertFalse(self.ProductAnalytic.search(analog_domain))
+
+        invoice_line = bill.invoice_line_ids
+        invoice_line.flush_recordset(['analog_original_product_id'])
+        self.env.cr.execute(
+            '''
+                UPDATE account_move_line
+                   SET analog_original_product_id = NULL
+                 WHERE id = %s
+            ''',
+            [invoice_line.id],
+        )
+        invoice_line.invalidate_recordset(['analog_original_product_id'])
+        self.assertFalse(invoice_line.analog_original_product_id)
 
         dry_run = (
             self.ProductAnalytic._backfill_analog_rollup_product_analytics(
@@ -1157,21 +1580,22 @@ class TestProductAnalog(TransactionCase):
         self.assertGreaterEqual(dry_run['would_recompute_count'], 2)
         self.assertEqual(dry_run['created_count'], 0)
         self.assertEqual(dry_run['recomputed_count'], 0)
-        self.assertFalse(self.ProductAnalytic.search(main_domain))
+        self.assertFalse(self.ProductAnalytic.search(analog_domain))
 
         first_result = (
             self.ProductAnalytic._backfill_analog_rollup_product_analytics(
                 batch_size=1,
             )
         )
-        main_analytic = self.ProductAnalytic.search(main_domain)
-        self.assertEqual(len(main_analytic), 1)
+        analog_analytic = self.ProductAnalytic.search(analog_domain)
+        self.assertEqual(len(analog_analytic), 1)
         self.assertGreaterEqual(first_result['created_count'], 1)
-        self.assertEqual(main_analytic.in_invoice, 7)
-        self.assertEqual(main_analytic.qty_received, 0)
-        self.assertIn(bill, main_analytic.account_move_ids)
-        self.assertEqual(analog_analytic.in_invoice, 0)
+        self.assertEqual(analog_analytic.in_invoice, 7)
         self.assertEqual(analog_analytic.qty_received, 0)
+        self.assertIn(bill, analog_analytic.account_move_ids)
+        self.assertEqual(main_analytic.in_invoice, 0)
+        self.assertEqual(main_analytic.qty_received, 0)
+        self.assertFalse(invoice_line.analog_original_product_id)
 
         pivot_total = self.ProductAnalytic.read_group(
             [
@@ -1190,7 +1614,7 @@ class TestProductAnalog(TransactionCase):
             )
         )
         self.assertEqual(second_result['created_count'], 0)
-        self.assertEqual(self.ProductAnalytic.search_count(main_domain), 1)
+        self.assertEqual(self.ProductAnalytic.search_count(analog_domain), 1)
 
     def test_backfill_received_purchase_without_invoice(self):
         main_product = self._create_product('Historical receipt main')
@@ -1224,6 +1648,10 @@ class TestProductAnalog(TransactionCase):
         self.assertEqual(main_analytic.qty_received, 9)
         self.assertEqual(analog_analytic.in_invoice, 0)
         self.assertEqual(analog_analytic.qty_received, 0)
+        self.assertEqual(
+            purchase.order_line.analog_original_product_id,
+            main_product,
+        )
 
         pivot_total = self.ProductAnalytic.read_group(
             [
