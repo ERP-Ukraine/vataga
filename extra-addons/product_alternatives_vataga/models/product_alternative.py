@@ -164,8 +164,12 @@ class ProductProduct(models.Model):
             return self.env['product.product']
         self.ensure_one()
         allowed_products = self._get_allowed_analog_rollup_target_products()
-        if selected_product and selected_product in allowed_products:
-            return selected_product
+        if selected_product:
+            return (
+                selected_product
+                if selected_product in allowed_products
+                else self.env['product.product']
+            )
         return self if allowed_products else self.env['product.product']
 
     def _get_default_analog_rollup_target_product(self):
@@ -1185,8 +1189,11 @@ class ProductAnalytic(models.Model):
         product,
         rollup_product,
         selected_original_product=False,
+        has_explicit_original_product=False,
         keep_legacy_ambiguous=False,
     ):
+        if has_explicit_original_product and not selected_original_product:
+            return False
         if selected_original_product:
             return selected_original_product == rollup_product
         if rollup_product._is_analog_rollup_child():
@@ -1202,11 +1209,16 @@ class ProductAnalytic(models.Model):
         return keep_legacy_ambiguous and rollup_product in original_products
 
     def _is_invoice_line_related_to_rollup_product(self, line, rollup_product):
+        explicitly_selected_product = (
+            line.analog_original_product_id
+            or line._get_purchase_line_analog_original_product()
+        )
         selected_original_product = line._get_analog_original_product_for_rollup()
         return self._is_product_related_to_rollup_product(
             line.product_id,
             rollup_product,
             selected_original_product=selected_original_product,
+            has_explicit_original_product=bool(explicitly_selected_product),
             keep_legacy_ambiguous=line.move_id.state == 'posted',
         )
 
@@ -1215,6 +1227,9 @@ class ProductAnalytic(models.Model):
             line.product_id,
             rollup_product,
             selected_original_product=line._get_analog_original_product_for_rollup(),
+            has_explicit_original_product=bool(
+                line.analog_original_product_id
+            ),
             keep_legacy_ambiguous=line.order_id.state in ('purchase', 'done'),
         )
 

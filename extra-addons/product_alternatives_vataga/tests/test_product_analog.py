@@ -1514,20 +1514,51 @@ class TestProductAnalog(TransactionCase):
         main_analytic = self._create_sale_demand(product_a, contract, 10)
         old_analog_analytic = self._create_product_analytic(product_b, contract)
 
-        self._create_vendor_bill(
+        bill = self._create_vendor_bill(
             product_b,
             contract,
             4,
             analog_original_product=product_a,
         )
+        purchase = self._create_received_purchase(
+            product_b,
+            contract,
+            3,
+            analog_original_product=product_a,
+        )
         self._recompute_analytic_rollups(main_analytic, old_analog_analytic)
         self.assertEqual(main_analytic.in_invoice, 4)
+        self.assertEqual(main_analytic.qty_received, 3)
         self.assertEqual(old_analog_analytic.in_invoice, 0)
+        self.assertEqual(old_analog_analytic.qty_received, 0)
 
         analog_line.write({'product_id': product_c.id})
 
+        self.assertEqual(
+            bill.invoice_line_ids.analog_original_product_id,
+            product_a,
+        )
+        self.assertEqual(
+            purchase.order_line.analog_original_product_id,
+            product_a,
+        )
+        self.assertFalse(
+            product_b._get_selected_analog_rollup_target_product(product_a)
+        )
         self.assertEqual(main_analytic.in_invoice, 0)
-        self.assertEqual(old_analog_analytic.in_invoice, 4)
+        self.assertEqual(main_analytic.qty_received, 0)
+        self.assertEqual(old_analog_analytic.in_invoice, 0)
+        self.assertEqual(old_analog_analytic.qty_received, 0)
+        pivot_total = self.ProductAnalytic.read_group(
+            [
+                ('sale_contract_id', '=', contract.id),
+                ('product_id', 'in', (product_a | product_b).ids),
+            ],
+            ['in_invoice:sum', 'qty_received:sum'],
+            [],
+        )[0]
+        self.assertEqual(pivot_total['in_invoice'], 0)
+        self.assertEqual(pivot_total['qty_received'], 0)
 
     def test_backfill_historical_invoice_creates_target_once(self):
         main_product = self._create_product('Historical invoice main')
