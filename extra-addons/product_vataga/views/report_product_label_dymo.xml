@@ -7,43 +7,76 @@
             inherit_id="product.report_simple_label_dymo"
             priority="99"
         >
+            <xpath
+                expr="//div[contains(@class, 'o_label_sheet') and contains(@class, 'o_label_dymo')]"
+                position="attributes"
+            >
+                <attribute name="t-att-style">
+                    'width:60mm; height:40mm; padding:0; margin:0 -4mm; box-sizing:border-box; overflow:hidden;'
+                </attribute>
+            </xpath>
+
             <xpath expr="//div[contains(@class, 'o_label_full')]" position="replace">
+                <style type="text/css">
+                    @font-face {
+                        font-family: 'VatagaRobotoCondensed';
+                        font-style: normal;
+                        font-weight: 700;
+                        src: url('/product_vataga/static/src/fonts/RobotoCondensed-Bold.ttf') format('truetype');
+                    }
+
+                    .o_vataga_product_label,
+                    .o_vataga_product_label div {
+                        box-sizing: border-box;
+                    }
+
+                    .o_vataga_product_label div {
+                        padding: 0 !important;
+                        margin: 0 !important;
+                    }
+                </style>
                 <div
-                    class="o_label_full"
-                    t-att-style="(table_style or '') + '; position: relative; overflow: hidden; box-sizing: border-box; background-color: #fff; padding: 4px 0 16px 1mm; height: 100%; min-height: 100%; width: 100%; border-radius: 0;'"
+                    class="o_label_full o_vataga_product_label"
+                    style="position: relative; width: 100%; height: 100%; min-height: 100%; overflow: hidden; box-sizing: border-box; background-color: #fff; padding: 0; margin: 0; border-radius: 0;"
                 >
                     <t t-if="barcode">
-                        <div style="text-align: center; margin: 0; padding: 0 0 0 2.2mm; overflow: hidden;">
+                        <div style="position: absolute; left: 2mm; top: 1.3mm; width: 56mm; height: 7mm; text-align: center; margin: 0; padding: 0; overflow: hidden;">
                             <div
                                 t-out="barcode"
                                 style="padding: 0; margin: 0;"
-                                t-options="{'widget': 'barcode', 'quiet': 0, 'symbology': 'auto', 'img_style': 'width:102%;height:35px;'}"
+                                t-options="{'widget': 'barcode', 'symbology': 'auto', 'img_style': 'width:56mm;height:7mm;'}"
                             />
                         </div>
 
-                        <div style="text-align: center; font-size: 8px; font-weight: 700; line-height: 1; margin: 0 0 5px 0; padding-left: 1.1mm;">
+                        <div style="position: absolute; left: 2mm; top: 8.7mm; width: 56mm; height: 3mm; text-align: center; font-size: 7pt; font-weight: 700; line-height: 7pt; margin: 0; padding: 0;">
                             <span t-out="barcode"/>
                         </div>
                     </t>
 
                     <t t-set="label_name" t-value="product.name or ''"/>
                     <t t-set="name_len" t-value="len(label_name)"/>
-                    <t t-set="name_font_size" t-value="'18px' if name_len &lt;= 12 else '16px' if name_len &lt;= 22 else '13px' if name_len &lt;= 45 else '10.2px' if name_len &lt;= 70 else '8.4px' if name_len &lt;= 110 else '7.4px'"/>
-                    <t t-set="name_line_height" t-value="'20px' if name_len &lt;= 12 else '18px' if name_len &lt;= 22 else '15px' if name_len &lt;= 45 else '12px' if name_len &lt;= 70 else '9.6px' if name_len &lt;= 110 else '8.6px'"/>
+                    <t t-set="name_font_size" t-value="'22pt' if name_len &lt;= 12 else '18pt' if name_len &lt;= 22 else '15pt' if name_len &lt;= 45 else '13pt' if name_len &lt;= 85 else '11pt' if name_len &lt;= 120 else '9pt'"/>
+                    <t t-set="name_line_height" t-value="'23pt' if name_len &lt;= 12 else '19pt' if name_len &lt;= 22 else '16pt' if name_len &lt;= 45 else '14pt' if name_len &lt;= 85 else '12pt' if name_len &lt;= 120 else '10pt'"/>
+                    <t t-set="name_top" t-value="'12.4mm' if barcode else '2mm'"/>
+                    <t t-set="name_height" t-value="'21mm' if barcode else '31.5mm'"/>
 
                     <div
-                        t-att-style="'height: 50px; max-height: 50px; overflow: hidden; text-align: center; font-size: ' + name_font_size + '; font-weight: 700; line-height: ' + name_line_height + '; margin: 0; padding: 0 5px; word-break: normal; overflow-wrap: break-word;'"
+                        t-att-style="'position: absolute; left: 1.5mm; right: 1.5mm; top: ' + name_top + '; height: ' + name_height + '; overflow: hidden; text-align: center; margin: 0; padding: 0; display: table; table-layout: fixed; width: 57mm;'"
                     >
-                        <span t-esc="label_name"/>
+                        <div
+                            t-att-style="'display: table-cell; vertical-align: middle; font-family: VatagaRobotoCondensed, sans-serif; font-size: ' + name_font_size + '; font-weight: 700; line-height: ' + name_line_height + '; white-space: normal; word-break: normal; word-wrap: break-word; overflow-wrap: break-word;'"
+                        >
+                            <span t-esc="label_name"/>
+                        </div>
                     </div>
 
-                    <div style="position: fixed; left: 3.1mm; top: 32.4mm; font-size: 11.4px; font-weight: 500; line-height: 14px; white-space: nowrap; z-index: 9999;">
+                    <div style="position: absolute; left: 2mm; bottom: 1.1mm; font-size: 8.5pt; font-weight: 500; line-height: 9pt; white-space: nowrap; z-index: 9999;">
                         <span t-esc="product.default_code or ''"/>
                     </div>
 
-                    <div style="position: fixed; right: 2.5mm; top: 32.4mm; font-size: 11.4px; font-weight: 700; line-height: 14px; white-space: nowrap; z-index: 9999;">
+                    <div style="position: absolute; right: 2mm; bottom: 1.1mm; font-family: Lato, sans-serif; font-size: 8.5pt; font-weight: 400; line-height: 9pt; white-space: nowrap; z-index: 9999;">
                         <span
-                            style="display: inline-block; width: 12mm; border-bottom: 2px solid #000; margin-right: 4px; vertical-align: middle; position: relative; top: 2px;"
+                            style="display: inline-block; width: 12mm; border-bottom: 1.5pt solid #000; margin-right: 1.5mm; vertical-align: middle; position: relative; top: 1.2pt;"
                         />
                         <span style="vertical-align: middle;">шт</span>
                     </div>
