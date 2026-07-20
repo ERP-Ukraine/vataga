@@ -64,7 +64,7 @@
                         t-att-style="'position: absolute; left: 1.5mm; right: 1.5mm; top: ' + name_top + '; height: ' + name_height + '; overflow: hidden; text-align: center; margin: 0; padding: 0; display: table; table-layout: fixed; width: 57mm;'"
                     >
                         <div
-                            t-att-style="'display: table-cell; vertical-align: middle; font-family: Lato, sans-serif; font-size: ' + name_font_size + '; font-weight: 400; line-height: ' + name_line_height + '; white-space: normal; word-break: normal; word-wrap: break-word; overflow-wrap: break-word;'"
+                            t-att-style="'display: table-cell; vertical-align: middle; font-family: VatagaRobotoCondensed, sans-serif; font-size: ' + name_font_size + '; font-weight: 700; line-height: ' + name_line_height + '; white-space: normal; word-break: normal; word-wrap: break-word; overflow-wrap: break-word;'"
                         >
                             <span t-esc="label_name"/>
                         </div>
