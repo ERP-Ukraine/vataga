@@ -9,8 +9,29 @@ DEFAULT_CODE_SEQUENCE_RE = re.compile(
 DEFAULT_CODE_MAX_SEQUENCE = 9999
 
 
+def _build_direct_dymo_label_action(records, product_field):
+    records = records.exists()
+    if not records:
+        return False
+
+    layout = records.env['product.label.layout'].with_context(
+        active_model=records._name,
+        active_ids=records.ids,
+    ).create(
+        {
+            'print_format': 'dymo',
+            'custom_quantity': 1,
+            product_field: [(6, 0, records.ids)],
+        }
+    )
+    return layout.process()
+
+
 class ProductTemplate(models.Model):
     _inherit = 'product.template'
+
+    def action_open_label_layout(self):
+        return _build_direct_dymo_label_action(self, 'product_tmpl_ids')
 
     @api.onchange('default_code')
     def _onchange_default_code(self):
@@ -55,3 +76,10 @@ class ProductTemplate(models.Model):
             return False
         prefix = '%s-%s' % (match.group(1), match.group(2))
         return prefix, int(match.group(3))
+
+
+class ProductProduct(models.Model):
+    _inherit = 'product.product'
+
+    def action_open_label_layout(self):
+        return _build_direct_dymo_label_action(self, 'product_ids')
