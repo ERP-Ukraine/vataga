@@ -1,6 +1,6 @@
 {
     'name': 'Product Analogs',
-    'version': '17.0.1.16',
+    'version': '17.0.1.15',
     'category': 'Inventory',
     'author': 'Vataga',
     'license': 'LGPL-3',
@@ -15,7 +15,6 @@
     ],
     'data': [
         'security/ir.model.access.csv',
-        'data/ir_cron_analog_rollup_diagnostic.xml',
         'views/product_template_views.xml',
         'views/product_list_views.xml',
         'views/product_analytic_views.xml',
