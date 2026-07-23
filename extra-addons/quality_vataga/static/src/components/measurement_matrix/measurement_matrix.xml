@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <templates xml:space="preserve">
     <t t-name="quality_vataga.QualityMeasurementMatrix">
-        <div class="o_quality_measurement_matrix">
+        <div class="o_quality_measurement_matrix w-100">
             <div t-if="state.loading" class="text-muted py-3">
                 Завантаження матриці…
             </div>
@@ -71,7 +71,7 @@
             </div>
             <div
                 t-elif="!state.loading"
-                class="table-responsive"
+                class="table-responsive w-100"
             >
                 <table class="table table-bordered align-middle">
                     <thead>

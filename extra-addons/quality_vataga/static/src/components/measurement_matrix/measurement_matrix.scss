@@ -1,5 +1,20 @@
+.o_quality_measurement_matrix_field,
+.o_quality_measurement_matrix_field.o_field_widget,
+.o_quality_measurement_matrix_field .o_field_widget {
+    display: block;
+    width: 100%;
+    max-width: none;
+}
+
 .o_quality_measurement_matrix {
+    width: 100%;
+    max-width: none;
     margin-top: 1rem;
+
+    > .alert {
+        width: 100%;
+        max-width: 100%;
+    }
 
     .o_quality_measurement_sample_controls {
         display: flex;
@@ -14,7 +29,14 @@
         flex: 0 0 7rem;
     }
 
+    .table-responsive {
+        display: block;
+        width: 100%;
+        max-width: 100%;
+    }
+
     table {
+        width: 100%;
         min-width: 900px;
         margin-bottom: 0;
     }

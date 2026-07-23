@@ -89,6 +89,7 @@
                         widget="quality_measurement_matrix"
                         nolabel="1"
                         readonly="1"
+                        class="w-100 o_quality_measurement_matrix_field"
                     />
                 </page>
             </xpath>
