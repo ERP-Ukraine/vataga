@@ -70,12 +70,27 @@ class QualityCheck(models.Model):
         return checks
 
     def write(self, vals):
+        if 'point_id' in vals:
+            new_point_id = vals.get('point_id') or False
+            protected_checks = self.filtered(
+                lambda check: (
+                    (check.point_id.id or False) != new_point_id
+                    and bool(
+                        check.measurement_column_ids
+                        or check.equipment_selection_ids
+                        or check.sample_ids
+                    )
+                ),
+            )
+            if protected_checks:
+                raise UserError(_(
+                    'Не можна змінити пункт контролю після формування '
+                    'матриці показників.',
+                ))
+
         result = super().write(vals)
         if 'point_id' in vals:
-            self.filtered(
-                lambda check:
-                    check.point_id and not check.measurement_column_ids
-            )._initialize_measurement_snapshot()
+            self._initialize_measurement_snapshot()
         return result
 
     def _initialize_measurement_snapshot(self):
