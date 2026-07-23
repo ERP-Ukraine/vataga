@@ -13,9 +13,12 @@ import { standardFieldProps } from "@web/views/fields/standard_field_props";
 export class QualityMeasurementMatrix extends Component {
     setup() {
         this.orm = useService("orm");
+        this.notification = useService("notification");
         this.state = useState({
             loading: true,
             saving: false,
+            sampleCount: 1,
+            addingSamples: false,
             data: {
                 columns: [],
                 samples: [],
@@ -51,6 +54,37 @@ export class QualityMeasurementMatrix extends Component {
             );
         } finally {
             this.state.loading = false;
+        }
+    }
+
+    onSampleCountInput(ev) {
+        this.state.sampleCount = ev.target.value;
+    }
+
+    async addSamples() {
+        if (!this.checkId || this.state.addingSamples) {
+            return;
+        }
+        const count = Number(this.state.sampleCount);
+        if (!Number.isInteger(count) || count < 1) {
+            this.notification.add(
+                "Кількість нових зразків повинна бути цілим числом " +
+                    "більшим за нуль.",
+                { type: "warning" }
+            );
+            return;
+        }
+
+        this.state.addingSamples = true;
+        try {
+            this.state.data = await this.orm.call(
+                "quality.check",
+                "add_measurement_samples",
+                [[this.checkId], count]
+            );
+            this.state.sampleCount = 1;
+        } finally {
+            this.state.addingSamples = false;
         }
     }
 

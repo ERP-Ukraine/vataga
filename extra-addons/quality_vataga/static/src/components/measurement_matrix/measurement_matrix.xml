@@ -6,6 +6,42 @@
                 Завантаження матриці…
             </div>
             <div
+                t-if="!state.loading and checkId and state.data.editable"
+                class="o_quality_measurement_sample_controls"
+            >
+                <label
+                    for="quality_vataga_sample_count"
+                    class="form-label mb-0"
+                >
+                    Кількість нових зразків
+                </label>
+                <input
+                    id="quality_vataga_sample_count"
+                    type="number"
+                    min="1"
+                    step="1"
+                    inputmode="numeric"
+                    class="form-control o_quality_measurement_sample_count"
+                    t-att-value="state.sampleCount"
+                    t-att-disabled="state.addingSamples or state.saving"
+                    t-on-input="onSampleCountInput"
+                />
+                <button
+                    type="button"
+                    class="btn btn-primary"
+                    t-att-disabled="state.addingSamples or state.saving"
+                    t-on-click="addSamples"
+                >
+                    <i
+                        t-att-class="state.addingSamples
+                            ? 'fa fa-spinner fa-spin me-1'
+                            : 'fa fa-plus me-1'"
+                    />
+                    <t t-if="state.addingSamples">Додавання…</t>
+                    <t t-else="">Додати зразки</t>
+                </button>
+            </div>
+            <div
                 t-if="!state.loading and checkId and state.data.has_failure"
                 class="alert alert-danger"
                 role="alert"

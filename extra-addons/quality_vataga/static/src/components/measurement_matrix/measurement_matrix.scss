@@ -1,6 +1,19 @@
 .o_quality_measurement_matrix {
     margin-top: 1rem;
 
+    .o_quality_measurement_sample_controls {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+    }
+
+    .o_quality_measurement_sample_count {
+        width: 7rem;
+        flex: 0 0 7rem;
+    }
+
     table {
         min-width: 900px;
         margin-bottom: 0;

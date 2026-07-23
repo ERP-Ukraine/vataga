@@ -4,6 +4,7 @@
         <field name="name">quality.check.form.measurement.matrix</field>
         <field name="model">quality.check</field>
         <field name="inherit_id" ref="quality_control.quality_check_view_form"/>
+        <field name="priority" eval="99"/>
         <field name="arch" type="xml">
             <xpath expr="//header" position="inside">
                 <button
@@ -22,12 +23,10 @@
                 />
             </xpath>
 
-            <xpath expr="//sheet/notebook" position="inside">
-                <page
-                    string="Показники"
-                    name="quality_vataga_measurements"
-                    invisible="not measurement_column_ids"
-                >
+            <xpath
+                expr="//sheet/notebook/page[@name='notes']/following-sibling::page[1]"
+                position="inside"
+            >
                     <field name="measurement_column_ids" invisible="1"/>
                     <field name="sample_ids" invisible="1"/>
                     <field name="measurement_matrix_complete" invisible="1"/>
@@ -83,32 +82,12 @@
                         </field>
                     </group>
 
-                    <div class="alert alert-info" role="alert"
-                         invisible="sample_ids">
-                        Автоматичне джерело обсягу вибірки не знайдено.
-                        Вкажіть кількість і додайте зразки вручну.
-                    </div>
-                    <group col="4">
-                        <field
-                            name="sample_count_to_add"
-                            readonly="quality_state != 'none'"
-                        />
-                        <button
-                            name="action_add_measurement_samples"
-                            type="object"
-                            string="Додати зразки"
-                            class="btn-primary"
-                            invisible="quality_state != 'none'"
-                        />
-                    </group>
-
                     <field
                         name="measurement_matrix_data"
                         widget="quality_measurement_matrix"
                         nolabel="1"
                         readonly="1"
                     />
-                </page>
             </xpath>
         </field>
     </record>

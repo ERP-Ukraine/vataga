@@ -245,21 +245,29 @@ class QualityCheck(models.Model):
     )
     def _compute_measurement_matrix_data(self):
         for check in self:
+            persisted_check_id = check._origin.id or False
             check.measurement_matrix_data = {
-                'quality_check_id': check.id,
+                'quality_check_id': persisted_check_id,
             }
 
-    def action_add_measurement_samples(self):
+    def _add_measurement_samples(self, count):
         self.ensure_one()
         self._ensure_measurement_editable()
         if not self.measurement_column_ids:
             raise UserError(_(
                 'Для цієї перевірки немає налаштованих колонок показників.',
             ))
-        if self.sample_count_to_add < 1:
+        if (
+            isinstance(count, bool)
+            or not isinstance(count, (int, float))
+            or not float(count).is_integer()
+            or count < 1
+        ):
             raise ValidationError(_(
-                'Кількість нових зразків повинна бути більшою за нуль.',
+                'Кількість нових зразків повинна бути цілим числом '
+                'більшим за нуль.',
             ))
+        count = int(count)
 
         # The row lock keeps sample numbering stable when two inspectors add
         # samples to the same check at the same time.
@@ -283,9 +291,18 @@ class QualityCheck(models.Model):
             }
             for sample_number in range(
                 first_number,
-                first_number + self.sample_count_to_add,
+                first_number + count,
             )
         ])
+
+    def add_measurement_samples(self, count):
+        self.ensure_one()
+        self._add_measurement_samples(count)
+        return self.get_measurement_matrix_data()
+
+    def action_add_measurement_samples(self):
+        self.ensure_one()
+        self._add_measurement_samples(self.sample_count_to_add)
         self.sample_count_to_add = 1
         return {'type': 'ir.actions.client', 'tag': 'reload'}
 

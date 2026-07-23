@@ -112,9 +112,16 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
         })
 
     def _add_sample(self, check):
-        check.sample_count_to_add = 1
-        check.action_add_measurement_samples()
+        check.add_measurement_samples(1)
         return check.sample_ids
+
+    def test_new_check_matrix_data_uses_false_id(self):
+        new_check = self.env['quality.check'].new({})
+
+        self.assertEqual(
+            new_check.measurement_matrix_data,
+            {'quality_check_id': False},
+        )
 
     def test_check_creation_takes_immutable_snapshot(self):
         check = self._create_check()
@@ -141,14 +148,25 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
 
     def test_add_samples_creates_one_cell_per_column(self):
         check = self._create_check()
-        check.sample_count_to_add = 2
-        check.action_add_measurement_samples()
+        matrix_data = check.add_measurement_samples(2)
 
         self.assertEqual(check.sample_ids.mapped('sample_number'), [1, 2])
         self.assertEqual(
             len(check.sample_ids.measurement_value_ids),
             6,
         )
+        self.assertEqual(len(matrix_data['samples']), 2)
+
+    def test_add_samples_rejects_invalid_count(self):
+        check = self._create_check()
+
+        for invalid_count in (1.5, 'abc', 0, -1, True):
+            with self.subTest(count=invalid_count), self.assertRaises(
+                ValidationError,
+            ):
+                check.add_measurement_samples(invalid_count)
+
+        self.assertFalse(check.sample_ids)
 
     def test_complete_passing_matrix_allows_pass(self):
         check = self._create_check()
@@ -239,13 +257,43 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
             'Цифровий мультиметр',
         )
         self.assertEqual(
-            selection.equipment_serial_snapshot,
+            selection.equipment_number_snapshot,
             'DMM-0002',
+        )
+        self.assertEqual(
+            selection.equipment_number_label_snapshot,
+            'Серійний номер',
         )
         self.assertEqual(
             selection.equipment_display_snapshot,
             '[DMM-0002] Цифровий мультиметр',
         )
+
+    def test_serial_number_is_not_labeled_as_inventory_number(self):
+        parameter = self.env['ir.config_parameter'].sudo()
+        key = 'quality_vataga.equipment_inventory_field'
+        original_value = parameter.get_param(key)
+        try:
+            parameter.set_param(key, 'serial_no')
+            self.assertEqual(
+                self.equipment._quality_vataga_get_equipment_number(),
+                ('DMM-0002', 'Серійний номер'),
+            )
+        finally:
+            parameter.set_param(key, original_value or False)
+
+    def test_relation_cannot_be_used_as_equipment_number(self):
+        parameter = self.env['ir.config_parameter'].sudo()
+        key = 'quality_vataga.equipment_inventory_field'
+        original_value = parameter.get_param(key)
+        try:
+            parameter.set_param(key, 'category_id')
+            self.assertEqual(
+                self.equipment._quality_vataga_get_equipment_number(),
+                ('DMM-0002', 'Серійний номер'),
+            )
+        finally:
+            parameter.set_param(key, original_value or False)
 
     def test_duplicate_samples_and_cells_are_rejected(self):
         check = self._create_check()
