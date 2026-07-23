@@ -23,10 +23,12 @@
                 />
             </xpath>
 
-            <xpath
-                expr="//sheet/notebook/page[@name='notes']/following-sibling::page[1]"
-                position="inside"
-            >
+            <xpath expr="//sheet/notebook" position="inside">
+                <page
+                    string="Показники"
+                    name="quality_vataga_measurements"
+                    invisible="not measurement_column_ids"
+                >
                     <field name="measurement_column_ids" invisible="1"/>
                     <field name="sample_ids" invisible="1"/>
                     <field name="measurement_matrix_complete" invisible="1"/>
@@ -88,6 +90,7 @@
                         nolabel="1"
                         readonly="1"
                     />
+                </page>
             </xpath>
         </field>
     </record>
