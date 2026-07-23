@@ -37,8 +37,20 @@ class QualityCheckEquipmentSelection(models.Model):
         readonly=True,
         copy=False,
     )
+    equipment_serial_snapshot = fields.Char(
+        string='Серійний номер (snapshot)',
+        readonly=True,
+        copy=False,
+    )
     equipment_inventory_snapshot = fields.Char(
-        string='Інвентарний номер (snapshot)',
+        string='Номер обладнання (legacy snapshot)',
+        readonly=True,
+        copy=False,
+    )
+    equipment_display_snapshot = fields.Char(
+        string='Обладнання (snapshot)',
+        compute='_compute_equipment_display_snapshot',
+        store=True,
         readonly=True,
         copy=False,
     )
@@ -93,12 +105,40 @@ class QualityCheckEquipmentSelection(models.Model):
                 quality_vataga_equipment_snapshot=True,
             ).write({
                 'equipment_name_snapshot': selection.equipment_id.name,
-                'equipment_inventory_snapshot':
+                'equipment_serial_snapshot':
                     selection.equipment_id.serial_no or False,
             })
 
+    @api.depends(
+        'equipment_name_snapshot',
+        'equipment_serial_snapshot',
+        'equipment_inventory_snapshot',
+    )
+    def _compute_equipment_display_snapshot(self):
+        for selection in self:
+            number = (
+                selection.equipment_serial_snapshot
+                or selection.equipment_inventory_snapshot
+            )
+            name = selection.equipment_name_snapshot or ''
+            selection.equipment_display_snapshot = (
+                f'[{number}] {name}'
+                if number and name
+                else name
+            )
+
     def write(self, vals):
         if self.env.context.get('quality_vataga_equipment_snapshot'):
+            allowed_snapshot_fields = {
+                'equipment_name_snapshot',
+                'equipment_serial_snapshot',
+                'equipment_inventory_snapshot',
+            }
+            if set(vals) - allowed_snapshot_fields:
+                raise UserError(_(
+                    'Внутрішній snapshot може змінювати лише підпис '
+                    'обладнання.',
+                ))
             return super().write(vals)
         if set(vals) - {'equipment_id'}:
             raise UserError(_(

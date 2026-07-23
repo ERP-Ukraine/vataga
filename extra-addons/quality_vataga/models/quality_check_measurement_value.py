@@ -85,6 +85,17 @@ class QualityCheckMeasurementValue(models.Model):
         ),
     ]
 
+    @api.model_create_multi
+    def create(self, vals_list):
+        if not self.env.context.get(
+            'quality_vataga_matrix_initialization',
+        ):
+            raise UserError(_(
+                'Комірки матриці формуються системою та не можуть '
+                'створюватися вручну.',
+            ))
+        return super().create(vals_list)
+
     @api.depends(
         'parameter_type',
         'has_numeric_value',
@@ -217,6 +228,22 @@ class QualityCheckMeasurementValue(models.Model):
             'string_value',
             'manual_result',
         }
+        structural_fields = {
+            'quality_check_id',
+            'sample_id',
+            'column_id',
+            'parameter_type',
+        }
+        if structural_fields & set(vals):
+            raise UserError(_(
+                'Не можна змінювати перевірку, зразок, колонку або тип '
+                'параметра існуючої комірки.',
+            ))
+        if set(vals) - input_fields:
+            raise UserError(_(
+                'У комірці можна змінювати лише фактичне значення та '
+                'ручний результат.',
+            ))
         if (
             input_fields & set(vals)
             and any(
@@ -230,11 +257,7 @@ class QualityCheckMeasurementValue(models.Model):
         return super().write(vals)
 
     def unlink(self):
-        if any(
-            value.quality_check_id.quality_state != 'none'
-            for value in self
-        ):
-            raise UserError(_(
-                'Не можна видаляти показники завершеної перевірки.',
-            ))
-        return super().unlink()
+        raise UserError(_(
+            'Комірки матриці формуються системою та не можуть видалятися '
+            'вручну.',
+        ))

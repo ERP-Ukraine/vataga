@@ -103,13 +103,17 @@ export class QualityMeasurementMatrix extends Component {
                 method,
                 [[this.checkId], ...args]
             );
-            Object.assign(this.props.record.data, {
+            const formState = {
                 can_pass_measurement_check: this.state.data.can_pass,
                 measurement_matrix_complete: this.state.data.is_complete,
                 measurement_matrix_has_failure: this.state.data.has_failure,
-            });
-            if (this.props.record.model?.notify) {
-                this.props.record.model.notify();
+                equipment_selection_complete:
+                    this.state.data.equipment_complete,
+            };
+            if (await this.props.record.isDirty()) {
+                await this.props.record.update(formState);
+            } else {
+                await this.props.record.load();
             }
         } finally {
             this.state.saving = false;

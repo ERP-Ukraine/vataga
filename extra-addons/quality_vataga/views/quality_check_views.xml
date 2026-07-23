@@ -5,6 +5,23 @@
         <field name="model">quality.check</field>
         <field name="inherit_id" ref="quality.quality_check_view_form"/>
         <field name="arch" type="xml">
+            <xpath expr="//header" position="inside">
+                <button
+                    name="action_initialize_measurement_matrix"
+                    type="object"
+                    string="Ініціалізувати матрицю"
+                    class="btn-secondary"
+                    invisible="not can_initialize_measurement_matrix"
+                />
+            </xpath>
+
+            <xpath expr="//sheet" position="inside">
+                <field
+                    name="can_initialize_measurement_matrix"
+                    invisible="1"
+                />
+            </xpath>
+
             <xpath expr="//sheet/notebook" position="inside">
                 <page
                     string="Показники"
@@ -54,6 +71,12 @@
                                     domain="[('category_id', '=', equipment_category_id)]"
                                     context="{'quality_vataga_equipment_selection': True}"
                                     options="{'no_create': True, 'no_create_edit': True}"
+                                    column_invisible="parent.quality_state != 'none'"
+                                />
+                                <field
+                                    name="equipment_display_snapshot"
+                                    readonly="1"
+                                    column_invisible="parent.quality_state == 'none'"
                                 />
                             </tree>
                         </field>
@@ -102,14 +125,6 @@
                         readonly="1"
                     />
                 </page>
-            </xpath>
-
-            <xpath expr="//button[@name='do_pass']" position="attributes">
-                <attribute
-                    name="invisible"
-                    add="measurement_column_ids and not can_pass_measurement_check"
-                    separator=" or "
-                />
             </xpath>
         </field>
     </record>

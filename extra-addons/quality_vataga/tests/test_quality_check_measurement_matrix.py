@@ -239,22 +239,30 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
             'Цифровий мультиметр',
         )
         self.assertEqual(
-            selection.equipment_inventory_snapshot,
+            selection.equipment_serial_snapshot,
             'DMM-0002',
+        )
+        self.assertEqual(
+            selection.equipment_display_snapshot,
+            '[DMM-0002] Цифровий мультиметр',
         )
 
     def test_duplicate_samples_and_cells_are_rejected(self):
         check = self._create_check()
         sample = self._add_sample(check)
         with self.cr.savepoint(), self.assertRaises(IntegrityError):
-            self.env['quality.check.sample'].create({
+            self.env['quality.check.sample'].with_context(
+                quality_vataga_sample_initialization=True,
+            ).create({
                 'quality_check_id': check.id,
                 'sample_number': sample.sample_number,
             })
 
         value = sample.measurement_value_ids[0]
         with self.cr.savepoint(), self.assertRaises(IntegrityError):
-            self.env['quality.check.measurement.value'].create({
+            self.env['quality.check.measurement.value'].with_context(
+                quality_vataga_matrix_initialization=True,
+            ).create({
                 'quality_check_id': check.id,
                 'sample_id': sample.id,
                 'column_id': value.column_id.id,

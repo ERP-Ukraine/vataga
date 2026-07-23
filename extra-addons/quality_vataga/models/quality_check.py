@@ -54,6 +54,10 @@ class QualityCheck(models.Model):
         compute='_compute_measurement_matrix_state',
         store=True,
     )
+    can_initialize_measurement_matrix = fields.Boolean(
+        string='Матрицю можна ініціалізувати',
+        compute='_compute_can_initialize_measurement_matrix',
+    )
     measurement_matrix_data = fields.Json(
         string='Матриця показників',
         compute='_compute_measurement_matrix_data',
@@ -78,7 +82,12 @@ class QualityCheck(models.Model):
         column_model = self.env['quality.check.measurement.column']
         selection_model = self.env['quality.check.equipment.selection']
         for check in self:
-            if not check.point_id or check.measurement_column_ids:
+            if (
+                not check.point_id
+                or check.measurement_column_ids
+                or check.equipment_selection_ids
+                or check.sample_ids
+            ):
                 continue
             source_lines = check.point_id.control_parameter_line_ids.sorted(
                 key=lambda line: (line.sequence, line.id),
@@ -139,6 +148,25 @@ class QualityCheck(models.Model):
             )
             column_model.with_context(**snapshot_context).create(
                 column_values,
+            )
+
+    @api.depends(
+        'quality_state',
+        'point_id',
+        'point_id.control_parameter_line_ids',
+        'measurement_column_ids',
+        'equipment_selection_ids',
+        'sample_ids',
+    )
+    def _compute_can_initialize_measurement_matrix(self):
+        for check in self:
+            check.can_initialize_measurement_matrix = bool(
+                check.quality_state == 'none'
+                and check.point_id
+                and check.point_id.control_parameter_line_ids
+                and not check.measurement_column_ids
+                and not check.equipment_selection_ids
+                and not check.sample_ids
             )
 
     @api.depends(
@@ -231,7 +259,9 @@ class QualityCheck(models.Model):
             limit=1,
         )
         first_number = (last_sample.sample_number or 0) + 1
-        self.env['quality.check.sample'].create([
+        self.env['quality.check.sample'].with_context(
+            quality_vataga_sample_initialization=True,
+        ).create([
             {
                 'quality_check_id': self.id,
                 'sample_number': sample_number,
@@ -243,6 +273,29 @@ class QualityCheck(models.Model):
             )
         ])
         self.sample_count_to_add = 1
+        return {'type': 'ir.actions.client', 'tag': 'reload'}
+
+    def action_initialize_measurement_matrix(self):
+        self.ensure_one()
+        if self.quality_state != 'none':
+            raise UserError(_(
+                'Матрицю можна ініціалізувати лише для незавершеної '
+                'перевірки.',
+            ))
+        if not self.point_id or not self.point_id.control_parameter_line_ids:
+            raise UserError(_(
+                'У пункті контролю немає налаштувань для матриці.',
+            ))
+        if (
+            self.measurement_column_ids
+            or self.equipment_selection_ids
+            or self.sample_ids
+        ):
+            raise UserError(_(
+                'Матриця вже ініціалізована або має частково створену '
+                'структуру. Автоматичне перегенерування заборонено.',
+            ))
+        self._initialize_measurement_snapshot()
         return {'type': 'ir.actions.client', 'tag': 'reload'}
 
     def get_measurement_matrix_data(self):
@@ -306,6 +359,7 @@ class QualityCheck(models.Model):
             'can_pass': self.can_pass_measurement_check,
             'has_failure': self.measurement_matrix_has_failure,
             'is_complete': self.measurement_matrix_complete,
+            'equipment_complete': self.equipment_selection_complete,
         }
 
     def update_measurement_visual_result(self, sample_id, visual_result):
@@ -411,6 +465,7 @@ class QualityCheck(models.Model):
                 raise ValidationError(_(
                     'Додайте щонайменше один зразок для перевірки.',
                 ))
+            check._validate_measurement_sample_structure()
             if check.measurement_matrix_has_failure:
                 raise ValidationError(_(
                     'Перевірка містить значення поза допустимими межами або '
@@ -422,6 +477,30 @@ class QualityCheck(models.Model):
                     'Заповніть візуальний контроль і всі комірки матриці '
                     'показників.',
                 ))
+
+    def _validate_measurement_sample_structure(self):
+        for check in self:
+            expected_column_ids = set(check.measurement_column_ids.ids)
+            for sample in check.sample_ids:
+                values = sample.measurement_value_ids
+                actual_column_ids = values.mapped('column_id').ids
+                structure_complete = bool(
+                    expected_column_ids
+                    and len(values) == len(expected_column_ids)
+                    and set(actual_column_ids) == expected_column_ids
+                    and all(
+                        value.quality_check_id == check
+                        and value.sample_id == sample
+                        and value.column_id.quality_check_id == check
+                        for value in values
+                    )
+                )
+                if not structure_complete:
+                    raise ValidationError(_(
+                        'Матриця зразка №%(number)s має неповний набір '
+                        'комірок. Оновіть або відновіть структуру матриці.',
+                        number=sample.sample_number,
+                    ))
 
     def _snapshot_selected_equipment(self):
         self.mapped(

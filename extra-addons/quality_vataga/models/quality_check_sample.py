@@ -65,23 +65,43 @@ class QualityCheckSample(models.Model):
 
     @api.depends(
         'visual_result',
+        'quality_check_id.measurement_column_ids',
         'measurement_value_ids',
+        'measurement_value_ids.column_id',
+        'measurement_value_ids.quality_check_id',
         'measurement_value_ids.result',
         'measurement_value_ids.is_filled',
     )
     def _compute_sample_state(self):
         for sample in self:
             values = sample.measurement_value_ids
+            expected_column_ids = set(
+                sample.quality_check_id.measurement_column_ids.ids,
+            )
+            actual_column_ids = values.mapped('column_id').ids
+            structure_complete = bool(
+                expected_column_ids
+                and len(values) == len(expected_column_ids)
+                and set(actual_column_ids) == expected_column_ids
+                and all(
+                    value.quality_check_id == sample.quality_check_id
+                    and value.column_id.quality_check_id
+                    == sample.quality_check_id
+                    for value in values
+                )
+            )
             sample.has_failure = (
                 sample.visual_result == 'no'
                 or any(value.result == 'fail' for value in values)
             )
             sample.is_complete = bool(
                 sample.visual_result
-                and values
+                and structure_complete
                 and all(value.is_filled for value in values)
             )
-            if sample.has_failure:
+            if not structure_complete:
+                sample.sample_result = 'pending'
+            elif sample.has_failure:
                 sample.sample_result = 'fail'
             elif not sample.is_complete:
                 sample.sample_result = 'pending'
@@ -99,6 +119,12 @@ class QualityCheckSample(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        if not self.env.context.get(
+            'quality_vataga_sample_initialization',
+        ):
+            raise UserError(_(
+                'Зразки матриці створюються лише дією «Додати зразки».',
+            ))
         check_ids = {
             vals.get('quality_check_id')
             for vals in vals_list
@@ -120,18 +146,22 @@ class QualityCheckSample(models.Model):
                 'column_id': column.id,
             } for column in sample.quality_check_id.measurement_column_ids)
         if values_to_create:
-            self.env['quality.check.measurement.value'].create(
-                values_to_create,
-            )
+            self.env[
+                'quality.check.measurement.value'
+            ].with_context(
+                quality_vataga_matrix_initialization=True,
+            ).create(values_to_create)
         return samples
 
     def write(self, vals):
-        if (
-            {'visual_result', 'sample_number', 'sequence'} & set(vals)
-            and any(
-                sample.quality_check_id.quality_state != 'none'
-                for sample in self
-            )
+        if set(vals) - {'visual_result'}:
+            raise UserError(_(
+                'У зразку можна змінювати лише результат візуального '
+                'контролю.',
+            ))
+        if any(
+            sample.quality_check_id.quality_state != 'none'
+            for sample in self
         ):
             raise UserError(_(
                 'Не можна змінювати зразки завершеної перевірки.',
@@ -139,11 +169,37 @@ class QualityCheckSample(models.Model):
         return super().write(vals)
 
     def unlink(self):
-        if any(
-            sample.quality_check_id.quality_state != 'none'
-            for sample in self
-        ):
+        if len(self) != 1:
+            raise UserError(_(
+                'Можна видалити лише один останній порожній зразок.',
+            ))
+        if self.quality_check_id.quality_state != 'none':
             raise UserError(_(
                 'Не можна видаляти зразки завершеної перевірки.',
+            ))
+        has_entered_results = bool(
+            self.visual_result
+            or any(
+                value.has_numeric_value
+                or value.boolean_value
+                or value.string_value
+                or value.manual_result
+                for value in self.measurement_value_ids
+            )
+        )
+        if has_entered_results:
+            raise UserError(_(
+                'Не можна видалити зразок №%(number)s, оскільки в ньому '
+                'вже є введені результати.',
+                number=self.sample_number,
+            ))
+        last_sample = self.env['quality.check.sample'].search(
+            [('quality_check_id', '=', self.quality_check_id.id)],
+            order='sample_number desc, id desc',
+            limit=1,
+        )
+        if self != last_sample:
+            raise UserError(_(
+                'Можна видалити лише останній порожній зразок перевірки.',
             ))
         return super().unlink()
