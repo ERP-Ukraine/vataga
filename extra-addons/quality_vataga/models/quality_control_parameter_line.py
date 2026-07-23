@@ -42,6 +42,10 @@ class QualityControlParameterLine(models.Model):
         required=True,
         domain="[('id', 'in', available_parameter_ids)]",
     )
+    parameter_type = fields.Selection(
+        related='parameter_id.parameter_type',
+        string='Тип параметра',
+    )
     has_min_tolerance = fields.Boolean(string='Мін. допуск задано')
     min_tolerance = fields.Float(string='Мінімальний допуск (технічний)')
     min_tolerance_input = fields.Char(
@@ -117,7 +121,7 @@ class QualityControlParameterLine(models.Model):
         for line in self:
             has_tolerance, tolerance = self._parse_tolerance_input(
                 line.min_tolerance_input,
-                _('мінімального допуску'),
+                _('Мінімальний допуск'),
             )
             line.write({
                 'has_min_tolerance': has_tolerance,
@@ -128,7 +132,7 @@ class QualityControlParameterLine(models.Model):
         for line in self:
             has_tolerance, tolerance = self._parse_tolerance_input(
                 line.max_tolerance_input,
-                _('максимального допуску'),
+                _('Максимальний допуск'),
             )
             line.write({
                 'has_max_tolerance': has_tolerance,
@@ -155,13 +159,12 @@ class QualityControlParameterLine(models.Model):
             parsed_value = float(normalized_value)
         except (TypeError, ValueError) as error:
             raise ValidationError(_(
-                'Значення %(field)s «%(value)s» не є коректним числом.',
+                '%(field)s повинен бути числом.',
                 field=field_label,
-                value=value,
             )) from error
         if not math.isfinite(parsed_value):
             raise ValidationError(_(
-                'Значення %(field)s повинно бути скінченним числом.',
+                '%(field)s повинен бути скінченним числом.',
                 field=field_label,
             ))
         return True, parsed_value

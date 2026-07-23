@@ -116,7 +116,10 @@ class TestQualityControlParameterLine(TransactionCase):
         self.assertEqual(line.min_tolerance, 1.25)
 
     def test_tolerance_input_rejects_invalid_number(self):
-        with self.assertRaises(ValidationError):
+        with self.assertRaisesRegex(
+            ValidationError,
+            'Мінімальний допуск повинен бути числом',
+        ):
             self.env['quality.control.parameter.line'].create(
                 self._line_values(min_tolerance_input='не число'),
             )
@@ -183,6 +186,7 @@ class TestQualityControlParameterLine(TransactionCase):
         line.parameter_id = self.boolean_parameter
         line._onchange_parameter_id()
 
+        self.assertEqual(line.parameter_type, 'boolean')
         self.assertFalse(line.has_min_tolerance)
         self.assertFalse(line.has_max_tolerance)
         self.assertEqual(line.min_tolerance, 0.0)

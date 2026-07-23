@@ -23,10 +23,17 @@
                             />
                             <field name="has_min_tolerance" column_invisible="True"/>
                             <field name="min_tolerance" column_invisible="True"/>
-                            <field name="min_tolerance_input"/>
+                            <field name="parameter_type" column_invisible="True"/>
+                            <field
+                                name="min_tolerance_input"
+                                readonly="parameter_type != 'numeric'"
+                            />
                             <field name="has_max_tolerance" column_invisible="True"/>
                             <field name="max_tolerance" column_invisible="True"/>
-                            <field name="max_tolerance_input"/>
+                            <field
+                                name="max_tolerance_input"
+                                readonly="parameter_type != 'numeric'"
+                            />
                             <field name="text_norm"/>
                         </tree>
                     </field>
