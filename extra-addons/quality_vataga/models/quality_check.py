@@ -82,6 +82,8 @@ class QualityCheck(models.Model):
         column_model = self.env['quality.check.measurement.column']
         selection_model = self.env['quality.check.equipment.selection']
         for check in self:
+            check.check_access_rights('write')
+            check.check_access_rule('write')
             if (
                 not check.point_id
                 or check.measurement_column_ids
@@ -143,10 +145,10 @@ class QualityCheck(models.Model):
             snapshot_context = {
                 'quality_vataga_snapshot_initialization': True,
             }
-            selection_model.with_context(**snapshot_context).create(
+            selection_model.sudo().with_context(**snapshot_context).create(
                 list(category_values.values()),
             )
-            column_model.with_context(**snapshot_context).create(
+            column_model.sudo().with_context(**snapshot_context).create(
                 column_values,
             )
 
@@ -234,13 +236,10 @@ class QualityCheck(models.Model):
 
     def action_add_measurement_samples(self):
         self.ensure_one()
+        self._ensure_measurement_editable()
         if not self.measurement_column_ids:
             raise UserError(_(
                 'Для цієї перевірки немає налаштованих колонок показників.',
-            ))
-        if self.quality_state != 'none':
-            raise UserError(_(
-                'Не можна додавати зразки до вже завершеної перевірки.',
             ))
         if self.sample_count_to_add < 1:
             raise ValidationError(_(
@@ -259,7 +258,7 @@ class QualityCheck(models.Model):
             limit=1,
         )
         first_number = (last_sample.sample_number or 0) + 1
-        self.env['quality.check.sample'].with_context(
+        self.env['quality.check.sample'].sudo().with_context(
             quality_vataga_sample_initialization=True,
         ).create([
             {
@@ -372,7 +371,7 @@ class QualityCheck(models.Model):
             raise ValidationError(_(
                 'Візуальний контроль повинен мати значення «Так» або «Ні».',
             ))
-        sample.write({'visual_result': visual_result or False})
+        sample.sudo().write({'visual_result': visual_result or False})
         return self.get_measurement_matrix_data()
 
     def update_measurement_value(self, value_id, payload):
@@ -423,7 +422,7 @@ class QualityCheck(models.Model):
                 'string_value': payload.get('string_value') or False,
                 'manual_result': manual_result,
             }
-        value.write(values)
+        value.sudo().write(values)
         return self.get_measurement_matrix_data()
 
     def _ensure_measurement_editable(self):
@@ -503,9 +502,10 @@ class QualityCheck(models.Model):
                     ))
 
     def _snapshot_selected_equipment(self):
-        self.mapped(
-            'equipment_selection_ids',
-        )._snapshot_selected_equipment()
+        for check in self:
+            check.check_access_rights('write')
+            check.check_access_rule('write')
+            check.equipment_selection_ids._snapshot_selected_equipment()
 
     def do_pass(self):
         self._validate_measurement_can_pass()

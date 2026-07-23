@@ -24,8 +24,29 @@ class MaintenanceEquipment(models.Model):
         if not self.env.context.get('quality_vataga_equipment_selection'):
             return super()._compute_display_name()
         for equipment in self:
+            number, _number_label = (
+                equipment._quality_vataga_get_equipment_number()
+            )
             equipment.display_name = (
-                f'[{equipment.serial_no}] {equipment.name}'
-                if equipment.serial_no
+                f'[{number}] {equipment.name}'
+                if number
                 else equipment.name
             )
+
+    def _quality_vataga_get_equipment_number(self):
+        self.ensure_one()
+        field_name = self.env['ir.config_parameter'].sudo().get_param(
+            'quality_vataga.equipment_inventory_field',
+        )
+        field_name = (field_name or '').strip()
+        if field_name and field_name in self._fields:
+            inventory_number = self[field_name]
+            if (
+                inventory_number is not False
+                and inventory_number is not None
+                and inventory_number != ''
+            ):
+                return str(inventory_number), 'Інвентарний номер'
+        if self.serial_no:
+            return self.serial_no, 'Серійний номер'
+        return False, False

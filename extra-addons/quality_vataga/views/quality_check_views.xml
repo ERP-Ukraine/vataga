@@ -75,6 +75,7 @@
                                 />
                                 <field
                                     name="equipment_display_snapshot"
+                                    string="Конкретне обладнання"
                                     readonly="1"
                                     column_invisible="parent.quality_state == 'none'"
                                 />
@@ -100,23 +101,6 @@
                             invisible="quality_state != 'none'"
                         />
                     </group>
-
-                    <div
-                        class="alert alert-danger"
-                        role="alert"
-                        invisible="not measurement_matrix_has_failure"
-                    >
-                        Матриця містить невідповідності. Успішне завершення
-                        перевірки недоступне.
-                    </div>
-                    <div
-                        class="alert alert-warning"
-                        role="alert"
-                        invisible="can_pass_measurement_check or measurement_matrix_has_failure"
-                    >
-                        Для успішного завершення виберіть усі ЗВТ і заповніть
-                        усі показники щонайменше одного зразка.
-                    </div>
 
                     <field
                         name="measurement_matrix_data"

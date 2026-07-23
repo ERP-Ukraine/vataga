@@ -47,6 +47,16 @@ class QualityCheckEquipmentSelection(models.Model):
         readonly=True,
         copy=False,
     )
+    equipment_number_snapshot = fields.Char(
+        string='Номер обладнання (snapshot)',
+        readonly=True,
+        copy=False,
+    )
+    equipment_number_label_snapshot = fields.Char(
+        string='Тип номера обладнання (snapshot)',
+        readonly=True,
+        copy=False,
+    )
     equipment_display_snapshot = fields.Char(
         string='Обладнання (snapshot)',
         compute='_compute_equipment_display_snapshot',
@@ -101,23 +111,29 @@ class QualityCheckEquipmentSelection(models.Model):
 
     def _snapshot_selected_equipment(self):
         for selection in self.filtered('equipment_id'):
-            selection.with_context(
-                quality_vataga_equipment_snapshot=True,
-            ).write({
-                'equipment_name_snapshot': selection.equipment_id.name,
-                'equipment_serial_snapshot':
-                    selection.equipment_id.serial_no or False,
+            number, number_label = (
+                selection.equipment_id
+                ._quality_vataga_get_equipment_number()
+            )
+            selection._write_equipment_snapshot({
+                'equipment_name_snapshot':
+                    selection.equipment_id.name,
+                'equipment_number_snapshot': number,
+                'equipment_number_label_snapshot': number_label,
             })
 
     @api.depends(
         'equipment_name_snapshot',
+        'equipment_number_snapshot',
+        'equipment_number_label_snapshot',
         'equipment_serial_snapshot',
         'equipment_inventory_snapshot',
     )
     def _compute_equipment_display_snapshot(self):
         for selection in self:
             number = (
-                selection.equipment_serial_snapshot
+                selection.equipment_number_snapshot
+                or selection.equipment_serial_snapshot
                 or selection.equipment_inventory_snapshot
             )
             name = selection.equipment_name_snapshot or ''
@@ -127,23 +143,35 @@ class QualityCheckEquipmentSelection(models.Model):
                 else name
             )
 
+    def _write_equipment_snapshot(self, vals):
+        allowed_snapshot_fields = {
+            'equipment_name_snapshot',
+            'equipment_serial_snapshot',
+            'equipment_inventory_snapshot',
+            'equipment_number_snapshot',
+            'equipment_number_label_snapshot',
+        }
+        if set(vals) - allowed_snapshot_fields:
+            raise UserError(_(
+                'Внутрішній snapshot може змінювати лише підпис '
+                'обладнання.',
+            ))
+        for check in self.mapped('quality_check_id'):
+            check.check_access_rights('write')
+            check.check_access_rule('write')
+        return super(
+            QualityCheckEquipmentSelection,
+            self.sudo(),
+        ).write(vals)
+
     def write(self, vals):
-        if self.env.context.get('quality_vataga_equipment_snapshot'):
-            allowed_snapshot_fields = {
-                'equipment_name_snapshot',
-                'equipment_serial_snapshot',
-                'equipment_inventory_snapshot',
-            }
-            if set(vals) - allowed_snapshot_fields:
-                raise UserError(_(
-                    'Внутрішній snapshot може змінювати лише підпис '
-                    'обладнання.',
-                ))
-            return super().write(vals)
         if set(vals) - {'equipment_id'}:
             raise UserError(_(
                 'У перевірці можна змінювати лише конкретне обладнання.',
             ))
+        for check in self.mapped('quality_check_id'):
+            check.check_access_rights('write')
+            check.check_access_rule('write')
         if (
             'equipment_id' in vals
             and any(

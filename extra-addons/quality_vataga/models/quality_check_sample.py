@@ -148,7 +148,7 @@ class QualityCheckSample(models.Model):
         if values_to_create:
             self.env[
                 'quality.check.measurement.value'
-            ].with_context(
+            ].sudo().with_context(
                 quality_vataga_matrix_initialization=True,
             ).create(values_to_create)
         return samples

@@ -6,19 +6,37 @@
                 Завантаження матриці…
             </div>
             <div
-                t-elif="!checkId"
+                t-if="!state.loading and checkId and state.data.has_failure"
+                class="alert alert-danger"
+                role="alert"
+            >
+                Матриця містить невідповідності. Успішне завершення
+                перевірки недоступне.
+            </div>
+            <div
+                t-if="!state.loading and checkId and !state.data.is_complete and !state.data.has_failure"
+                class="alert alert-warning"
+                role="alert"
+            >
+                Заповніть візуальний контроль і всі показники матриці.
+            </div>
+            <div
+                t-if="!state.loading and !checkId"
                 class="alert alert-info"
                 role="alert"
             >
                 Збережіть перевірку, щоб працювати з матрицею показників.
             </div>
             <div
-                t-elif="!state.data.samples.length"
+                t-elif="!state.loading and !state.data.samples.length"
                 class="o_quality_measurement_empty text-muted py-3"
             >
                 Зразки ще не додані. Скористайтеся дією «Додати зразки».
             </div>
-            <div t-else="" class="table-responsive">
+            <div
+                t-elif="!state.loading"
+                class="table-responsive"
+            >
                 <table class="table table-bordered align-middle">
                     <thead>
                         <tr>

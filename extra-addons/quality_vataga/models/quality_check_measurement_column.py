@@ -135,7 +135,7 @@ class QualityCheckMeasurementColumn(models.Model):
             } for sample in column.quality_check_id.sample_ids
                 if sample.id not in valued_sample_ids)
         if values_to_create:
-            value_model.with_context(
+            value_model.sudo().with_context(
                 quality_vataga_matrix_initialization=True,
             ).create(values_to_create)
         return columns

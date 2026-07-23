@@ -20,6 +20,9 @@ export class QualityMeasurementMatrix extends Component {
                 columns: [],
                 samples: [],
                 editable: false,
+                has_failure: false,
+                is_complete: false,
+                equipment_complete: false,
             },
         });
         onWillStart(() => this.load());
@@ -103,16 +106,7 @@ export class QualityMeasurementMatrix extends Component {
                 method,
                 [[this.checkId], ...args]
             );
-            const formState = {
-                can_pass_measurement_check: this.state.data.can_pass,
-                measurement_matrix_complete: this.state.data.is_complete,
-                measurement_matrix_has_failure: this.state.data.has_failure,
-                equipment_selection_complete:
-                    this.state.data.equipment_complete,
-            };
-            if (await this.props.record.isDirty()) {
-                await this.props.record.update(formState);
-            } else {
+            if (!(await this.props.record.isDirty())) {
                 await this.props.record.load();
             }
         } finally {
