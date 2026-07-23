@@ -1,0 +1,43 @@
+.o_quality_measurement_matrix {
+    margin-top: 1rem;
+
+    table {
+        min-width: 900px;
+        margin-bottom: 0;
+    }
+
+    th,
+    td {
+        min-width: 170px;
+        vertical-align: middle;
+    }
+
+    .o_quality_measurement_fixed {
+        min-width: 150px;
+    }
+
+    .o_quality_measurement_dynamic {
+        min-width: 210px;
+    }
+
+    .o_quality_measurement_manual_result {
+        width: 105px;
+        flex: 0 0 105px;
+    }
+
+    .o_quality_measurement_pending {
+        background-color: rgba(255, 193, 7, 0.12);
+    }
+
+    .o_quality_measurement_fail {
+        background-color: rgba(220, 53, 69, 0.16);
+    }
+
+    .o_quality_measurement_pass {
+        background-color: rgba(25, 135, 84, 0.08);
+    }
+
+    .o_quality_measurement_result {
+        text-align: center;
+    }
+}

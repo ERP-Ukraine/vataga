@@ -1,7 +1,11 @@
-import math
-
 from odoo import _, api, fields, models
 from odoo.exceptions import ValidationError
+
+from .measurement_utils import (
+    format_number,
+    normalize_boolean_norm,
+    parse_numeric_input,
+)
 
 
 class QualityControlParameterLine(models.Model):
@@ -141,33 +145,11 @@ class QualityControlParameterLine(models.Model):
 
     @api.model
     def _format_tolerance(self, value):
-        return format(value, '.15g')
+        return format_number(value)
 
     @api.model
     def _parse_tolerance_input(self, raw_value, field_label):
-        value = (raw_value or '').strip()
-        if not value:
-            return False, 0.0
-
-        normalized_value = (
-            value
-            .replace('\N{NO-BREAK SPACE}', '')
-            .replace(' ', '')
-            .replace(',', '.')
-        )
-        try:
-            parsed_value = float(normalized_value)
-        except (TypeError, ValueError) as error:
-            raise ValidationError(_(
-                '%(field)s повинен бути числом.',
-                field=field_label,
-            )) from error
-        if not math.isfinite(parsed_value):
-            raise ValidationError(_(
-                '%(field)s повинен бути скінченним числом.',
-                field=field_label,
-            ))
-        return True, parsed_value
+        return parse_numeric_input(raw_value, field_label)
 
     @api.onchange('equipment_category_id')
     def _onchange_equipment_category_id(self):
@@ -238,4 +220,18 @@ class QualityControlParameterLine(models.Model):
             ):
                 raise ValidationError(_(
                     'Мінімальний допуск не може бути більшим за максимальний.',
+                ))
+
+    @api.constrains('parameter_id', 'text_norm')
+    def _check_boolean_text_norm(self):
+        for line in self:
+            if (
+                line.parameter_id.parameter_type == 'boolean'
+                and not normalize_boolean_norm(line.text_norm)
+            ):
+                raise ValidationError(_(
+                    'Для булевого параметра «%(parameter)s» текстова норма '
+                    'повинна однозначно означати «Так» або «Ні». '
+                    'Підтримуються: Так/Ні, True/False, 1/0.',
+                    parameter=line.parameter_id.display_name,
                 ))

@@ -160,6 +160,26 @@ class TestQualityControlParameterLine(TransactionCase):
                 ),
             )
 
+    def test_boolean_parameter_requires_unambiguous_text_norm(self):
+        with self.assertRaisesRegex(
+            ValidationError,
+            'текстова норма повинна однозначно означати',
+        ):
+            self.env['quality.control.parameter.line'].create(
+                self._line_values(
+                    parameter_id=self.boolean_parameter.id,
+                    text_norm='Так / Ні',
+                ),
+            )
+
+        line = self.env['quality.control.parameter.line'].create(
+            self._line_values(
+                parameter_id=self.boolean_parameter.id,
+                text_norm='True',
+            ),
+        )
+        self.assertEqual(line.text_norm, 'True')
+
     def test_direct_tolerance_value_sets_flag_automatically(self):
         line = self.env['quality.control.parameter.line'].create(
             self._line_values(min_tolerance=0.0),

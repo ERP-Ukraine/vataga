@@ -17,3 +17,15 @@ class MaintenanceEquipment(models.Model):
             equipment.applicable_parameter_ids = (
                 equipment.category_id.applicable_parameter_ids
             )
+
+    @api.depends('name', 'serial_no')
+    @api.depends_context('quality_vataga_equipment_selection')
+    def _compute_display_name(self):
+        if not self.env.context.get('quality_vataga_equipment_selection'):
+            return super()._compute_display_name()
+        for equipment in self:
+            equipment.display_name = (
+                f'[{equipment.serial_no}] {equipment.name}'
+                if equipment.serial_no
+                else equipment.name
+            )
