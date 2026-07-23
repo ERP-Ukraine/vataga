@@ -62,10 +62,8 @@ class TestQualityControlParameterLine(TransactionCase):
     def test_zero_tolerances_are_explicit_values(self):
         line = self.env['quality.control.parameter.line'].create(
             self._line_values(
-                has_min_tolerance=True,
-                min_tolerance=0.0,
-                has_max_tolerance=True,
-                max_tolerance=0.0,
+                min_tolerance_input='0',
+                max_tolerance_input='0',
             ),
         )
 
@@ -73,36 +71,55 @@ class TestQualityControlParameterLine(TransactionCase):
         self.assertTrue(line.has_max_tolerance)
         self.assertEqual(line.min_tolerance, 0.0)
         self.assertEqual(line.max_tolerance, 0.0)
+        self.assertEqual(line.min_tolerance_input, '0')
+        self.assertEqual(line.max_tolerance_input, '0')
 
     def test_minimum_cannot_exceed_maximum(self):
         with self.assertRaises(ValidationError):
             self.env['quality.control.parameter.line'].create(
                 self._line_values(
-                    has_min_tolerance=True,
-                    min_tolerance=2.0,
-                    has_max_tolerance=True,
-                    max_tolerance=1.0,
+                    min_tolerance_input='2',
+                    max_tolerance_input='1',
                 ),
             )
 
     def test_single_sided_tolerances(self):
         minimum_line = self.env['quality.control.parameter.line'].create(
-            self._line_values(
-                has_min_tolerance=True,
-                min_tolerance=1.0,
-            ),
+            self._line_values(min_tolerance_input='1'),
         )
         maximum_line = self.env['quality.control.parameter.line'].create(
-            self._line_values(
-                has_max_tolerance=True,
-                max_tolerance=2.0,
-            ),
+            self._line_values(max_tolerance_input='2'),
         )
 
         self.assertTrue(minimum_line.has_min_tolerance)
         self.assertFalse(minimum_line.has_max_tolerance)
         self.assertFalse(maximum_line.has_min_tolerance)
         self.assertTrue(maximum_line.has_max_tolerance)
+
+    def test_clearing_tolerance_input_removes_boundary(self):
+        line = self.env['quality.control.parameter.line'].create(
+            self._line_values(min_tolerance_input='1.5'),
+        )
+
+        line.write({'min_tolerance_input': False})
+
+        self.assertFalse(line.has_min_tolerance)
+        self.assertEqual(line.min_tolerance, 0.0)
+        self.assertFalse(line.min_tolerance_input)
+
+    def test_tolerance_input_accepts_comma_decimal_separator(self):
+        line = self.env['quality.control.parameter.line'].create(
+            self._line_values(min_tolerance_input='1,25'),
+        )
+
+        self.assertTrue(line.has_min_tolerance)
+        self.assertEqual(line.min_tolerance, 1.25)
+
+    def test_tolerance_input_rejects_invalid_number(self):
+        with self.assertRaises(ValidationError):
+            self.env['quality.control.parameter.line'].create(
+                self._line_values(min_tolerance_input='не число'),
+            )
 
     def test_parameter_must_belong_to_category(self):
         with self.assertRaises(ValidationError):
@@ -136,16 +153,22 @@ class TestQualityControlParameterLine(TransactionCase):
             self.env['quality.control.parameter.line'].create(
                 self._line_values(
                     parameter_id=self.boolean_parameter.id,
-                    has_min_tolerance=True,
-                    min_tolerance=0.0,
+                    min_tolerance_input='0',
                 ),
             )
 
-    def test_tolerance_value_requires_explicit_flag(self):
-        with self.assertRaises(ValidationError):
-            self.env['quality.control.parameter.line'].create(
-                self._line_values(min_tolerance=1.0),
-            )
+    def test_direct_tolerance_value_sets_flag_automatically(self):
+        line = self.env['quality.control.parameter.line'].create(
+            self._line_values(min_tolerance=0.0),
+        )
+
+        self.assertTrue(line.has_min_tolerance)
+        self.assertEqual(line.min_tolerance, 0.0)
+
+        line.write({'min_tolerance': False})
+
+        self.assertFalse(line.has_min_tolerance)
+        self.assertEqual(line.min_tolerance, 0.0)
 
     def test_parameter_onchange_clears_nonnumeric_tolerances(self):
         line = self.env['quality.control.parameter.line'].new(
@@ -164,6 +187,8 @@ class TestQualityControlParameterLine(TransactionCase):
         self.assertFalse(line.has_max_tolerance)
         self.assertEqual(line.min_tolerance, 0.0)
         self.assertEqual(line.max_tolerance, 0.0)
+        self.assertFalse(line.min_tolerance_input)
+        self.assertFalse(line.max_tolerance_input)
 
     def test_quality_point_deletion_cascades_to_lines(self):
         point = self.quality_point.copy()

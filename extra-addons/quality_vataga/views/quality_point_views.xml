@@ -21,10 +21,12 @@
                                 domain="[('id', 'in', available_parameter_ids), ('active', '=', True)]"
                                 options="{'no_create': True, 'no_create_edit': True}"
                             />
-                            <field name="has_min_tolerance"/>
-                            <field name="min_tolerance" readonly="not has_min_tolerance"/>
-                            <field name="has_max_tolerance"/>
-                            <field name="max_tolerance" readonly="not has_max_tolerance"/>
+                            <field name="has_min_tolerance" column_invisible="True"/>
+                            <field name="min_tolerance" column_invisible="True"/>
+                            <field name="min_tolerance_input"/>
+                            <field name="has_max_tolerance" column_invisible="True"/>
+                            <field name="max_tolerance" column_invisible="True"/>
+                            <field name="max_tolerance_input"/>
                             <field name="text_norm"/>
                         </tree>
                     </field>
