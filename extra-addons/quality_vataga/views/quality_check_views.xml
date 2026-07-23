@@ -3,7 +3,7 @@
     <record id="quality_check_view_form_measurement_matrix" model="ir.ui.view">
         <field name="name">quality.check.form.measurement.matrix</field>
         <field name="model">quality.check</field>
-        <field name="inherit_id" ref="quality.quality_check_view_form"/>
+        <field name="inherit_id" ref="quality_control.quality_check_view_form"/>
         <field name="arch" type="xml">
             <xpath expr="//header" position="inside">
                 <button
