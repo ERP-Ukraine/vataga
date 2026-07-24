@@ -401,6 +401,34 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
         self.assertTrue(check.equipment_selection_complete)
         self.assertEqual(selection.equipment_id, self.equipment)
 
+    def test_equipment_multiselect_onchange_handles_virtual_records(self):
+        equipment_ids = [
+            self.second_equipment.id,
+            self.equipment.id,
+        ]
+        selection = self.env[
+            'quality.check.equipment.selection'
+        ].new({
+            'equipment_ids': [
+                Command.set(equipment_ids),
+            ],
+        })
+
+        selection._onchange_equipment_ids()
+
+        self.assertEqual(len(selection.equipment_ids), 2)
+        self.assertEqual(
+            sorted(
+                selection._get_persisted_record_id(equipment)
+                for equipment in selection.equipment_ids
+            ),
+            sorted(equipment_ids),
+        )
+        self.assertEqual(
+            selection._get_persisted_record_id(selection.equipment_id),
+            min(equipment_ids),
+        )
+
     def test_equipment_from_alternative_categories_is_complete(self):
         check = self._create_check()
 

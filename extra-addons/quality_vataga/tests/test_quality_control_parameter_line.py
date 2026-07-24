@@ -166,6 +166,54 @@ class TestQualityControlParameterLine(TransactionCase):
 
         self.assertEqual(line.parameter_id, self.numeric_parameter)
 
+    def test_category_multiselect_onchange_handles_virtual_records(self):
+        category_ids = [
+            self.alternative_category.id,
+            self.category.id,
+        ]
+        line = self.env['quality.control.parameter.line'].new(
+            self._line_values(
+                equipment_category_ids=[
+                    Command.set(category_ids),
+                ],
+            ),
+        )
+
+        line._onchange_equipment_category_ids()
+
+        self.assertEqual(len(line.equipment_category_ids), 2)
+        self.assertEqual(
+            sorted(
+                line._get_persisted_record_id(category)
+                for category in line.equipment_category_ids
+            ),
+            sorted(category_ids),
+        )
+        self.assertEqual(
+            line._get_persisted_record_id(line.equipment_category_id),
+            min(category_ids),
+        )
+        self.assertEqual(line.parameter_id, self.numeric_parameter)
+
+    def test_category_multiselect_onchange_clears_incompatible_parameter(
+        self,
+    ):
+        line = self.env['quality.control.parameter.line'].new(
+            self._line_values(
+                equipment_category_ids=[
+                    Command.set([
+                        self.category.id,
+                        self.other_category.id,
+                    ]),
+                ],
+            ),
+        )
+
+        line._onchange_equipment_category_ids()
+
+        self.assertEqual(len(line.equipment_category_ids), 2)
+        self.assertFalse(line.parameter_id)
+
     def test_parameter_must_belong_to_every_alternative_category(self):
         line = self.env['quality.control.parameter.line'].create(
             self._line_values(

@@ -108,9 +108,24 @@ class QualityCheckEquipmentSelection(models.Model):
     @api.onchange('equipment_ids')
     def _onchange_equipment_ids(self):
         for selection in self:
-            selection.equipment_id = (
-                selection.equipment_ids.sorted('id')[:1]
+            first_equipment = min(
+                selection.equipment_ids,
+                key=self._get_persisted_record_id,
+                default=self.env['maintenance.equipment'],
             )
+            selection.equipment_id = first_equipment
+
+    @api.model
+    def _get_persisted_record_id(self, record):
+        origin_id = record._origin.id if record._origin else False
+        if isinstance(origin_id, int):
+            return origin_id
+
+        record_id = record.id
+        if isinstance(record_id, int):
+            return record_id
+
+        return 0
 
     @api.model_create_multi
     def create(self, vals_list):
