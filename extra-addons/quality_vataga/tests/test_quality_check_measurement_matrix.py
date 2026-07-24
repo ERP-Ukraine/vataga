@@ -1,7 +1,11 @@
+import os
+import runpy
+
 from psycopg2 import IntegrityError
 
 from odoo import Command
 from odoo.exceptions import UserError, ValidationError
+from odoo.modules.module import get_module_path
 from odoo.tests import TransactionCase, tagged
 
 
@@ -184,19 +188,63 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
         numeric_column = check.measurement_column_ids.filtered(
             lambda column: column.parameter_type == 'numeric',
         )
+        expected_category_ids = sorted([
+            self.category.id,
+            self.alternative_category.id,
+        ])
+        expected_category_key = ','.join(
+            str(category_id)
+            for category_id in expected_category_ids
+        )
+        expected_category_names = (
+            'Мультиметри (тест), '
+            'Струмовимірювальні кліщі (тест)'
+        )
+        for column in check.measurement_column_ids:
+            self.assertEqual(
+                column.equipment_category_ids,
+                self.category | self.alternative_category,
+            )
+            self.assertEqual(
+                column.category_set_key,
+                expected_category_key,
+            )
+            self.assertEqual(
+                column.equipment_category_names_snapshot,
+                expected_category_names,
+            )
         self.assertTrue(numeric_column.has_min_tolerance)
         self.assertEqual(numeric_column.min_tolerance, 0.0)
         self.assertEqual(numeric_column.max_tolerance, 10.0)
 
         self.numeric_line.write({'max_tolerance_input': '5'})
+        self.numeric_line.write({
+            'equipment_category_ids': [
+                Command.set(self.category.ids),
+            ],
+        })
         self.numeric_parameter.write({
             'name': 'Перейменована напруга',
             'unit': 'мВ',
         })
+        self.category.name = 'Перейменовані мультиметри'
+        self.alternative_category.name = 'Перейменовані кліщі'
 
         self.assertEqual(numeric_column.parameter_name, 'Напруга')
         self.assertEqual(numeric_column.parameter_unit, 'В')
         self.assertEqual(numeric_column.max_tolerance, 10.0)
+        self.assertEqual(
+            sorted(numeric_column.equipment_category_ids.ids),
+            expected_category_ids,
+        )
+        self.assertEqual(
+            numeric_column.category_set_key,
+            expected_category_key,
+        )
+        self.assertEqual(
+            numeric_column.equipment_category_names_snapshot,
+            expected_category_names,
+        )
 
     def test_add_samples_creates_one_cell_per_column(self):
         check = self._create_check()
@@ -362,7 +410,7 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
             self.category.id,
             self.alternative_category.id,
         ]
-        line_model.create([
+        lines = line_model.create([
             {
                 'quality_point_id': point.id,
                 'sequence': 10,
@@ -409,6 +457,95 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
                     shared_categories,
                 )),
             },
+        )
+        shared_columns = check.measurement_column_ids.filtered(
+            lambda column: column.source_line_id in lines[:2],
+        )
+        single_column = check.measurement_column_ids.filtered(
+            lambda column: column.source_line_id == lines[2],
+        )
+        shared_key = ','.join(
+            str(category_id)
+            for category_id in sorted(shared_categories)
+        )
+        self.assertEqual(len(shared_columns), 2)
+        self.assertEqual(len(single_column), 1)
+        self.assertTrue(
+            all(
+                column.equipment_category_id == self.category
+                for column in shared_columns | single_column
+            ),
+        )
+        self.assertEqual(
+            set(shared_columns.mapped('category_set_key')),
+            {shared_key},
+        )
+        self.assertEqual(
+            shared_columns[0].equipment_category_ids,
+            self.category | self.alternative_category,
+        )
+        self.assertEqual(
+            single_column.category_set_key,
+            str(self.category.id),
+        )
+        self.assertEqual(
+            single_column.equipment_category_ids,
+            self.category,
+        )
+
+    def test_legacy_measurement_column_category_snapshot_is_backfilled(self):
+        check = self._create_check()
+        column = check.measurement_column_ids[0]
+        legacy_category = column.equipment_category_id
+        legacy_category_name = column.equipment_category_name
+        self.cr.execute(
+            """
+            DELETE FROM quality_check_measurement_column_category_rel
+             WHERE measurement_column_id = %s
+            """,
+            [column.id],
+        )
+        self.cr.execute(
+            """
+            UPDATE quality_check_measurement_column
+               SET equipment_category_names_snapshot = NULL,
+                   category_set_key = NULL
+             WHERE id = %s
+            """,
+            [column.id],
+        )
+        column.invalidate_recordset([
+            'equipment_category_ids',
+            'equipment_category_names_snapshot',
+            'category_set_key',
+        ])
+
+        migration_path = os.path.join(
+            get_module_path('quality_vataga'),
+            'migrations',
+            '17.0.2.10',
+            'post-migration.py',
+        )
+        migration = runpy.run_path(migration_path)
+        migration['migrate'](self.cr, '17.0.2.9')
+        migration['migrate'](self.cr, '17.0.2.9')
+        column.invalidate_recordset([
+            'equipment_category_ids',
+            'equipment_category_names_snapshot',
+            'category_set_key',
+        ])
+
+        self.assertEqual(
+            column.equipment_category_ids,
+            legacy_category,
+        )
+        self.assertEqual(
+            column.equipment_category_names_snapshot,
+            legacy_category_name,
+        )
+        self.assertEqual(
+            column.category_set_key,
+            str(legacy_category.id),
         )
 
     def test_category_set_key_is_unique_per_check(self):

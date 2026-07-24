@@ -152,6 +152,12 @@ class QualityCheck(models.Model):
                         first_category.id,
                     'equipment_category_name':
                         first_category.display_name,
+                    'equipment_category_ids': [
+                        Command.set(categories.ids),
+                    ],
+                    'equipment_category_names_snapshot':
+                        category_names,
+                    'category_set_key': category_set_key,
                     'parameter_id': line.parameter_id.id,
                     'parameter_name': line.parameter_id.name,
                     'parameter_type': line.parameter_type,

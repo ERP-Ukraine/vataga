@@ -1,5 +1,5 @@
-from odoo import _, api, fields, models
-from odoo.exceptions import UserError
+from odoo import _, api, Command, fields, models
+from odoo.exceptions import UserError, ValidationError
 
 from .measurement_utils import format_number
 
@@ -47,6 +47,26 @@ class QualityCheckMeasurementColumn(models.Model):
         string='Назва категорії ЗВТ',
         required=True,
         readonly=True,
+    )
+    equipment_category_ids = fields.Many2many(
+        'maintenance.equipment.category',
+        relation='quality_check_measurement_column_category_rel',
+        column1='measurement_column_id',
+        column2='equipment_category_id',
+        string='Допустимі категорії ЗВТ (snapshot)',
+        readonly=True,
+        copy=False,
+    )
+    equipment_category_names_snapshot = fields.Char(
+        string='Допустимі категорії ЗВТ (snapshot)',
+        readonly=True,
+        copy=False,
+    )
+    category_set_key = fields.Char(
+        string='Ключ набору категорій',
+        readonly=True,
+        copy=False,
+        index=True,
     )
     parameter_id = fields.Many2one(
         'quality.equipment.parameter',
@@ -118,7 +138,11 @@ class QualityCheckMeasurementColumn(models.Model):
             raise UserError(_(
                 'Колонки матриці створюються системою з налаштувань QCP.',
             ))
-        columns = super().create(vals_list)
+        prepared_vals_list = [
+            self._prepare_snapshot_create_values(vals)
+            for vals in vals_list
+        ]
+        columns = super().create(prepared_vals_list)
         value_model = self.env['quality.check.measurement.value']
         values_to_create = []
         for column in columns:
@@ -139,6 +163,87 @@ class QualityCheckMeasurementColumn(models.Model):
                 quality_vataga_matrix_initialization=True,
             ).create(values_to_create)
         return columns
+
+    @api.model
+    def _prepare_snapshot_create_values(self, vals):
+        prepared_vals = dict(vals)
+        category_ids = self._command_ids(
+            prepared_vals.get('equipment_category_ids'),
+        )
+        if not category_ids and 'equipment_category_ids' not in prepared_vals:
+            legacy_category_id = prepared_vals.get('equipment_category_id')
+            if legacy_category_id:
+                category_ids = [legacy_category_id]
+
+        categories = self.env[
+            'maintenance.equipment.category'
+        ].browse(category_ids).exists().sorted('id')
+        if not categories:
+            raise ValidationError(_(
+                'Для snapshot-колонки потрібна хоча б одна категорія ЗВТ.',
+            ))
+
+        prepared_vals.update({
+            'equipment_category_id': categories[0].id,
+            'equipment_category_name': categories[0].display_name,
+            'equipment_category_ids': [
+                Command.set(categories.ids),
+            ],
+            'equipment_category_names_snapshot': ', '.join(
+                categories.mapped('display_name'),
+            ),
+            'category_set_key': self._make_category_set_key(categories.ids),
+        })
+        return prepared_vals
+
+    @api.model
+    def _command_ids(self, commands):
+        ids = set()
+        for command in commands or []:
+            if isinstance(command, int):
+                ids.add(command)
+                continue
+            operation = command[0]
+            if operation == Command.SET:
+                ids = set(command[2])
+            elif operation == Command.LINK:
+                ids.add(command[1])
+            elif operation == Command.UNLINK:
+                ids.discard(command[1])
+            elif operation == Command.CLEAR:
+                ids.clear()
+        return sorted(ids)
+
+    @api.model
+    def _make_category_set_key(self, category_ids):
+        return ','.join(
+            str(category_id)
+            for category_id in sorted(category_ids)
+        )
+
+    @api.constrains(
+        'equipment_category_ids',
+        'equipment_category_id',
+        'equipment_category_name',
+        'equipment_category_names_snapshot',
+        'category_set_key',
+    )
+    def _check_category_set_structure(self):
+        for column in self:
+            categories = column.equipment_category_ids.sorted('id')
+            expected_key = self._make_category_set_key(categories.ids)
+            if (
+                not categories
+                or column.equipment_category_id != categories[0]
+                or column.category_set_key != expected_key
+                or not (column.equipment_category_name or '').strip()
+                or not (
+                    column.equipment_category_names_snapshot or ''
+                ).strip()
+            ):
+                raise ValidationError(_(
+                    'Набір категорій ЗВТ snapshot-колонки пошкоджено.',
+                ))
 
     def write(self, vals):
         raise UserError(_(
