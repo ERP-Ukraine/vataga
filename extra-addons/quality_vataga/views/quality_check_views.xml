@@ -63,19 +63,25 @@
                                     column_invisible="True"
                                 />
                                 <field
-                                    name="equipment_category_name"
-                                    string="Категорія ЗВТ"
+                                    name="allowed_equipment_category_ids"
+                                    column_invisible="True"
+                                />
+                                <field
+                                    name="equipment_category_names_snapshot"
+                                    string="Допустимі категорії ЗВТ"
                                     readonly="1"
                                 />
                                 <field
-                                    name="equipment_id"
-                                    domain="[('category_id', '=', equipment_category_id)]"
+                                    name="equipment_ids"
+                                    string="Конкретне обладнання"
+                                    widget="many2many_tags"
+                                    domain="[('category_id', 'in', allowed_equipment_category_ids)]"
                                     context="{'quality_vataga_equipment_selection': True}"
                                     options="{'no_create': True, 'no_create_edit': True}"
                                     column_invisible="parent.quality_state != 'none'"
                                 />
                                 <field
-                                    name="equipment_display_snapshot"
+                                    name="equipment_display_list_snapshot"
                                     string="Конкретне обладнання"
                                     readonly="1"
                                     column_invisible="parent.quality_state == 'none'"

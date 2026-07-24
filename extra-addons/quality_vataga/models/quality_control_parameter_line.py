@@ -1,4 +1,4 @@
-from odoo import _, api, fields, models
+from odoo import _, api, Command, fields, models
 from odoo.exceptions import ValidationError
 
 from .measurement_utils import (
@@ -32,7 +32,15 @@ class QualityControlParameterLine(models.Model):
     )
     equipment_category_id = fields.Many2one(
         'maintenance.equipment.category',
-        string='Категорія ЗВТ',
+        string='Категорія ЗВТ (legacy)',
+        required=True,
+    )
+    equipment_category_ids = fields.Many2many(
+        'maintenance.equipment.category',
+        relation='quality_control_parameter_line_category_rel',
+        column1='line_id',
+        column2='equipment_category_id',
+        string='Категорії ЗВТ',
         required=True,
     )
     available_parameter_ids = fields.Many2many(
@@ -70,15 +78,73 @@ class QualityControlParameterLine(models.Model):
     def create(self, vals_list):
         prepared_vals_list = []
         for vals in vals_list:
-            prepared_vals = dict(vals)
+            prepared_vals = self._prepare_category_values_for_create(vals)
             self._synchronize_tolerance_flags(prepared_vals)
             prepared_vals_list.append(prepared_vals)
         return super().create(prepared_vals_list)
 
     def write(self, vals):
         prepared_vals = dict(vals)
+        if (
+            'equipment_category_id' in prepared_vals
+            and 'equipment_category_ids' not in prepared_vals
+        ):
+            category_id = prepared_vals.get('equipment_category_id')
+            prepared_vals['equipment_category_ids'] = [
+                Command.set([category_id] if category_id else []),
+            ]
         self._synchronize_tolerance_flags(prepared_vals)
-        return super().write(prepared_vals)
+        result = super().write(prepared_vals)
+        if 'equipment_category_ids' in prepared_vals:
+            for line in self:
+                categories = line.equipment_category_ids.sorted('id')
+                if not categories:
+                    raise ValidationError(_(
+                        'Оберіть хоча б одну категорію ЗВТ.',
+                    ))
+                if line.equipment_category_id != categories[0]:
+                    super(QualityControlParameterLine, line).write({
+                        'equipment_category_id': categories[0].id,
+                    })
+        return result
+
+    @api.model
+    def _prepare_category_values_for_create(self, vals):
+        prepared_vals = dict(vals)
+        category_ids = self._command_ids(
+            prepared_vals.get('equipment_category_ids'),
+        )
+        if not category_ids and prepared_vals.get('equipment_category_id'):
+            category_ids = [prepared_vals['equipment_category_id']]
+            prepared_vals['equipment_category_ids'] = [
+                Command.set(category_ids),
+            ]
+        if not category_ids:
+            raise ValidationError(_('Оберіть хоча б одну категорію ЗВТ.'))
+        prepared_vals['equipment_category_id'] = min(category_ids)
+        return prepared_vals
+
+    @api.model
+    def _command_ids(self, commands):
+        ids = set()
+        for command in commands or []:
+            if isinstance(command, int):
+                ids.add(command)
+                continue
+            operation = command[0]
+            if operation == Command.SET:
+                ids = set(command[2])
+            elif operation == Command.LINK:
+                ids.add(command[1])
+            elif operation == Command.UNLINK:
+                ids.discard(command[1])
+            elif operation == Command.CLEAR:
+                ids.clear()
+        return sorted(ids)
+
+    def _get_equipment_categories(self):
+        self.ensure_one()
+        return self.equipment_category_ids or self.equipment_category_id
 
     @api.model
     def _synchronize_tolerance_flags(self, vals):
@@ -94,14 +160,23 @@ class QualityControlParameterLine(models.Model):
                 )
 
     @api.depends(
+        'equipment_category_ids',
+        'equipment_category_ids.applicable_parameter_ids',
         'equipment_category_id',
         'equipment_category_id.applicable_parameter_ids',
     )
     def _compute_available_parameter_ids(self):
         for line in self:
-            line.available_parameter_ids = (
-                line.equipment_category_id.applicable_parameter_ids
+            categories = line._get_equipment_categories()
+            if not categories:
+                line.available_parameter_ids = False
+                continue
+            available_parameters = (
+                categories[0].applicable_parameter_ids
             )
+            for category in categories[1:]:
+                available_parameters &= category.applicable_parameter_ids
+            line.available_parameter_ids = available_parameters
 
     @api.depends('has_min_tolerance', 'min_tolerance')
     def _compute_min_tolerance_input(self):
@@ -151,15 +226,28 @@ class QualityControlParameterLine(models.Model):
     def _parse_tolerance_input(self, raw_value, field_label):
         return parse_numeric_input(raw_value, field_label)
 
+    @api.onchange('equipment_category_ids')
+    def _onchange_equipment_category_ids(self):
+        for line in self:
+            categories = line.equipment_category_ids.sorted('id')
+            line.equipment_category_id = categories[:1]
+            line._clear_incompatible_parameter()
+
     @api.onchange('equipment_category_id')
     def _onchange_equipment_category_id(self):
         for line in self:
-            applicable_parameters = (
-                line.equipment_category_id.applicable_parameter_ids
-            )
+            if (
+                line.equipment_category_id
+                and not line.equipment_category_ids
+            ):
+                line.equipment_category_ids = line.equipment_category_id
+            line._clear_incompatible_parameter()
+
+    def _clear_incompatible_parameter(self):
+        for line in self:
             if (
                 line.parameter_id
-                and line.parameter_id not in applicable_parameters
+                and line.parameter_id not in line.available_parameter_ids
             ):
                 line.parameter_id = False
 
@@ -172,21 +260,50 @@ class QualityControlParameterLine(models.Model):
                 line.has_max_tolerance = False
                 line.max_tolerance = 0.0
 
-    @api.constrains('equipment_category_id', 'parameter_id')
-    def _check_parameter_matches_category(self):
+    @api.constrains(
+        'equipment_category_ids',
+        'equipment_category_id',
+        'parameter_id',
+    )
+    def _check_parameter_matches_categories(self):
         for line in self:
-            if not line.equipment_category_id or not line.parameter_id:
+            categories = line._get_equipment_categories()
+            if not categories:
+                raise ValidationError(_('Оберіть хоча б одну категорію ЗВТ.'))
+            if not line.parameter_id:
                 continue
-            applicable_parameters = line.equipment_category_id.with_context(
-                active_test=False,
-            ).applicable_parameter_ids
-            if line.parameter_id not in applicable_parameters:
+            incompatible_categories = categories.filtered(
+                lambda category:
+                    line.parameter_id
+                    not in category.with_context(
+                        active_test=False,
+                    ).applicable_parameter_ids,
+            )
+            if incompatible_categories:
                 raise ValidationError(_(
-                    'Параметр «%(parameter)s» не належить до категорії ЗВТ '
-                    '«%(category)s».',
+                    'Параметр «%(parameter)s» не належить до категорій ЗВТ '
+                    '«%(categories)s».',
                     parameter=line.parameter_id.display_name,
-                    category=line.equipment_category_id.display_name,
+                    categories=', '.join(
+                        incompatible_categories.mapped('display_name'),
+                    ),
                 ))
+
+    @api.model
+    def _migrate_legacy_equipment_categories(self):
+        for line in self.sudo().search([]):
+            if not line.equipment_category_ids and line.equipment_category_id:
+                super(QualityControlParameterLine, line).write({
+                    'equipment_category_ids': [
+                        Command.set(line.equipment_category_id.ids),
+                    ],
+                })
+            elif line.equipment_category_ids:
+                first_category = line.equipment_category_ids.sorted('id')[0]
+                if line.equipment_category_id != first_category:
+                    super(QualityControlParameterLine, line).write({
+                        'equipment_category_id': first_category.id,
+                    })
 
     @api.constrains(
         'parameter_id',

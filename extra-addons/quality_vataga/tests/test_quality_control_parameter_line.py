@@ -14,6 +14,11 @@ class TestQualityControlParameterLine(TransactionCase):
         cls.other_category = cls.env['maintenance.equipment.category'].create({
             'name': 'Інша тестова категорія ЗВТ',
         })
+        cls.alternative_category = cls.env[
+            'maintenance.equipment.category'
+        ].create({
+            'name': 'Альтернативна тестова категорія ЗВТ',
+        })
         cls.numeric_parameter = cls.env['quality.equipment.parameter'].create({
             'name': 'Тестовий числовий параметр',
             'parameter_type': 'numeric',
@@ -24,6 +29,12 @@ class TestQualityControlParameterLine(TransactionCase):
             'parameter_type': 'boolean',
         })
         cls.category.applicable_parameter_ids = [
+            Command.set([
+                cls.numeric_parameter.id,
+                cls.boolean_parameter.id,
+            ]),
+        ]
+        cls.alternative_category.applicable_parameter_ids = [
             Command.set([
                 cls.numeric_parameter.id,
                 cls.boolean_parameter.id,
@@ -53,7 +64,9 @@ class TestQualityControlParameterLine(TransactionCase):
         values = {
             'quality_point_id': self.quality_point.id,
             'control_type': 'instrumental',
-            'equipment_category_id': self.category.id,
+            'equipment_category_ids': [
+                Command.set(self.category.ids),
+            ],
             'parameter_id': self.numeric_parameter.id,
         }
         values.update(overrides)
@@ -128,7 +141,9 @@ class TestQualityControlParameterLine(TransactionCase):
         with self.assertRaises(ValidationError):
             self.env['quality.control.parameter.line'].create(
                 self._line_values(
-                    equipment_category_id=self.other_category.id,
+                    equipment_category_ids=[
+                        Command.set(self.other_category.ids),
+                    ],
                 ),
             )
 
@@ -137,8 +152,8 @@ class TestQualityControlParameterLine(TransactionCase):
             self._line_values(),
         )
 
-        line.equipment_category_id = self.other_category
-        line._onchange_equipment_category_id()
+        line.equipment_category_ids = self.other_category
+        line._onchange_equipment_category_ids()
 
         self.assertFalse(line.parameter_id)
 
@@ -147,9 +162,55 @@ class TestQualityControlParameterLine(TransactionCase):
             self._line_values(),
         )
 
-        line._onchange_equipment_category_id()
+        line._onchange_equipment_category_ids()
 
         self.assertEqual(line.parameter_id, self.numeric_parameter)
+
+    def test_parameter_must_belong_to_every_alternative_category(self):
+        line = self.env['quality.control.parameter.line'].create(
+            self._line_values(
+                equipment_category_ids=[
+                    Command.set([
+                        self.category.id,
+                        self.alternative_category.id,
+                    ]),
+                ],
+            ),
+        )
+
+        self.assertEqual(
+            line.available_parameter_ids,
+            self.numeric_parameter | self.boolean_parameter,
+        )
+        self.assertEqual(
+            line.equipment_category_id,
+            min(
+                self.category | self.alternative_category,
+                key=lambda category: category.id,
+            ),
+        )
+
+    def test_legacy_category_is_migrated_to_multiselect(self):
+        line = self.env['quality.control.parameter.line'].create(
+            self._line_values(),
+        )
+        self.cr.execute(
+            """
+            DELETE FROM quality_control_parameter_line_category_rel
+             WHERE line_id = %s
+            """,
+            [line.id],
+        )
+        line.invalidate_recordset()
+
+        self.env[
+            'quality.control.parameter.line'
+        ]._migrate_legacy_equipment_categories()
+        self.env[
+            'quality.control.parameter.line'
+        ]._migrate_legacy_equipment_categories()
+
+        self.assertEqual(line.equipment_category_ids, self.category)
 
     def test_nonnumeric_parameter_rejects_tolerances(self):
         with self.assertRaises(ValidationError):

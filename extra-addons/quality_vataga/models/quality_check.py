@@ -1,4 +1,4 @@
-from odoo import _, api, fields, models
+from odoo import _, api, Command, fields, models
 from odoo.exceptions import UserError, ValidationError
 
 from .measurement_utils import (
@@ -113,8 +113,26 @@ class QualityCheck(models.Model):
                 continue
 
             column_values = []
-            category_values = {}
+            category_set_values = {}
             for line in source_lines:
+                categories = (
+                    line.equipment_category_ids
+                    or line.equipment_category_id
+                ).sorted('id')
+                if not categories:
+                    raise ValidationError(_(
+                        'Неможливо створити матрицю: для параметра '
+                        '«%(parameter)s» не вибрано категорії ЗВТ.',
+                        parameter=line.parameter_id.display_name,
+                    ))
+                category_set_key = ','.join(
+                    str(category_id)
+                    for category_id in categories.ids
+                )
+                category_names = ', '.join(
+                    categories.mapped('display_name'),
+                )
+                first_category = categories[0]
                 boolean_expected = False
                 if line.parameter_type == 'boolean':
                     boolean_expected = normalize_boolean_norm(line.text_norm)
@@ -131,9 +149,9 @@ class QualityCheck(models.Model):
                     'sequence': line.sequence,
                     'control_type': line.control_type,
                     'equipment_category_id':
-                        line.equipment_category_id.id,
+                        first_category.id,
                     'equipment_category_name':
-                        line.equipment_category_id.display_name,
+                        first_category.display_name,
                     'parameter_id': line.parameter_id.id,
                     'parameter_name': line.parameter_id.name,
                     'parameter_type': line.parameter_type,
@@ -145,15 +163,21 @@ class QualityCheck(models.Model):
                     'text_norm': line.text_norm or False,
                     'boolean_expected': boolean_expected,
                 })
-                category_values.setdefault(
-                    line.equipment_category_id.id,
+                category_set_values.setdefault(
+                    category_set_key,
                     {
                         'quality_check_id': check.id,
                         'sequence': line.sequence,
                         'equipment_category_id':
-                            line.equipment_category_id.id,
+                            first_category.id,
                         'equipment_category_name':
-                            line.equipment_category_id.display_name,
+                            first_category.display_name,
+                        'allowed_equipment_category_ids': [
+                            Command.set(categories.ids),
+                        ],
+                        'equipment_category_names_snapshot':
+                            category_names,
+                        'category_set_key': category_set_key,
                     },
                 )
 
@@ -161,7 +185,7 @@ class QualityCheck(models.Model):
                 'quality_vataga_snapshot_initialization': True,
             }
             selection_model.sudo().with_context(**snapshot_context).create(
-                list(category_values.values()),
+                list(category_set_values.values()),
             )
             column_model.sudo().with_context(**snapshot_context).create(
                 column_values,
@@ -193,7 +217,11 @@ class QualityCheck(models.Model):
         'sample_ids.is_complete',
         'sample_ids.has_failure',
         'equipment_selection_ids',
+        'equipment_selection_ids.allowed_equipment_category_ids',
+        'equipment_selection_ids.equipment_ids',
+        'equipment_selection_ids.equipment_ids.category_id',
         'equipment_selection_ids.equipment_id',
+        'equipment_selection_ids.equipment_id.category_id',
     )
     def _compute_measurement_matrix_state(self):
         for check in self:
@@ -204,9 +232,7 @@ class QualityCheck(models.Model):
                 not matrix_required
                 or bool(selections)
                 and all(
-                    selection.equipment_id
-                    and selection.equipment_id.category_id
-                    == selection.equipment_category_id
+                    selection._has_valid_equipment_selection()
                     for selection in selections
                 )
             )
@@ -482,15 +508,17 @@ class QualityCheck(models.Model):
                 ))
             missing_equipment = check.equipment_selection_ids.filtered(
                 lambda selection:
-                    not selection.equipment_id
-                    or selection.equipment_id.category_id
-                    != selection.equipment_category_id,
+                    not selection._has_valid_equipment_selection(),
             )[:1]
             if missing_equipment:
                 raise ValidationError(_(
-                    'Оберіть конкретний прилад для категорії '
-                    '«%(category)s».',
-                    category=missing_equipment.equipment_category_name,
+                    'Оберіть щонайменше один допустимий прилад для '
+                    'категорій «%(categories)s».',
+                    categories=(
+                        missing_equipment
+                        .equipment_category_names_snapshot
+                        or missing_equipment.equipment_category_name
+                    ),
                 ))
             if not check.sample_ids:
                 raise ValidationError(_(

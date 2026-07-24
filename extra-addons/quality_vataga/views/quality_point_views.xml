@@ -13,6 +13,11 @@
                             <field name="control_type"/>
                             <field
                                 name="equipment_category_id"
+                                column_invisible="True"
+                            />
+                            <field
+                                name="equipment_category_ids"
+                                widget="many2many_tags"
                                 options="{'no_create': True, 'no_create_edit': True}"
                             />
                             <field name="available_parameter_ids" column_invisible="True"/>
