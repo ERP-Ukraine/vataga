@@ -167,6 +167,16 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
             'picking_type_ids': [Command.set(self.picking_type.ids)],
         })
 
+    def _run_post_migration(self, migration_version, previous_version):
+        migration_path = os.path.join(
+            get_module_path('quality_vataga'),
+            'migrations',
+            migration_version,
+            'post-migration.py',
+        )
+        migration = runpy.run_path(migration_path)
+        migration['migrate'](self.cr, previous_version)
+
     def test_new_check_matrix_data_uses_false_id(self):
         new_check = self.env['quality.check'].new({})
 
@@ -520,15 +530,135 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
             'category_set_key',
         ])
 
-        migration_path = os.path.join(
-            get_module_path('quality_vataga'),
-            'migrations',
-            '17.0.2.10',
-            'post-migration.py',
+        self._run_post_migration('17.0.2.10', '17.0.2.9')
+        self._run_post_migration('17.0.2.10', '17.0.2.9')
+        column.invalidate_recordset([
+            'equipment_category_ids',
+            'equipment_category_names_snapshot',
+            'category_set_key',
+        ])
+
+        self.assertEqual(
+            column.equipment_category_ids,
+            legacy_category,
         )
-        migration = runpy.run_path(migration_path)
-        migration['migrate'](self.cr, '17.0.2.9')
-        migration['migrate'](self.cr, '17.0.2.9')
+        self.assertEqual(
+            column.equipment_category_names_snapshot,
+            legacy_category_name,
+        )
+        self.assertEqual(
+            column.category_set_key,
+            str(legacy_category.id),
+        )
+
+    def test_full_column_category_snapshot_is_restored_from_selection(self):
+        check = self._create_check()
+        column = check.measurement_column_ids[0]
+        selection = check.equipment_selection_ids
+        expected_categories = selection.allowed_equipment_category_ids
+        expected_key = selection.category_set_key
+        expected_names = selection.equipment_category_names_snapshot
+        legacy_category = column.equipment_category_id
+        self.cr.execute(
+            """
+            DELETE FROM quality_check_measurement_column_category_rel
+             WHERE measurement_column_id = %s
+            """,
+            [column.id],
+        )
+        self.cr.execute(
+            """
+            INSERT INTO quality_check_measurement_column_category_rel (
+                measurement_column_id,
+                equipment_category_id
+            )
+            VALUES (%s, %s)
+            """,
+            [column.id, legacy_category.id],
+        )
+        self.cr.execute(
+            """
+            UPDATE quality_check_measurement_column
+               SET equipment_category_names_snapshot =
+                       equipment_category_name,
+                   category_set_key = equipment_category_id::text
+             WHERE id = %s
+            """,
+            [column.id],
+        )
+        column.invalidate_recordset([
+            'equipment_category_ids',
+            'equipment_category_names_snapshot',
+            'category_set_key',
+        ])
+
+        self._run_post_migration('17.0.2.11', '17.0.2.10')
+        self._run_post_migration('17.0.2.11', '17.0.2.10')
+        column.invalidate_recordset([
+            'equipment_category_ids',
+            'equipment_category_names_snapshot',
+            'category_set_key',
+        ])
+
+        self.assertEqual(
+            column.equipment_category_ids,
+            expected_categories,
+        )
+        self.assertEqual(column.category_set_key, expected_key)
+        self.assertEqual(
+            column.equipment_category_names_snapshot,
+            expected_names,
+        )
+        self.assertEqual(column.equipment_category_id, legacy_category)
+
+    def test_column_category_fallback_is_untouched_without_selection_match(
+        self,
+    ):
+        check = self._create_check()
+        column = check.measurement_column_ids.filtered(
+            lambda record: record.source_line_id == self.numeric_line,
+        )
+        legacy_category = column.equipment_category_id
+        legacy_category_name = column.equipment_category_name
+        self.numeric_line.write({
+            'equipment_category_ids': [
+                Command.set(self.category.ids),
+            ],
+        })
+        self.cr.execute(
+            """
+            DELETE FROM quality_check_measurement_column_category_rel
+             WHERE measurement_column_id = %s
+            """,
+            [column.id],
+        )
+        self.cr.execute(
+            """
+            INSERT INTO quality_check_measurement_column_category_rel (
+                measurement_column_id,
+                equipment_category_id
+            )
+            VALUES (%s, %s)
+            """,
+            [column.id, legacy_category.id],
+        )
+        self.cr.execute(
+            """
+            UPDATE quality_check_measurement_column
+               SET equipment_category_names_snapshot =
+                       equipment_category_name,
+                   category_set_key = equipment_category_id::text
+             WHERE id = %s
+            """,
+            [column.id],
+        )
+        column.invalidate_recordset([
+            'equipment_category_ids',
+            'equipment_category_names_snapshot',
+            'category_set_key',
+        ])
+
+        self._run_post_migration('17.0.2.11', '17.0.2.10')
         column.invalidate_recordset([
             'equipment_category_ids',
             'equipment_category_names_snapshot',
