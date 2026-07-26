@@ -168,16 +168,9 @@ class QualityCheckSample(models.Model):
             ))
         return super().write(vals)
 
-    def unlink(self):
-        if len(self) != 1:
-            raise UserError(_(
-                'Можна видалити лише один останній порожній зразок.',
-            ))
-        if self.quality_check_id.quality_state != 'none':
-            raise UserError(_(
-                'Не можна видаляти зразки завершеної перевірки.',
-            ))
-        has_entered_results = bool(
+    def _has_entered_results(self):
+        self.ensure_one()
+        return bool(
             self.visual_result
             or any(
                 value.has_numeric_value
@@ -187,7 +180,17 @@ class QualityCheckSample(models.Model):
                 for value in self.measurement_value_ids
             )
         )
-        if has_entered_results:
+
+    def unlink(self):
+        if len(self) != 1:
+            raise UserError(_(
+                'Можна видалити лише один останній порожній зразок.',
+            ))
+        if self.quality_check_id.quality_state != 'none':
+            raise UserError(_(
+                'Не можна видаляти зразки завершеної перевірки.',
+            ))
+        if self._has_entered_results():
             raise UserError(_(
                 'Не можна видалити зразок №%(number)s, оскільки в ньому '
                 'вже є введені результати.',
