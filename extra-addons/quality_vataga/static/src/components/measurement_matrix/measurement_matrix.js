@@ -19,7 +19,6 @@ export class QualityMeasurementMatrix extends Component {
             saving: false,
             sampleCount: 1,
             addingSamples: false,
-            removingSamples: false,
             data: {
                 columns: [],
                 samples: [],
@@ -63,18 +62,13 @@ export class QualityMeasurementMatrix extends Component {
     }
 
     async addSamples() {
-        if (
-            !this.checkId ||
-            this.state.addingSamples ||
-            this.state.removingSamples ||
-            this.state.saving
-        ) {
+        if (!this.checkId || this.state.addingSamples) {
             return;
         }
         const count = Number(this.state.sampleCount);
         if (!Number.isInteger(count) || count < 1) {
             this.notification.add(
-                "Кількість зразків повинна бути цілим числом " +
+                "Кількість нових зразків повинна бути цілим числом " +
                     "більшим за нуль.",
                 { type: "warning" }
             );
@@ -91,45 +85,6 @@ export class QualityMeasurementMatrix extends Component {
             this.state.sampleCount = 1;
         } finally {
             this.state.addingSamples = false;
-        }
-    }
-
-    async removeSamples() {
-        if (
-            !this.checkId ||
-            this.state.addingSamples ||
-            this.state.removingSamples ||
-            this.state.saving
-        ) {
-            return;
-        }
-        const count = Number(this.state.sampleCount);
-        if (!Number.isInteger(count) || count < 1) {
-            this.notification.add(
-                "Кількість зразків повинна бути цілим числом " +
-                    "більшим за нуль.",
-                { type: "warning" }
-            );
-            return;
-        }
-        if (count > this.state.data.samples.length) {
-            this.notification.add(
-                "Неможливо прибрати більше зразків, ніж зараз є у матриці.",
-                { type: "warning" }
-            );
-            return;
-        }
-
-        this.state.removingSamples = true;
-        try {
-            this.state.data = await this.orm.call(
-                "quality.check",
-                "remove_measurement_samples",
-                [[this.checkId], count]
-            );
-            this.state.sampleCount = 1;
-        } finally {
-            this.state.removingSamples = false;
         }
     }
 

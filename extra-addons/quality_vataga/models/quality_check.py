@@ -332,66 +332,6 @@ class QualityCheck(models.Model):
         self._add_measurement_samples(count)
         return self.get_measurement_matrix_data()
 
-    def _remove_measurement_samples(self, count):
-        self.ensure_one()
-        self._ensure_measurement_editable(
-            completed_message=_(
-                'Не можна видаляти зразки завершеної перевірки.',
-            ),
-        )
-        if (
-            isinstance(count, bool)
-            or not isinstance(count, (int, float))
-            or not float(count).is_integer()
-            or count < 1
-        ):
-            raise ValidationError(_(
-                'Кількість зразків для видалення повинна бути цілим '
-                'числом більшим за нуль.',
-            ))
-        count = int(count)
-
-        # Serialize sample additions and removals for the same check so the
-        # tail and the next sample number cannot change during the operation.
-        self.env.cr.execute(
-            'SELECT id FROM quality_check WHERE id = %s FOR UPDATE',
-            [self.id],
-        )
-        samples_to_remove = self.env['quality.check.sample'].search(
-            [('quality_check_id', '=', self.id)],
-            order='sample_number desc, id desc',
-            limit=count,
-        )
-        if len(samples_to_remove) != count:
-            raise ValidationError(_(
-                'Неможливо прибрати %(count)s зразків: у перевірці '
-                'наявно лише %(available)s.',
-                count=count,
-                available=len(samples_to_remove),
-            ))
-
-        sample_with_results = samples_to_remove.filtered(
-            lambda sample: sample._has_entered_results(),
-        )[:1]
-        if sample_with_results:
-            raise UserError(_(
-                'Не можна прибрати останні %(count)s зразків, оскільки '
-                'зразок №%(number)s вже містить введені результати.',
-                count=count,
-                number=sample_with_results.sample_number,
-            ))
-
-        # The technical sample model is intentionally read-only in ACLs.
-        # Parent write rights/rules were checked above, and the user-scoped
-        # search fixed the exact records before this controlled elevation.
-        for sample in samples_to_remove.sudo():
-            sample.unlink()
-
-    def remove_measurement_samples(self, count):
-        self.ensure_one()
-        self._remove_measurement_samples(count)
-        return self.get_measurement_matrix_data()
-
     def action_add_measurement_samples(self):
         self.ensure_one()
         self._add_measurement_samples(self.sample_count_to_add)
@@ -549,15 +489,14 @@ class QualityCheck(models.Model):
         value.sudo().write(values)
         return self.get_measurement_matrix_data()
 
-    def _ensure_measurement_editable(self, completed_message=None):
+    def _ensure_measurement_editable(self):
         self.ensure_one()
         self.check_access_rights('write')
         self.check_access_rule('write')
         if self.quality_state != 'none':
-            raise UserError(
-                completed_message
-                or _('Матрицю завершеної перевірки не можна редагувати.'),
-            )
+            raise UserError(_(
+                'Матрицю завершеної перевірки не можна редагувати.',
+            ))
 
     def _validate_measurement_can_pass(self):
         for check in self.filtered('measurement_column_ids'):

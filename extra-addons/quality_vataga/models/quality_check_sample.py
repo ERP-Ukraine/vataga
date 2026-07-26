@@ -168,19 +168,6 @@ class QualityCheckSample(models.Model):
             ))
         return super().write(vals)
 
-    def _has_entered_results(self):
-        self.ensure_one()
-        return bool(
-            self.visual_result
-            or any(
-                value.has_numeric_value
-                or value.boolean_value
-                or value.string_value
-                or value.manual_result
-                for value in self.measurement_value_ids
-            )
-        )
-
     def unlink(self):
         if len(self) != 1:
             raise UserError(_(
@@ -190,7 +177,17 @@ class QualityCheckSample(models.Model):
             raise UserError(_(
                 'Не можна видаляти зразки завершеної перевірки.',
             ))
-        if self._has_entered_results():
+        has_entered_results = bool(
+            self.visual_result
+            or any(
+                value.has_numeric_value
+                or value.boolean_value
+                or value.string_value
+                or value.manual_result
+                for value in self.measurement_value_ids
+            )
+        )
+        if has_entered_results:
             raise UserError(_(
                 'Не можна видалити зразок №%(number)s, оскільки в ньому '
                 'вже є введені результати.',
