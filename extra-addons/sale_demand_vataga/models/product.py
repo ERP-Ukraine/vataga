@@ -1,4 +1,8 @@
+import logging
+
 from odoo import api, fields, models
+
+_logger = logging.getLogger(__name__)
 
 
 class ProductProduct(models.Model):
@@ -59,7 +63,7 @@ class ProductAnalytic(models.Model):
     account_move_ids = fields.Many2many(
         comodel_name='account.move', compute='_compute_account_move_ids', store=True
     )
-    
+
     kit_bom_ids = fields.Many2many(comodel_name='mrp.bom', compute='_compute_kit_bom_ids', store=True)
 
     @api.depends('product_id')
@@ -464,22 +468,33 @@ class ProductAnalytic(models.Model):
 
     @api.model
     def _cron_sync_account_move_ids(self):
-        return self._recompute_account_move_ids()
+        last_id = self.env['ir.config_parameter'].sudo().get_param('sale_demand_vataga.last_product_analytic_id', 0)
+        res = self._recompute_account_move_ids(last_id=last_id)
+        if res:
+            self.env.ref(
+                'sale_demand_vataga.cron_update_product_analytic_moves'
+            )._trigger()
 
     @api.model
-    def _recompute_account_move_ids(self, domain=None, batch_size=500):
-        domain = domain or [('demand', '>', 0), ('in_invoice', '>', 0)]
-        last_id = 0
-        while True:
-            product_analytics = self.search(
-                domain + [('id', '>', last_id)],
-                order='id',
-                limit=batch_size,
-            )
-            if not product_analytics:
-                break
-            product_analytics._compute_account_move_ids()
-            last_id = product_analytics[-1].id
+    def _recompute_account_move_ids(self, domain=None, batch_size=150, last_id=0):
+        domain = domain or [('demand', '>', 0), ('in_invoice', '>', 0), ('id', '>', last_id)]
+        product_analytics = self.search(
+            domain + [('id', '>', last_id)],
+            order='id',
+            limit=batch_size,
+        )
+        if not product_analytics:
+            self.env['ir.config_parameter'].sudo().set_param('sale_demand_vataga.last_product_analytic_id', 0)
+            return False
+
+        product_analytics._compute_account_move_ids()
+        next_last_id = product_analytics[-1].id
+        self.env['ir.config_parameter'].sudo().set_param(
+            'sale_demand_vataga.last_product_analytic_id', next_last_id
+        )
+        _logger.info(
+            f'Update Account Moves for Product Analytic from ID {last_id} to {next_last_id}'
+        )
         return True
 
     def _update_translations(self, other_model, source_field_name, field_name):
