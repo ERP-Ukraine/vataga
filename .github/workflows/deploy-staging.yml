@@ -4,16 +4,11 @@ on:
   push:
     branches:
       - staging
-  workflow_dispatch:
-
-permissions:
-  contents: read
 
 jobs:
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
-    timeout-minutes: 15
     environment: Staging
     steps:
       - name: Checkout
