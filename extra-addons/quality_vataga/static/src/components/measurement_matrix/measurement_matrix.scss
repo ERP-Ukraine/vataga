@@ -1,0 +1,78 @@
+.o_quality_measurement_matrix_field,
+.o_quality_measurement_matrix_field.o_field_widget,
+.o_quality_measurement_matrix_field .o_field_widget {
+    display: block;
+    width: 100%;
+    max-width: none;
+}
+
+.o_quality_measurement_matrix {
+    width: 100%;
+    max-width: none;
+    margin-top: 1rem;
+
+    > .alert {
+        width: 100%;
+        max-width: 100%;
+    }
+
+    .o_quality_measurement_sample_controls {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+    }
+
+    .o_quality_measurement_sample_count {
+        width: 7rem;
+        flex: 0 0 7rem;
+    }
+
+    .table-responsive {
+        display: block;
+        width: 100%;
+        max-width: 100%;
+    }
+
+    table {
+        width: 100%;
+        min-width: 900px;
+        margin-bottom: 0;
+    }
+
+    th,
+    td {
+        min-width: 170px;
+        vertical-align: middle;
+    }
+
+    .o_quality_measurement_fixed {
+        min-width: 150px;
+    }
+
+    .o_quality_measurement_dynamic {
+        min-width: 210px;
+    }
+
+    .o_quality_measurement_manual_result {
+        width: 105px;
+        flex: 0 0 105px;
+    }
+
+    .o_quality_measurement_pending {
+        background-color: rgba(255, 193, 7, 0.12);
+    }
+
+    .o_quality_measurement_fail {
+        background-color: rgba(220, 53, 69, 0.16);
+    }
+
+    .o_quality_measurement_pass {
+        background-color: rgba(25, 135, 84, 0.08);
+    }
+
+    .o_quality_measurement_result {
+        text-align: center;
+    }
+}
