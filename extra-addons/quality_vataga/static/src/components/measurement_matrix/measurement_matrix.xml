@@ -1,0 +1,284 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="quality_vataga.QualityMeasurementMatrix">
+        <div class="o_quality_measurement_matrix w-100">
+            <div t-if="state.loading" class="text-muted py-3">
+                Завантаження матриці…
+            </div>
+            <div
+                t-if="!state.loading and checkId and state.data.editable"
+                class="o_quality_measurement_sample_controls"
+            >
+                <label
+                    for="quality_vataga_sample_count"
+                    class="form-label mb-0"
+                >
+                    Кількість зразків
+                </label>
+                <input
+                    id="quality_vataga_sample_count"
+                    type="number"
+                    min="1"
+                    step="1"
+                    inputmode="numeric"
+                    class="form-control o_quality_measurement_sample_count"
+                    t-att-value="state.sampleCount"
+                    t-att-disabled="
+                        state.addingSamples
+                        or state.removingSamples
+                        or state.saving
+                    "
+                    t-on-input="onSampleCountInput"
+                />
+                <button
+                    type="button"
+                    class="btn btn-primary"
+                    t-att-disabled="
+                        state.addingSamples
+                        or state.removingSamples
+                        or state.saving
+                    "
+                    t-on-click="addSamples"
+                >
+                    <i
+                        t-att-class="state.addingSamples
+                            ? 'fa fa-spinner fa-spin me-1'
+                            : 'fa fa-plus me-1'"
+                    />
+                    <t t-if="state.addingSamples">Додавання…</t>
+                    <t t-else="">Додати зразки</t>
+                </button>
+                <button
+                    type="button"
+                    class="btn btn-primary"
+                    t-att-disabled="
+                        state.addingSamples
+                        or state.removingSamples
+                        or state.saving
+                        or !state.data.samples.length
+                    "
+                    t-on-click="removeSamples"
+                >
+                    <i
+                        t-att-class="state.removingSamples
+                            ? 'fa fa-spinner fa-spin me-1'
+                            : 'fa fa-minus me-1'"
+                    />
+                    <t t-if="state.removingSamples">Видалення…</t>
+                    <t t-else="">Прибрати останні</t>
+                </button>
+            </div>
+            <div
+                t-if="!state.loading and checkId and state.data.has_failure"
+                class="alert alert-danger"
+                role="alert"
+            >
+                Матриця містить невідповідності. Успішне завершення
+                перевірки недоступне.
+            </div>
+            <div
+                t-if="!state.loading and checkId and !state.data.is_complete and !state.data.has_failure"
+                class="alert alert-warning"
+                role="alert"
+            >
+                Заповніть візуальний контроль і всі показники матриці.
+            </div>
+            <div
+                t-if="!state.loading and !checkId"
+                class="alert alert-info"
+                role="alert"
+            >
+                Збережіть перевірку, щоб працювати з матрицею показників.
+            </div>
+            <div
+                t-elif="!state.loading and !state.data.samples.length"
+                class="o_quality_measurement_empty text-muted py-3"
+            >
+                Зразки ще не додані. Скористайтеся дією «Додати зразки».
+            </div>
+            <div
+                t-elif="!state.loading"
+                class="table-responsive w-100"
+            >
+                <table class="table table-bordered align-middle">
+                    <thead>
+                        <tr>
+                            <th class="o_quality_measurement_fixed">
+                                Номер зразка
+                            </th>
+                            <th class="o_quality_measurement_fixed">
+                                Візуальний контроль
+                            </th>
+                            <th
+                                t-foreach="state.data.columns"
+                                t-as="column"
+                                t-key="column.id"
+                                class="o_quality_measurement_dynamic"
+                            >
+                                <div class="fw-bold">
+                                    <t t-esc="column.control_type_label"/>
+                                    контроль
+                                </div>
+                                <div>
+                                    <t t-esc="column.parameter_name"/>
+                                    <t t-if="column.parameter_unit">
+                                        , <t t-esc="column.parameter_unit"/>
+                                    </t>
+                                </div>
+                                <small
+                                    t-if="column.tolerance_label"
+                                    class="text-muted d-block"
+                                >
+                                    Допуск:
+                                    <t t-esc="column.tolerance_label"/>
+                                </small>
+                                <small
+                                    t-if="column.text_norm and (column.control_type === 'functional' or column.parameter_type !== 'numeric')"
+                                    class="text-muted d-block"
+                                >
+                                    Очікується:
+                                    <t t-esc="column.text_norm"/>
+                                </small>
+                            </th>
+                            <th class="o_quality_measurement_fixed">
+                                Висновок по зразку
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr
+                            t-foreach="state.data.samples"
+                            t-as="sample"
+                            t-key="sample.id"
+                        >
+                            <th scope="row">
+                                <t t-esc="sample.display_name"/>
+                            </th>
+                            <td
+                                t-att-class="resultClass(
+                                    sample.visual_result === 'yes'
+                                        ? 'pass'
+                                        : sample.visual_result === 'no'
+                                            ? 'fail'
+                                            : 'pending'
+                                )"
+                            >
+                                <select
+                                    class="form-select"
+                                    t-att-disabled="!state.data.editable or state.saving"
+                                    t-on-change="(ev) => this.updateVisualResult(sample.id, ev)"
+                                >
+                                    <option
+                                        value=""
+                                        t-att-selected="!sample.visual_result"
+                                    >
+                                        —
+                                    </option>
+                                    <option
+                                        value="yes"
+                                        t-att-selected="sample.visual_result === 'yes'"
+                                    >
+                                        Так
+                                    </option>
+                                    <option
+                                        value="no"
+                                        t-att-selected="sample.visual_result === 'no'"
+                                    >
+                                        Ні
+                                    </option>
+                                </select>
+                            </td>
+                            <td
+                                t-foreach="sample.cells"
+                                t-as="cell"
+                                t-key="cell.id"
+                                t-att-class="cellClass(cell)"
+                                t-att-title="cell.failure_reason"
+                            >
+                                <input
+                                    t-if="cell.parameter_type === 'numeric'"
+                                    type="text"
+                                    inputmode="decimal"
+                                    class="form-control"
+                                    t-att-value="cell.numeric_input"
+                                    t-att-disabled="!state.data.editable or state.saving"
+                                    t-on-change="(ev) => this.updateNumericValue(cell, ev)"
+                                />
+                                <select
+                                    t-elif="cell.parameter_type === 'boolean'"
+                                    class="form-select"
+                                    t-att-disabled="!state.data.editable or state.saving"
+                                    t-on-change="(ev) => this.updateBooleanValue(cell, ev)"
+                                >
+                                    <option
+                                        value=""
+                                        t-att-selected="!cell.boolean_value"
+                                    >
+                                        —
+                                    </option>
+                                    <option
+                                        value="yes"
+                                        t-att-selected="cell.boolean_value === 'yes'"
+                                    >
+                                        Так
+                                    </option>
+                                    <option
+                                        value="no"
+                                        t-att-selected="cell.boolean_value === 'no'"
+                                    >
+                                        Ні
+                                    </option>
+                                </select>
+                                <div t-else="" class="d-flex gap-2">
+                                    <input
+                                        type="text"
+                                        class="form-control"
+                                        placeholder="Фактичне значення"
+                                        t-att-value="cell.string_value"
+                                        t-att-disabled="!state.data.editable or state.saving"
+                                        t-on-change="(ev) => this.updateStringValue(cell, ev)"
+                                    />
+                                    <select
+                                        class="form-select o_quality_measurement_manual_result"
+                                        t-att-disabled="!state.data.editable or state.saving"
+                                        t-on-change="(ev) => this.updateManualResult(cell, ev)"
+                                    >
+                                        <option
+                                            value=""
+                                            t-att-selected="!cell.manual_result"
+                                        >
+                                            —
+                                        </option>
+                                        <option
+                                            value="pass"
+                                            t-att-selected="cell.manual_result === 'pass'"
+                                        >
+                                            PASS
+                                        </option>
+                                        <option
+                                            value="fail"
+                                            t-att-selected="cell.manual_result === 'fail'"
+                                        >
+                                            FAIL
+                                        </option>
+                                    </select>
+                                </div>
+                            </td>
+                            <td
+                                t-att-class="resultClass(sample.sample_result)"
+                            >
+                                <strong>
+                                    <t
+                                        t-esc="resultLabel(
+                                            sample.sample_result
+                                        )"
+                                    />
+                                </strong>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </t>
+</templates>

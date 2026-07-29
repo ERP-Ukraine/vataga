@@ -1,0 +1,7 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_quality_equipment_parameter,quality.equipment.parameter,model_quality_equipment_parameter,,1,1,1,1
+access_quality_control_parameter_line,quality.control.parameter.line,model_quality_control_parameter_line,,1,1,1,1
+access_quality_check_equipment_selection,quality.check.equipment.selection,model_quality_check_equipment_selection,base.group_user,1,1,0,0
+access_quality_check_measurement_column,quality.check.measurement.column,model_quality_check_measurement_column,base.group_user,1,0,0,0
+access_quality_check_sample,quality.check.sample,model_quality_check_sample,base.group_user,1,0,0,0
+access_quality_check_measurement_value,quality.check.measurement.value,model_quality_check_measurement_value,base.group_user,1,0,0,0

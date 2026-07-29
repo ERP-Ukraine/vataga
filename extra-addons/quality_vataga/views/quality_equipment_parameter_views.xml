@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="quality_equipment_parameter_view_tree" model="ir.ui.view">
+        <field name="name">quality.equipment.parameter.tree</field>
+        <field name="model">quality.equipment.parameter</field>
+        <field name="arch" type="xml">
+            <tree string="Параметри обладнання" editable="bottom" default_order="sequence, name">
+                <field name="sequence" widget="handle"/>
+                <field name="name"/>
+                <field name="parameter_type"/>
+                <field name="unit"/>
+                <field name="active"/>
+            </tree>
+        </field>
+    </record>
+
+    <record id="quality_equipment_parameter_view_form" model="ir.ui.view">
+        <field name="name">quality.equipment.parameter.form</field>
+        <field name="model">quality.equipment.parameter</field>
+        <field name="arch" type="xml">
+            <form string="Параметр обладнання">
+                <sheet>
+                    <widget name="web_ribbon" title="Архівовано" bg_color="text-bg-danger" invisible="active"/>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1>
+                            <field name="name" placeholder="Наприклад, Температура"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="parameter_type"/>
+                            <field name="unit"/>
+                            <field name="sequence"/>
+                            <field name="active"/>
+                        </group>
+                    </group>
+                    <group>
+                        <field name="description" placeholder="Опис параметра"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="quality_equipment_parameter_view_search" model="ir.ui.view">
+        <field name="name">quality.equipment.parameter.search</field>
+        <field name="model">quality.equipment.parameter</field>
+        <field name="arch" type="xml">
+            <search string="Пошук параметрів обладнання">
+                <field name="name" string="Назва"/>
+                <field name="parameter_type"/>
+                <filter string="Архівні" name="inactive" domain="[('active', '=', False)]"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="quality_equipment_parameter_action" model="ir.actions.act_window">
+        <field name="name">Параметри обладнання</field>
+        <field name="res_model">quality.equipment.parameter</field>
+        <field name="view_mode">tree,form</field>
+        <field name="search_view_id" ref="quality_equipment_parameter_view_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Створіть перший параметр обладнання
+            </p>
+        </field>
+    </record>
+
+    <menuitem
+        id="menu_quality_equipment_parameter"
+        name="Параметри обладнання"
+        parent="maintenance.menu_equipment_form"
+        action="quality_equipment_parameter_action"
+        sequence="30"/>
+</odoo>
