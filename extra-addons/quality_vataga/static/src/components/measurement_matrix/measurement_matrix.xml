@@ -13,7 +13,7 @@
                     for="quality_vataga_sample_count"
                     class="form-label mb-0"
                 >
-                    Кількість нових зразків
+                    Кількість зразків
                 </label>
                 <input
                     id="quality_vataga_sample_count"
@@ -23,13 +23,21 @@
                     inputmode="numeric"
                     class="form-control o_quality_measurement_sample_count"
                     t-att-value="state.sampleCount"
-                    t-att-disabled="state.addingSamples or state.saving"
+                    t-att-disabled="
+                        state.addingSamples
+                        or state.removingSamples
+                        or state.saving
+                    "
                     t-on-input="onSampleCountInput"
                 />
                 <button
                     type="button"
                     class="btn btn-primary"
-                    t-att-disabled="state.addingSamples or state.saving"
+                    t-att-disabled="
+                        state.addingSamples
+                        or state.removingSamples
+                        or state.saving
+                    "
                     t-on-click="addSamples"
                 >
                     <i
@@ -39,6 +47,25 @@
                     />
                     <t t-if="state.addingSamples">Додавання…</t>
                     <t t-else="">Додати зразки</t>
+                </button>
+                <button
+                    type="button"
+                    class="btn btn-outline-danger"
+                    t-att-disabled="
+                        state.addingSamples
+                        or state.removingSamples
+                        or state.saving
+                        or not state.data.samples.length
+                    "
+                    t-on-click="removeSamples"
+                >
+                    <i
+                        t-att-class="state.removingSamples
+                            ? 'fa fa-spinner fa-spin me-1'
+                            : 'fa fa-minus me-1'"
+                    />
+                    <t t-if="state.removingSamples">Видалення…</t>
+                    <t t-else="">Прибрати останні</t>
                 </button>
             </div>
             <div

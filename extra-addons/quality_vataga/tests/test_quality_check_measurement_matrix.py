@@ -278,6 +278,97 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
 
         self.assertFalse(check.sample_ids)
 
+    def test_remove_samples_deletes_empty_tail_and_reuses_numbers(self):
+        check = self._create_check()
+        check.add_measurement_samples(3)
+        samples_to_remove = check.sample_ids.filtered(
+            lambda sample: sample.sample_number in (2, 3),
+        )
+        removed_sample_ids = samples_to_remove.ids
+        removed_value_ids = samples_to_remove.measurement_value_ids.ids
+
+        matrix_data = check.remove_measurement_samples(2)
+
+        remaining_samples = self.env['quality.check.sample'].search([
+            ('quality_check_id', '=', check.id),
+        ])
+        self.assertEqual(remaining_samples.mapped('sample_number'), [1])
+        self.assertFalse(
+            self.env['quality.check.sample'].browse(
+                removed_sample_ids,
+            ).exists(),
+        )
+        self.assertFalse(
+            self.env['quality.check.measurement.value'].browse(
+                removed_value_ids,
+            ).exists(),
+        )
+        self.assertEqual(
+            [sample['sample_number'] for sample in matrix_data['samples']],
+            [1],
+        )
+
+        check.add_measurement_samples(2)
+        self.assertEqual(
+            self.env['quality.check.sample'].search([
+                ('quality_check_id', '=', check.id),
+            ]).mapped('sample_number'),
+            [1, 2, 3],
+        )
+
+    def test_remove_samples_rejects_invalid_or_excessive_count(self):
+        check = self._create_check()
+        check.add_measurement_samples(2)
+
+        for invalid_count in (1.5, '1', 0, -1, True):
+            with self.subTest(count=invalid_count), self.assertRaises(
+                ValidationError,
+            ):
+                check.remove_measurement_samples(invalid_count)
+
+        with self.assertRaisesRegex(
+            ValidationError,
+            'Неможливо прибрати 3 зразків',
+        ):
+            check.remove_measurement_samples(3)
+        self.assertEqual(check.sample_ids.mapped('sample_number'), [1, 2])
+
+    def test_remove_samples_is_atomic_when_tail_contains_results(self):
+        check = self._create_check()
+        check.add_measurement_samples(3)
+        second_sample = check.sample_ids.filtered(
+            lambda sample: sample.sample_number == 2,
+        )
+        check.update_measurement_visual_result(second_sample.id, 'yes')
+
+        with self.assertRaisesRegex(
+            UserError,
+            'зразок №2 вже містить введені результати',
+        ):
+            check.remove_measurement_samples(2)
+
+        self.assertEqual(check.sample_ids.mapped('sample_number'), [1, 2, 3])
+
+    def test_remove_samples_is_blocked_after_check_completion(self):
+        check = self._create_check()
+        check.add_measurement_samples(1)
+        self.cr.execute(
+            """
+            UPDATE quality_check
+               SET quality_state = 'fail'
+             WHERE id = %s
+            """,
+            [check.id],
+        )
+        check.invalidate_recordset(['quality_state'])
+
+        with self.assertRaisesRegex(
+            UserError,
+            'Не можна видаляти зразки завершеної перевірки',
+        ):
+            check.remove_measurement_samples(1)
+        self.assertEqual(check.sample_ids.mapped('sample_number'), [1])
+
     def test_complete_passing_matrix_allows_pass(self):
         check = self._create_check()
         check.equipment_selection_ids.equipment_ids = [
