@@ -4,13 +4,55 @@
 import { download } from "@web/core/network/download";
 import { PivotRenderer } from "@web/views/pivot/pivot_renderer"
 import {
+    onMounted,
+    onPatched,
+    onWillPatch,
     useRef,
 } from "@odoo/owl";
+
+export function getClosedCellColor(value) {
+    if (typeof value !== "number" || Number.isNaN(value)) {
+        return "white";
+    }
+    if (value > 1) {
+        return "#779bb5";
+    }
+    if (Math.round(value * 100) === 100) {
+        return "#d9ead3";
+    }
+    if (value <= 0.7) {
+        return "#d9bfc7";
+    }
+    return "#e4daa8";
+}
 
 export class PivotRendererDemand extends PivotRenderer {
     setup() {
         this.rootRef = useRef("root");
-        return super.setup();
+        super.setup();
+        if (this.model.demandProfileEnabled) {
+            this.demandRenderStartedAt = performance.now();
+            onMounted(() => this.logDemandRenderProfile("mounted"));
+            onPatched(() => this.logDemandRenderProfile("patched"));
+            onWillPatch(() => {
+                this.demandRenderStartedAt = performance.now();
+            });
+        }
+    }
+    logDemandRenderProfile(stage) {
+        const table = this.tableRef.el;
+        const rows = table ? [...table.rows] : [];
+        console.info("[DemandPivotProfile] renderer", {
+            stage,
+            renderer_ms: Number(
+                (performance.now() - this.demandRenderStartedAt).toFixed(2)
+            ),
+            dom_cells: table ? table.querySelectorAll("th, td").length : 0,
+            dom_rows: rows.length,
+            max_dom_columns: rows.length
+                ? Math.max(...rows.map((row) => row.cells.length))
+                : 0,
+        });
     }
     onStartResize(ev) {
         this.resizing = true;
@@ -94,24 +136,10 @@ export class PivotRendererDemand extends PivotRenderer {
         }
     }
     get_color(cell) {
-        function nearlyEqual(a, b, epsilon = 1e-8) {
-            return Math.abs(a - b) < epsilon;
+        if (cell.measure === "closed") {
+            return getClosedCellColor(cell.value);
         }
-        if (cell.measure === 'closed' && cell.value !== undefined) {
-            if (cell.value <= 0.7){
-                return '#d9bfc7'
-            }
-            if (nearlyEqual(cell.value, 1)){
-                return '#71a064'
-            }
-            if (cell.value < 1){
-                return '#e4daa8'
-            }
-            if (cell.value > 1){
-                return '#779bb5'
-            }
-        }
-        return 'white'
+        return "white";
     }
     onDownloadButtonClicked() {
         if (this.model.getTableWidth() > 16384) {
