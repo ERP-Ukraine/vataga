@@ -55,7 +55,7 @@
                         state.addingSamples
                         or state.removingSamples
                         or state.saving
-                        or not state.data.samples.length
+                        or !state.data.samples.length
                     "
                     t-on-click="removeSamples"
                 >
