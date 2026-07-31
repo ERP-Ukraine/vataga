@@ -39,6 +39,30 @@ class TestGeminiProductMatcher(TransactionCase):
         product = self._product(product_name)
         return self.matcher._score_product_strict(line, product, partner=False)
 
+    def _full_bill_match(self, ocr_name, product_name, default_code=False):
+        product = self._product(product_name, default_code=default_code)
+        return self._full_bill_match_existing_product(ocr_name, product)
+
+    def _full_bill_match_existing_product(self, ocr_name, product):
+        job = self.env['account.gemini.digitization.job'].create({
+            'name': 'Matcher full bill test',
+            'mode': 'full_bill',
+            'state': 'review',
+        })
+        line = self.env['account.gemini.digitization.line'].create({
+            'job_id': job.id,
+            'sequence': 10,
+            'supplier_product_name': ocr_name,
+            'description': ocr_name,
+            'quantity': 1.0,
+            'price_unit': 1.0,
+        })
+        discovered_products = self.matcher._find_full_bill_products(line, partner=False)
+
+        self.matcher._match_full_document_products(job)
+
+        return line, product, discovered_products
+
     def test_dotted_technical_code_exact_match(self):
         candidate = (
             '[RES-BEC-0238] '
@@ -57,6 +81,43 @@ class TestGeminiProductMatcher(TransactionCase):
             '[RES-BEC-0239] Розетка під кутовий чорний RHT.S006.T01.BK',
         )
         self.assertLess(result['score'], ProductMatcher.MATCHED_THRESHOLD)
+
+    def test_full_bill_exact_normalized_name_discovers_dc_converter(self):
+        ocr_name = 'Перетворювач DC-DC понижуючий з 24-60V на 24V, 5A'
+        product_name = 'Перетворювач DC-DC понижуючий з 24-60V на 24V, 5A'
+
+        line, product, discovered_products = self._full_bill_match(
+            ocr_name,
+            product_name,
+            default_code='RES-BEC-0384',
+        )
+
+        self.assertIn(product, discovered_products)
+        self.assertEqual(line.match_status, 'matched')
+        self.assertEqual(line.match_method, 'normalized_name_exact')
+        self.assertEqual(line.match_score, 1.0)
+        self.assertEqual(line.matched_product_id, product)
+
+    def test_full_bill_exact_normalized_name_handles_dash_spacing_variants(self):
+        ocr_variants = [
+            'Перетворювач DC–DC понижуючий з 24–60 V на 24 V 5 A',
+            'Перетворювач DC — DC понижуючий з 24 - 60V на 24V 5A',
+            'Перетворювач dc dc понижуючий з 24 - 60 V на 24 V, 5 A',
+        ]
+        product_name = 'Перетворювач DC-DC понижуючий з 24-60V на 24V, 5A'
+        product = self._product(product_name, default_code='RES-BEC-0384')
+
+        for ocr_name in ocr_variants:
+            line, _product, discovered_products = self._full_bill_match_existing_product(
+                ocr_name,
+                product,
+            )
+
+            self.assertIn(product, discovered_products)
+            self.assertEqual(line.match_status, 'matched')
+            self.assertEqual(line.match_method, 'normalized_name_exact')
+            self.assertEqual(line.match_score, 1.0)
+            self.assertEqual(line.matched_product_id, product)
 
     def test_full_document_assignment_locks_distinct_rht_exact_codes(self):
         expected = [

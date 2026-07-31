@@ -28,6 +28,7 @@ class ProductMatcher:
         'dotted_technical_code_exact',
         'historical_technical_code_exact',
         'historical_dotted_technical_code_exact',
+        'normalized_name_exact',
     }
     LOW_VALUE_CODE_PATTERNS = (
         re.compile(r'^ip\d{2,3}$', flags=re.I),
@@ -1141,6 +1142,9 @@ class ProductMatcher:
         profile = self._line_code_profile(line)
         search_codes = profile['primary_codes'] or profile['secondary_codes']
 
+        for product in self._find_exact_normalized_name_products(line):
+            self._append_unique(products, product)
+
         for seller in self._find_supplierinfos_by_articles(
             self._line_supplier_articles(line),
             partner,
@@ -1716,7 +1720,7 @@ class ProductMatcher:
                     notes.append(
                         'Exact normalized product name match: "%s".' % line_name
                     )
-                    return 0.97, 'name_exact_or_near_exact', notes, details
+                    return 1.0, 'normalized_name_exact', notes, details
 
         best_near_exact = False
         best_near_exact_score = 0.0
@@ -3139,7 +3143,7 @@ class ProductMatcher:
                 'winner': locked_candidates[0],
                 'reason': (
                     'reason_code=locked_exact_code; '
-                    'one active product.product has the exact normalized technical code.'
+                    'one active product.product has the exact normalized code/name match.'
                 ),
             }
 
@@ -3158,7 +3162,7 @@ class ProductMatcher:
                 'winner': purchase_candidates[0],
                 'reason': (
                     'reason_code=locked_exact_code_purchase_ok; '
-                    'several exact-code products were found, but only one has purchase_ok=True.'
+                    'several exact code/name products were found, but only one has purchase_ok=True.'
                 ),
             }
 
@@ -3176,7 +3180,7 @@ class ProductMatcher:
                 'winner': exact_name_candidates[0],
                 'reason': (
                     'reason_code=locked_exact_code_name_tiebreak; '
-                    'several exact-code products were found; full normalized name selected one.'
+                    'several exact code/name products were found; full normalized name selected one.'
                 ),
             }
 
@@ -3184,7 +3188,7 @@ class ProductMatcher:
             'ambiguous': True,
             'reason': (
                 'reason_code=duplicate_exact_code; '
-                'several distinct active product.product records have the same exact normalized technical code.'
+                'several distinct active product.product records have the same exact normalized code/name match.'
             ),
         }
 
@@ -3923,9 +3927,47 @@ class ProductMatcher:
             'Historical account.move.line candidates count: %s.' % len(historical_lines),
             'Historical account.move.line name candidates count: %s.' % len(historical_name_lines),
             'Product candidates found: %s.' % len(products),
+            'Candidate discovery domain: exact active purchase products first; active products fallback; no company filter.',
+            'Candidate ids: %s.' % (
+                ', '.join(str(product.id) for product in products) if products else 'none'
+            ),
+            'exact_name_search_count: %s.' % name_search['exact_name_search_count'],
+            'exact_name_candidates: %s.' % (
+                ', '.join(
+                    '%s:%s' % (product_id, product_name)
+                    for product_id, product_name in zip(
+                        name_search['exact_candidate_ids'],
+                        name_search['exact_candidate_names'],
+                    )
+                )
+                if name_search['exact_candidate_names']
+                else 'none'
+            ),
+            'candidate_discovery_domain: purchase=%s; fallback=%s.' % (
+                name_search['exact_purchase_domain'],
+                name_search['exact_fallback_domain'],
+            ),
+            'candidate_ids: %s.' % (
+                ', '.join(str(product.id) for product in products) if products else 'none'
+            ),
+            'normalized_ocr_name: %s.' % (
+                ', '.join(name_search['normalized_names'])
+                if name_search['normalized_names']
+                else 'none'
+            ),
+            'normalized_product_name: %s.' % (
+                '; '.join(name_search['exact_candidate_normalized_names'])
+                if name_search['exact_candidate_normalized_names']
+                else 'none'
+            ),
             'Product name fallback normalized names: %s.' % (
                 ', '.join(name_search['normalized_names'])
                 if name_search['normalized_names']
+                else 'none'
+            ),
+            'Product name exact keys: %s.' % (
+                ', '.join(name_search['normalized_name_keys'])
+                if name_search['normalized_name_keys']
                 else 'none'
             ),
             'Tried exact normalized product name search: yes.',
@@ -4111,6 +4153,10 @@ class ProductMatcher:
         return ids
 
     def _find_full_bill_name_products(self, line):
+        exact_products = self._find_exact_normalized_name_products(line)
+        if exact_products:
+            return exact_products
+
         terms = self._plain_name_search_terms(line)
         if not terms:
             return []
@@ -4119,6 +4165,8 @@ class ProductMatcher:
         for term in terms:
             for product in self._search_products_name_like(term, purchase_ok=True):
                 self._append_unique(purchase_products, product)
+            for product in self._name_search_products(term, purchase_ok=True):
+                self._append_unique(purchase_products, product)
         if purchase_products:
             return purchase_products
 
@@ -4126,7 +4174,74 @@ class ProductMatcher:
         for term in terms:
             for product in self._search_products_name_like(term, purchase_ok=False):
                 self._append_unique(fallback_products, product)
+            for product in self._name_search_products(term, purchase_ok=False):
+                self._append_unique(fallback_products, product)
         return fallback_products
+
+    def _find_exact_normalized_name_products(self, line):
+        exact_info = self._exact_normalized_name_search_info(line)
+        if exact_info['purchase_products']:
+            return exact_info['purchase_products']
+        return exact_info['fallback_products']
+
+    def _exact_normalized_name_search_info(self, line):
+        line_names = self._line_normalized_plain_names(line)
+        line_keys = self._plain_name_exact_keys(line_names)
+        purchase_domain = self._product_catalog_domain(purchase_ok=True)
+        fallback_domain = self._product_catalog_domain(purchase_ok=False)
+        purchase_products = self._filter_exact_normalized_name_products(
+            line_keys,
+            self._catalog_products(purchase_domain),
+        )
+        fallback_products = []
+        if not purchase_products:
+            fallback_products = self._filter_exact_normalized_name_products(
+                line_keys,
+                self._catalog_products(fallback_domain),
+            )
+        return {
+            'line_names': line_names,
+            'line_keys': sorted(line_keys),
+            'purchase_domain': purchase_domain,
+            'fallback_domain': fallback_domain,
+            'purchase_products': purchase_products,
+            'fallback_products': fallback_products,
+        }
+
+    def _filter_exact_normalized_name_products(self, line_keys, products):
+        result = []
+        if not line_keys:
+            return result
+        for product in products:
+            product_keys = self._plain_name_exact_keys(
+                self._product_normalized_plain_names(product)
+            )
+            if line_keys & product_keys:
+                self._append_unique(result, product)
+        return result
+
+    def _plain_name_exact_keys(self, normalized_names):
+        keys = set()
+        for normalized_name in normalized_names or []:
+            if not self._is_safe_plain_name_for_exact(normalized_name):
+                continue
+            keys.add(normalized_name)
+            compact = re.sub(r'\s+', '', normalized_name)
+            if len(compact) >= 8:
+                keys.add(compact)
+        return keys
+
+    def _product_catalog_domain(self, purchase_ok=True):
+        domain = []
+        product_model = self.env['product.product']
+        if 'active' in product_model._fields:
+            domain.append(('active', '=', True))
+        if purchase_ok is True and 'purchase_ok' in product_model._fields:
+            domain.append(('purchase_ok', '=', True))
+        return domain
+
+    def _catalog_products(self, domain):
+        return list(self.env['product.product'].with_context(active_test=True).search(domain))
 
     def _plain_name_search_terms(self, line):
         terms = []
@@ -4140,26 +4255,46 @@ class ProductMatcher:
 
     def _product_name_search_snapshot(self, line):
         terms = self._plain_name_search_terms(line)
+        exact_info = self._exact_normalized_name_search_info(line)
         purchase_products = []
         fallback_products = []
         for term in terms:
             for product in self._search_products_name_like(term, purchase_ok=True):
                 self._append_unique(purchase_products, product)
+            for product in self._name_search_products(term, purchase_ok=True):
+                self._append_unique(purchase_products, product)
             for product in self._search_products_name_like(term, purchase_ok=False):
+                self._append_unique(fallback_products, product)
+            for product in self._name_search_products(term, purchase_ok=False):
                 self._append_unique(fallback_products, product)
 
         exact_products = []
-        for product in purchase_products or fallback_products:
+        for product in exact_info['purchase_products'] or exact_info['fallback_products'] or purchase_products or fallback_products:
             score, _method, _notes, details = self._score_plain_product_name_match(line, product)
             if score >= 0.95 and details.get('match_type') == 'exact':
                 self._append_unique(exact_products, product)
 
         return {
             'normalized_names': self._line_normalized_plain_names(line),
+            'normalized_name_keys': exact_info['line_keys'],
+            'exact_name_search_count': len(exact_info['purchase_products'] or exact_info['fallback_products']),
+            'exact_purchase_domain': exact_info['purchase_domain'],
+            'exact_fallback_domain': exact_info['fallback_domain'],
             'purchase_ok_count': len(purchase_products),
             'fallback_count': len(fallback_products),
             'exact_candidate_names': [
                 self._short_product_name(product)
+                for product in exact_products[:10]
+            ],
+            'exact_candidate_ids': [
+                product.id
+                for product in exact_products[:10]
+            ],
+            'exact_candidate_normalized_names': [
+                '%s:%s' % (
+                    product.id,
+                    ', '.join(self._product_normalized_plain_names(product)),
+                )
                 for product in exact_products[:10]
             ],
         }
@@ -4388,6 +4523,29 @@ class ProductMatcher:
         if purchase_ok is True:
             domain.insert(0, ('purchase_ok', '=', True))
         return list(self.env['product.product'].search(domain, limit=100))
+
+    def _name_search_products(self, term, purchase_ok=True):
+        if not term:
+            return []
+        domain = []
+        product_model = self.env['product.product']
+        if purchase_ok is True and 'purchase_ok' in product_model._fields:
+            domain.append(('purchase_ok', '=', True))
+        try:
+            matches = product_model.name_search(
+                name=term,
+                args=domain,
+                operator='ilike',
+                limit=100,
+            )
+        except TypeError:
+            matches = product_model.name_search(
+                term,
+                domain,
+                'ilike',
+                100,
+            )
+        return list(product_model.browse([match[0] for match in matches]))
 
     def _search_products_code_like(self, code):
         code = str(code or '').strip()
@@ -4855,6 +5013,7 @@ class ProductMatcher:
         terms = list(profile['primary_codes'])
         terms.extend(self._line_odoo_like_name_search_terms(line))
         terms.extend(self._line_weighted_name_search_terms(line))
+        terms.extend(self._line_electrical_search_terms(line))
         for value in self._line_name_terms(line):
             for token in self._meaningful_tokens(value):
                 if token in self.GENERIC_NAME_TOKENS:
@@ -4911,6 +5070,36 @@ class ProductMatcher:
         ]
         weighted_terms.sort(key=lambda item: (-item[1], item[0]))
         return [token for token, _weight in weighted_terms[:8]]
+
+    def _line_electrical_search_terms(self, line):
+        raw_text = self._ocr_line_text(line)
+        prepared_text = self._prepare_code_text(raw_text)
+        terms = []
+        if re.search(r'\bDC\s*[-\s]\s*DC\b', prepared_text, flags=re.I):
+            terms.extend(['DC-DC', 'DC DC'])
+
+        for pattern in (
+            r'\b\d+\s*[-]\s*\d+\s*V\b',
+            r'\b\d+\s*V\b',
+            r'\b\d+\s*A\b',
+        ):
+            for match in re.findall(pattern, prepared_text, flags=re.I):
+                term = re.sub(r'\s+', '', match.upper())
+                term = re.sub(r'(?<=\d)-(?=\d)', '-', term)
+                if term:
+                    terms.append(term)
+
+        normalized_text = self._normalize_text(raw_text)
+        for token in (
+            'понижуючий',
+            'понижаючий',
+            'понижувальний',
+            'понижающий',
+        ):
+            normalized_token = self._normalize_text(token)
+            if normalized_token and normalized_token in normalized_text:
+                terms.append(token)
+        return list(dict.fromkeys(term for term in terms if term))
 
     def _line_code_profile(self, line):
         primary_codes = []
