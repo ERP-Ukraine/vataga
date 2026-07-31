@@ -1,6 +1,6 @@
 {
     'name': 'Sale Demand Vataga',
-    'version': '2.8',
+    'version': '2.9',
     'category': 'Sales/Sales',
     'author': 'ERP Ukraine LLC',
     'website': 'https://erp.co.ua',
@@ -33,6 +33,7 @@
         ],
         'web.qunit_suite_tests': [
             'sale_demand_vataga/static/tests/pivot_renderer_tests.js',
+            'sale_demand_vataga/static/tests/pivot_view_tests.js',
         ],
     },
 }

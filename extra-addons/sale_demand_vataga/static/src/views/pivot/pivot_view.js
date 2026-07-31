@@ -10,6 +10,151 @@ import { PivotRendererDemand } from "./pivot_renderer";
 
 const viewRegistry = registry.category("views");
 
+function stableJsonValue(value) {
+    if (Array.isArray(value)) {
+        return value.map(stableJsonValue);
+    }
+    if (value && typeof value === "object") {
+        return Object.fromEntries(
+            Object.keys(value)
+                .sort()
+                .map((key) => [key, stableJsonValue(value[key])])
+        );
+    }
+    return value;
+}
+
+export function getDemandSearchLoadKey(searchParams, activeMeasures) {
+    return JSON.stringify(
+        stableJsonValue({
+            activeMeasures,
+            comparison: searchParams.comparison || null,
+            context: searchParams.context || {},
+            domain: searchParams.domain || [],
+            groupBy: searchParams.groupBy || [],
+            orderBy: searchParams.orderBy || [],
+        })
+    );
+}
+
+export function getReadyDemandSearchParams(searchParams, searchModel) {
+    if (!searchModel) {
+        return searchParams;
+    }
+    return {
+        ...searchParams,
+        comparison: searchModel.comparison,
+        context: searchModel.context,
+        domain: searchModel.domain,
+        groupBy: searchModel.groupBy,
+        orderBy: searchModel.orderBy,
+    };
+}
+
+export class InitialSearchStateGate {
+    constructor() {
+        this.ready = false;
+        this._createPendingGate();
+    }
+
+    _createPendingGate() {
+        this.promise = new Promise((resolve, reject) => {
+            this.resolve = resolve;
+            this.reject = reject;
+        });
+        // The SearchModel can fail before the PivotModel starts waiting.
+        // Keep the original promise rejectable without producing an unhandled rejection.
+        this.promise.catch(() => {});
+    }
+
+    wait() {
+        return this.ready ? Promise.resolve() : this.promise;
+    }
+
+    async track(loadPromise) {
+        if (this.ready) {
+            return loadPromise;
+        }
+
+        const trackedPromise = this.promise;
+        try {
+            const result = await loadPromise;
+            if (this.promise === trackedPromise) {
+                this.ready = true;
+                this.resolve();
+                this.promise = null;
+                this.resolve = null;
+                this.reject = null;
+            }
+            return result;
+        } catch (error) {
+            if (this.promise === trackedPromise) {
+                this.reject(error);
+                this._createPendingGate();
+            }
+            throw error;
+        }
+    }
+}
+
+export class DemandPivotLoadCoordinator {
+    constructor(loadSearchParams) {
+        this.loadSearchParams = loadSearchParams;
+        this.pendingLoads = new Map();
+    }
+
+    load(searchParams, activeMeasures) {
+        const key = getDemandSearchLoadKey(searchParams, activeMeasures);
+        const pendingLoad = this.pendingLoads.get(key);
+        if (pendingLoad) {
+            return pendingLoad;
+        }
+
+        const loadPromise = Promise.resolve().then(() =>
+            this.loadSearchParams(searchParams)
+        );
+        this.pendingLoads.set(key, loadPromise);
+        const clearPendingLoad = () => {
+            if (this.pendingLoads.get(key) === loadPromise) {
+                this.pendingLoads.delete(key);
+            }
+        };
+        loadPromise.then(clearPendingLoad, clearPendingLoad);
+        return loadPromise;
+    }
+}
+
+export async function loadDemandPivotAfterSearchReady({
+    activeMeasures,
+    coordinator,
+    searchModel,
+    searchParams,
+}) {
+    await searchModel?.waitForInitialSearchState?.();
+    const readySearchParams = getReadyDemandSearchParams(
+        searchParams,
+        searchModel
+    );
+    const readyActiveMeasures =
+        readySearchParams.context?.pivot_measures || activeMeasures;
+    return coordinator.load(readySearchParams, readyActiveMeasures);
+}
+
+export class PivotSearchModelDemand extends PivotSearchModel {
+    setup(...args) {
+        super.setup(...args);
+        this.initialSearchStateGate = new InitialSearchStateGate();
+    }
+
+    load(config) {
+        return this.initialSearchStateGate.track(super.load(config));
+    }
+
+    waitForInitialSearchState() {
+        return this.initialSearchStateGate.wait();
+    }
+}
+
 function demandPivotProfileRequested(context = {}) {
     if (context.profile_demand_pivot) {
         return true;
@@ -29,7 +174,25 @@ function getJsonByteLength(value) {
 }
 
 export class PivotModelDemand extends PivotModel {
-    async load(searchParams) {
+    load(searchParams) {
+        if (!this.demandLoadCoordinator) {
+            this.demandLoadCoordinator = new DemandPivotLoadCoordinator(
+                (readySearchParams) =>
+                    this._loadReadyDemandSearchParams(readySearchParams)
+            );
+        }
+        const activeMeasures =
+            searchParams.context?.pivot_measures ||
+            this.metaData.activeMeasures;
+        return loadDemandPivotAfterSearchReady({
+            activeMeasures,
+            coordinator: this.demandLoadCoordinator,
+            searchModel: this.env.searchModel,
+            searchParams,
+        });
+    }
+
+    async _loadReadyDemandSearchParams(searchParams) {
         this.demandProfileEnabled = demandPivotProfileRequested(
             searchParams.context
         );
@@ -190,7 +353,7 @@ export const pivotView = {
     Renderer: PivotRendererDemand,
     Model: PivotModelDemand,
     ArchParser: PivotArchParser,
-    SearchModel: PivotSearchModel,
+    SearchModel: PivotSearchModelDemand,
     searchMenuTypes: ["filter", "groupBy", "comparison", "favorite"],
 
     props: (genericProps, view) => {
