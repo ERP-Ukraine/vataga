@@ -25,7 +25,9 @@ class ProductMatcher:
         'default_code_exact',
         'barcode_exact',
         'technical_code_exact',
+        'dotted_technical_code_exact',
         'historical_technical_code_exact',
+        'historical_dotted_technical_code_exact',
     }
     LOW_VALUE_CODE_PATTERNS = (
         re.compile(r'^ip\d{2,3}$', flags=re.I),
@@ -39,6 +41,9 @@ class ProductMatcher:
     }
     TECHNICAL_COLOR_TOKENS = {
         'black',
+        'bk',
+        'rd',
+        'red',
         'white',
     }
     TECHNICAL_MODEL_TOKEN_ALLOWLIST = {
@@ -1525,6 +1530,12 @@ class ProductMatcher:
                 % internal_penalty
             )
 
+        if self._has_conflicting_full_technical_codes(technical_details, method):
+            score = min(score, 0.69)
+            penalties.append(
+                'conflicting full technical code prevents automatic match'
+            )
+
         if not score:
             method = method or False
         bundle_note = self._bundle_product_note(line, product)
@@ -1703,7 +1714,30 @@ class ProductMatcher:
                     notes.append(
                         'Exact normalized product name match: "%s".' % line_name
                     )
-                    return 0.95, 'product_name_exact', notes, details
+                    return 0.97, 'name_exact_or_near_exact', notes, details
+
+        best_near_exact = False
+        best_near_exact_score = 0.0
+        for line_name in details['line_names']:
+            if not self._is_safe_plain_name_for_exact(line_name):
+                continue
+            for product_name in details['product_names']:
+                if not product_name:
+                    continue
+                similarity = difflib.SequenceMatcher(None, line_name, product_name).ratio()
+                token_similarity = self._weighted_name_similarity(line_name, product_name)
+                candidate_score = max(similarity, token_similarity)
+                if candidate_score > best_near_exact_score:
+                    best_near_exact_score = candidate_score
+                    best_near_exact = (line_name, product_name)
+
+        if best_near_exact and best_near_exact_score >= 0.96:
+            details['match_type'] = 'near_exact'
+            notes.append(
+                'Near-exact normalized product name match: "%s" ~= "%s"; similarity %.2f.'
+                % (best_near_exact[0], best_near_exact[1], best_near_exact_score)
+            )
+            return 0.97, 'name_exact_or_near_exact', notes, details
 
         best_substring = False
         for line_name in details['line_names']:
@@ -2140,7 +2174,22 @@ class ProductMatcher:
         )
         if full_exact:
             score = 1.0
-            method = 'historical_technical_code_exact' if historical else 'technical_code_exact'
+            has_dotted_code = any(
+                '.' in str(value)
+                for value in full_exact
+            )
+            if historical:
+                method = (
+                    'historical_dotted_technical_code_exact'
+                    if has_dotted_code
+                    else 'historical_technical_code_exact'
+                )
+            else:
+                method = (
+                    'dotted_technical_code_exact'
+                    if has_dotted_code
+                    else 'technical_code_exact'
+                )
             details['matched_full_code'] = full_exact
             details['exact_matches'] = [full_exact]
             notes.append(
@@ -2294,6 +2343,27 @@ class ProductMatcher:
                 ', '.join(product_profile['base_models']),
             )
         )
+
+    def _has_conflicting_full_technical_codes(self, technical_details, method=False):
+        if method in (
+            'technical_code_exact',
+            'dotted_technical_code_exact',
+            'historical_technical_code_exact',
+            'historical_dotted_technical_code_exact',
+        ):
+            return False
+        if method and str(method).startswith('historical_technical'):
+            return False
+        line_codes = technical_details.get('line_full_codes') or []
+        candidate_codes = technical_details.get('candidate_full_codes') or []
+        if not line_codes or not candidate_codes:
+            return False
+        if technical_details.get('exact_matches'):
+            return False
+        matched_full = technical_details.get('matched_full_code')
+        if matched_full and self._technical_values_match(matched_full[0], matched_full[1]):
+            return False
+        return True
 
     def _line_technical_profile(self, line):
         return self._technical_profile_from_values([
@@ -3071,6 +3141,7 @@ class ProductMatcher:
         line.write(values)
         if values['match_status'] in ('ambiguous', 'not_found'):
             self._log_technical_match(line, candidates)
+            self._log_name_model_match(line, candidates, values['match_status'])
         if values['match_status'] == 'not_found':
             self._log_unmatched_supplier_article(line, candidates)
 
@@ -3133,6 +3204,7 @@ class ProductMatcher:
         ocr_profile = self._name_model_token_profile(line_values)
         if not ocr_profile['tokens']:
             return False
+        technical_profile = self._line_technical_profile(line)
         scored_candidates = sorted(
             [
                 candidate
@@ -3152,20 +3224,27 @@ class ProductMatcher:
             details = candidate.get('name_model_details') or {}
             if not product or not details:
                 continue
+            technical_details = candidate.get('technical_details') or {}
             _logger.info(
-                'Gemini OCR name match: mode=%s ocr_name="%s" ocr_tokens=%s '
-                'ocr_meaningful_tokens=%s candidate=%s/%s candidate_tokens=%s '
+                'Gemini OCR name match: mode=%s ocr_name="%s" '
+                'ocr_technical_codes=%s ocr_tokens=%s ocr_meaningful_tokens=%s '
+                'candidate_count=%s candidate=%s/%s candidate_codes=%s '
+                'candidate_technical_codes=%s candidate_tokens=%s '
                 'matched_tokens=%s matched_phrases=%s generic_matches=%s '
                 'conflicting_tokens=%s token_weight_score=%.2f phrase_score=%.2f '
-                'final_score=%.2f second_score=%.2f method=%s decision=%s',
+                'final_score=%.2f second_score=%.2f method=%s decision=%s reason=%s',
                 getattr(line.job_id, 'mode', False) or 'unknown',
                 ' | '.join(str(value) for value in line_values if value),
+                ', '.join(technical_profile.get('full_codes') or []) or 'none',
                 ', '.join(ocr_profile['tokens']) or 'none',
                 ', '.join(ocr_profile['meaningful_tokens']) or 'none',
+                len(scored_candidates),
                 getattr(product, 'id', False) or 'unknown',
                 getattr(product, 'display_name', False)
                 or getattr(product, 'name', False)
                 or '',
+                ', '.join(candidate.get('candidate_codes') or []) or 'none',
+                ', '.join(technical_details.get('candidate_full_codes') or []) or 'none',
                 ', '.join(details.get('candidate_tokens') or []) or 'none',
                 ', '.join(details.get('matched_tokens') or []) or 'none',
                 ', '.join(details.get('matched_phrases') or []) or 'none',
@@ -3177,6 +3256,7 @@ class ProductMatcher:
                 second_score,
                 candidate.get('method') or 'none',
                 decision,
+                '; '.join(candidate.get('notes') or []) or 'none',
             )
         return True
 
@@ -4333,7 +4413,7 @@ class ProductMatcher:
             return []
         tokens = []
         for token in re.findall(
-            r'[a-z0-9\u0400-\u04ff]+(?:[-/][a-z0-9\u0400-\u04ff]+)*',
+            r'[a-z0-9\u0400-\u04ff]+(?:[-/.][a-z0-9\u0400-\u04ff]+)*',
             text,
             flags=re.I | re.U,
         ):
@@ -4351,7 +4431,7 @@ class ProductMatcher:
         value = re.sub(r'(?<=[\u0400-\u04ff])(?=[A-Za-z])', ' ', value, flags=re.U)
         value = re.sub(r'(?<=[A-Za-z])(?=[\u0400-\u04ff])', ' ', value, flags=re.U)
         value = value.lower()
-        value = re.sub(r'[^\w\s/-]', ' ', value, flags=re.U)
+        value = re.sub(r'[^\w\s/.-]', ' ', value, flags=re.U)
         value = value.replace('_', ' ')
         return re.sub(r'\s+', ' ', value).strip()
 
@@ -4363,10 +4443,10 @@ class ProductMatcher:
         if canonical.endswith('fpv') and len(canonical) > 3:
             return [canonical[:-3], 'fpv']
         tokens = [canonical]
-        compact = re.sub(r'[-/\s]+', '', canonical)
+        compact = re.sub(r'[-/.\s]+', '', canonical)
         if compact and compact != canonical and self._looks_like_name_model_token(compact):
             tokens.append(compact)
-        for part in re.split(r'[-/]+', canonical):
+        for part in re.split(r'[-/.]+', canonical):
             part = part.strip()
             if part and self._looks_like_name_model_token(part):
                 tokens.append(part)
@@ -4381,7 +4461,7 @@ class ProductMatcher:
             return False
         if token in self.TECHNICAL_MODEL_TOKEN_ALLOWLIST:
             return True
-        if '-' in token or '/' in token:
+        if '-' in token or '/' in token or '.' in token:
             return any(char.isdigit() for char in token) and any(char.isalpha() for char in token)
         return any(char.isdigit() for char in token) and any(char.isalpha() for char in token)
 
@@ -4407,7 +4487,7 @@ class ProductMatcher:
         elif len(token) >= 4:
             base += 0.08
 
-        if '-' in token or '/' in token:
+        if '-' in token or '/' in token or '.' in token:
             base += 0.18
         if any(char.isdigit() for char in token) and any(char.isalpha() for char in token):
             base += 0.18
@@ -4534,6 +4614,7 @@ class ProductMatcher:
 
     def _full_bill_search_terms(self, line, profile):
         terms = list(profile['primary_codes'])
+        terms.extend(self._line_odoo_like_name_search_terms(line))
         terms.extend(self._line_weighted_name_search_terms(line))
         for value in self._line_name_terms(line):
             for token in self._meaningful_tokens(value):
@@ -4548,6 +4629,38 @@ class ProductMatcher:
             if not self._is_low_value_code(code)
         )
         return list(dict.fromkeys(term for term in terms if term))
+
+    def _line_odoo_like_name_search_terms(self, line):
+        terms = []
+        technical_profile = self._line_technical_profile(line)
+        terms.extend(technical_profile.get('full_codes') or [])
+        for value in self._line_name_terms(line):
+            normalized = self._normalize_plain_name(value)
+            if normalized and self._is_safe_plain_name_for_search(normalized):
+                terms.append(value)
+                terms.append(normalized)
+            meaningful_phrase = self._line_meaningful_name_phrase(value)
+            if meaningful_phrase:
+                terms.append(meaningful_phrase)
+        return list(dict.fromkeys(term for term in terms if term))
+
+    def _line_meaningful_name_phrase(self, value):
+        tokens = []
+        for token in self._normalize_text(value).split():
+            if token in self.GENERIC_NAME_TOKENS:
+                tokens.append(token)
+                continue
+            if token in self.NAME_COLOR_TOKENS:
+                tokens.append(token)
+                continue
+            if token.isdigit() or len(token) < 3:
+                continue
+            if self._looks_like_code(token) or self._is_low_value_code(token):
+                continue
+            tokens.append(token)
+        if len(tokens) < 2:
+            return False
+        return ' '.join(tokens[:6])
 
     def _line_weighted_name_search_terms(self, line):
         name_profile = self._name_model_token_profile(self._line_name_model_values(line))
@@ -4971,24 +5084,35 @@ class ProductMatcher:
     def _is_safe_plain_name_for_exact(self, normalized_name):
         if not normalized_name:
             return False
-        tokens = normalized_name.split()
-        meaningful_tokens = [
-            token
-            for token in tokens
-            if token not in self.GENERIC_NAME_TOKENS
-            and not token.isdigit()
-            and len(token) >= 3
-        ]
-        return len(normalized_name) >= 6 and (
-            len(tokens) >= 2
-            or bool(meaningful_tokens and normalized_name not in self.GENERIC_NAME_TOKENS)
+        return (
+            len(normalized_name) >= 6
+            and self._plain_name_has_distinctive_signal(normalized_name)
         )
 
     def _is_safe_plain_name_for_substring(self, normalized_name):
         if not normalized_name:
             return False
         tokens = normalized_name.split()
-        return len(normalized_name) >= 8 and len(tokens) >= 2
+        return (
+            len(normalized_name) >= 8
+            and len(tokens) >= 2
+            and self._plain_name_has_distinctive_signal(normalized_name)
+        )
+
+    def _plain_name_has_distinctive_signal(self, normalized_name):
+        tokens = normalized_name.split()
+        for token in tokens:
+            if token in self.NAME_COLOR_TOKENS:
+                continue
+            if token in self.GENERIC_NAME_TOKENS:
+                continue
+            if token.isdigit() or len(token) < 3:
+                continue
+            if self._looks_like_name_model_token(token):
+                return True
+            if not self._is_low_value_code(token):
+                return True
+        return False
 
     def _normalize_code(self, value):
         if not value:

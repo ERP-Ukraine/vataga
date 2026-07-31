@@ -393,7 +393,7 @@ class AccountGeminiDigitizationJob(models.Model):
         )
         non_create_lines = self.line_ids - create_lines
         if not self.line_ids:
-            return _('There are no recognized lines to apply.')
+            return _('Gemini не розпізнав товарні рядки у документі.')
         if self.mode in ('full_bill', 'full_purchase'):
             return False
         if non_create_lines:
@@ -538,6 +538,15 @@ class AccountGeminiDigitizationJob(models.Model):
                         'skipped': skipped,
                     }
                 if not applied:
+                    recognized = apply_result.get('gemini_recognized_lines_count', 0)
+                    if recognized:
+                        return _(
+                            'Оцифрування завершено, але рядки не створено. '
+                            'Розпізнано %(recognized)s рядків, проте товари не вдалося '
+                            'безпечно зіставити. Деталі див. у server log.'
+                        ) % {
+                            'recognized': recognized,
+                        }
                     return _(
                         'Оцифрування завершено, але жоден товар не вдалося безпечно '
                         'зіставити. Дані до рахунку не застосовано.'

@@ -6,7 +6,7 @@ class SupplierArticleNormalizer:
     """Normalize supplier article codes without treating them as numbers."""
 
     INVISIBLE_RE = re.compile(r'[\u200b-\u200f\u202a-\u202e\u2060\ufeff]')
-    SEPARATOR_SPACE_RE = re.compile(r'\s*([/\-_])\s*')
+    SEPARATOR_SPACE_RE = re.compile(r'\s*([/\-_.])\s*')
 
     @classmethod
     def normalize(cls, value):
@@ -64,9 +64,9 @@ class TechnicalCodeNormalizer:
     FULL_CODE_RE = re.compile(
         r'(?<![A-Z0-9])'
         r'(?:'
-        r'[A-Z]{2,}[A-Z0-9]*(?:[-/][A-Z0-9]+){2,}'
+        r'[A-Z]{2,}[A-Z0-9]*(?:[-/.][A-Z0-9]+){2,}'
         r'|'
-        r'[A-Z]+[0-9][A-Z0-9]*(?:[-/][A-Z0-9]+)+'
+        r'[A-Z]+[0-9][A-Z0-9]*(?:[-/.][A-Z0-9]+)+'
         r')'
         r'(?![A-Z0-9])'
     )
@@ -82,6 +82,7 @@ class TechnicalCodeNormalizer:
         value = value.upper()
         value = re.sub(r'\s*-\s*', '-', value)
         value = re.sub(r'\s*/\s*', '/', value)
+        value = re.sub(r'\s*\.\s*', '.', value)
         value = re.sub(r'\s+', ' ', value)
         return value.strip()
 

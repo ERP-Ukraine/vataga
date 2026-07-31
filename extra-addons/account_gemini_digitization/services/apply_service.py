@@ -228,6 +228,7 @@ class _JobApplyContext:
                         'No safe product match or apply data was found.'
                     ),
                 )
+            self._log_full_bill_zero_applied(skipped_reasons)
             job.write({
                 'state': 'review',
                 'error_message': False,
@@ -241,6 +242,7 @@ class _JobApplyContext:
                 },
                 'gemini_applied_count': 0,
                 'gemini_skipped_count': skipped_count,
+                'gemini_recognized_lines_count': len(self.line_ids),
                 'gemini_status': 'nothing_applied',
                 'gemini_notification_type': 'warning',
             })
@@ -1726,6 +1728,53 @@ class _JobApplyContext:
                 _('Skipped during automatic full bill apply: %s') % (reason or ''),
             ),
         })
+
+    def _log_full_bill_zero_applied(self, skipped_reasons):
+        first_names = []
+        candidate_counts = []
+        top_candidates = []
+        top_scores = []
+        for line in self.line_ids.sorted('sequence')[:10]:
+            first_names.append(line._display_label())
+            candidates = line.candidate_product_ids
+            candidate_counts.append('%s:%s' % (line.sequence, len(candidates)))
+            top_product = candidates[:1]
+            top_candidates.append(
+                '%s:%s'
+                % (
+                    line.sequence,
+                    top_product.display_name if top_product else 'none',
+                )
+            )
+            top_scores.append('%s:%.2f' % (line.sequence, line.match_score or 0.0))
+            _logger.info(
+                'Gemini OCR full_bill zero applied line: sequence=%s ocr_name=%s '
+                'status=%s method=%s score=%.2f candidates=%s top_candidate=%s '
+                'skip_reason=%s summary=%s',
+                line.sequence,
+                line._display_label(),
+                line.match_status or 'none',
+                line.match_method or 'none',
+                line.match_score or 0.0,
+                len(candidates),
+                top_product.display_name if top_product else 'none',
+                skipped_reasons.get(line.id) or 'none',
+                line.match_summary or '',
+            )
+        _logger.warning(
+            'Gemini OCR full_bill zero applied: recognized_lines_count=%s '
+            'first_ocr_names=%s candidate_counts=%s top_candidates=%s '
+            'top_scores=%s skip_reasons=%s',
+            len(self.line_ids),
+            ' | '.join(first_names) or 'none',
+            ', '.join(candidate_counts) or 'none',
+            ' | '.join(top_candidates) or 'none',
+            ', '.join(top_scores) or 'none',
+            '; '.join(
+                '%s:%s' % (line_id, reason)
+                for line_id, reason in (skipped_reasons or {}).items()
+            ) or 'none',
+        )
 
     def _get_move_form_action(self, move):
         return {
