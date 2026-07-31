@@ -16,6 +16,7 @@ class QualityCheck(models.Model):
         'quality_check_id',
         string='Використані ЗВТ',
         copy=False,
+        domain=[('requires_equipment_selection', '=', True)],
     )
     measurement_column_ids = fields.One2many(
         'quality.check.measurement.column',
@@ -169,30 +170,44 @@ class QualityCheck(models.Model):
                     'text_norm': line.text_norm or False,
                     'boolean_expected': boolean_expected,
                 })
-                category_set_values.setdefault(
-                    category_set_key,
-                    {
-                        'quality_check_id': check.id,
-                        'sequence': line.sequence,
-                        'equipment_category_id':
-                            first_category.id,
-                        'equipment_category_name':
-                            first_category.display_name,
-                        'allowed_equipment_category_ids': [
-                            Command.set(categories.ids),
-                        ],
-                        'equipment_category_names_snapshot':
-                            category_names,
-                        'category_set_key': category_set_key,
-                    },
+                selection_categories = categories.filtered(
+                    'requires_equipment_selection',
                 )
+                if selection_categories:
+                    selection_category_set_key = ','.join(
+                        str(category_id)
+                        for category_id in selection_categories.ids
+                    )
+                    selection_category_names = ', '.join(
+                        selection_categories.mapped('display_name'),
+                    )
+                    first_selection_category = selection_categories[0]
+                    category_set_values.setdefault(
+                        selection_category_set_key,
+                        {
+                            'quality_check_id': check.id,
+                            'sequence': line.sequence,
+                            'equipment_category_id':
+                                first_selection_category.id,
+                            'equipment_category_name':
+                                first_selection_category.display_name,
+                            'allowed_equipment_category_ids': [
+                                Command.set(selection_categories.ids),
+                            ],
+                            'equipment_category_names_snapshot':
+                                selection_category_names,
+                            'category_set_key':
+                                selection_category_set_key,
+                        },
+                    )
 
             snapshot_context = {
                 'quality_vataga_snapshot_initialization': True,
             }
-            selection_model.sudo().with_context(**snapshot_context).create(
-                list(category_set_values.values()),
-            )
+            if category_set_values:
+                selection_model.sudo().with_context(
+                    **snapshot_context
+                ).create(list(category_set_values.values()))
             column_model.sudo().with_context(**snapshot_context).create(
                 column_values,
             )
@@ -218,11 +233,15 @@ class QualityCheck(models.Model):
 
     @api.depends(
         'measurement_column_ids',
+        'measurement_column_ids.equipment_category_ids.requires_equipment_selection',
+        'measurement_column_ids.equipment_category_id.requires_equipment_selection',
         'sample_ids',
         'sample_ids.sample_result',
         'sample_ids.is_complete',
         'sample_ids.has_failure',
         'equipment_selection_ids',
+        'equipment_selection_ids.requires_equipment_selection',
+        'equipment_selection_ids.required_equipment_category_ids',
         'equipment_selection_ids.allowed_equipment_category_ids',
         'equipment_selection_ids.equipment_ids',
         'equipment_selection_ids.equipment_ids.category_id',
@@ -232,14 +251,22 @@ class QualityCheck(models.Model):
     def _compute_measurement_matrix_state(self):
         for check in self:
             matrix_required = bool(check.measurement_column_ids)
-            selections = check.equipment_selection_ids
+            required_categories = (
+                check._get_required_measurement_equipment_categories()
+            )
+            selections = check.equipment_selection_ids.filtered(
+                'requires_equipment_selection',
+            )
             samples = check.sample_ids
             check.equipment_selection_complete = (
                 not matrix_required
-                or bool(selections)
-                and all(
-                    selection._has_valid_equipment_selection()
-                    for selection in selections
+                or not required_categories
+                or (
+                    bool(selections)
+                    and all(
+                        selection._has_valid_equipment_selection()
+                        for selection in selections
+                    )
                 )
             )
             check.measurement_matrix_complete = (
@@ -263,6 +290,16 @@ class QualityCheck(models.Model):
                     )
                 )
             )
+
+    def _get_required_measurement_equipment_categories(self):
+        self.ensure_one()
+        categories = self.env['maintenance.equipment.category']
+        for column in self.measurement_column_ids:
+            categories |= (
+                column.equipment_category_ids
+                or column.equipment_category_id
+            )
+        return categories.filtered('requires_equipment_selection')
 
     @api.depends(
         'measurement_column_ids',
@@ -573,7 +610,21 @@ class QualityCheck(models.Model):
                     'перевірка зберігає початковий snapshot.',
                     parameter=invalid_boolean_column.parameter_name,
                 ))
-            missing_equipment = check.equipment_selection_ids.filtered(
+            required_categories = (
+                check._get_required_measurement_equipment_categories()
+            )
+            selections = check.equipment_selection_ids.filtered(
+                'requires_equipment_selection',
+            )
+            if required_categories and not selections:
+                raise ValidationError(_(
+                    'Оберіть щонайменше один допустимий прилад для '
+                    'категорій «%(categories)s».',
+                    categories=', '.join(
+                        required_categories.mapped('display_name'),
+                    ),
+                ))
+            missing_equipment = selections.filtered(
                 lambda selection:
                     not selection._has_valid_equipment_selection(),
             )[:1]
@@ -632,7 +683,9 @@ class QualityCheck(models.Model):
         for check in self:
             check.check_access_rights('write')
             check.check_access_rule('write')
-            check.equipment_selection_ids._snapshot_selected_equipment()
+            check.equipment_selection_ids.filtered(
+                'requires_equipment_selection',
+            )._snapshot_selected_equipment()
 
     def do_pass(self):
         self._validate_measurement_can_pass()
