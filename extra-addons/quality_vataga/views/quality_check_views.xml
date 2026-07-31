@@ -23,6 +23,18 @@
                 />
             </xpath>
 
+            <xpath expr="//field[@name='measure_on']" position="after">
+                <field
+                    name="has_operation_product_quantity"
+                    invisible="1"
+                />
+                <field
+                    name="operation_product_quantity_label"
+                    readonly="1"
+                    invisible="not has_operation_product_quantity"
+                />
+            </xpath>
+
             <xpath expr="//sheet/notebook" position="inside">
                 <page
                     string="Показники"

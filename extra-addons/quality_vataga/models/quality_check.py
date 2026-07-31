@@ -1,5 +1,8 @@
+from decimal import Decimal
+
 from odoo import _, api, Command, fields, models
 from odoo.exceptions import UserError, ValidationError
+from odoo.tools.misc import formatLang, get_lang
 
 from .measurement_utils import (
     format_number,
@@ -63,6 +66,163 @@ class QualityCheck(models.Model):
         string='Матриця показників',
         compute='_compute_measurement_matrix_data',
     )
+    operation_product_quantity = fields.Float(
+        string='Кількість товару',
+        compute='_compute_operation_product_quantity',
+        digits='Product Unit of Measure',
+        readonly=True,
+    )
+    operation_product_uom_id = fields.Many2one(
+        'uom.uom',
+        string='Одиниця вимірювання кількості товару',
+        compute='_compute_operation_product_quantity',
+        readonly=True,
+    )
+    operation_product_quantity_label = fields.Char(
+        string='Кількість товару',
+        compute='_compute_operation_product_quantity',
+        readonly=True,
+    )
+    has_operation_product_quantity = fields.Boolean(
+        compute='_compute_operation_product_quantity',
+    )
+
+    @api.depends(
+        'product_id',
+        'product_id.uom_id',
+        'uom_id',
+        'qty_line',
+        'move_line_id',
+        'move_line_id.product_id',
+        'move_line_id.product_uom_id',
+        'move_line_id.quantity',
+        'picking_id',
+        'picking_id.move_ids.product_id',
+        'picking_id.move_ids.product_uom',
+        'picking_id.move_ids.product_uom_qty',
+        'picking_id.move_ids.quantity',
+        'picking_id.move_ids.state',
+    )
+    def _compute_operation_product_quantity(self):
+        for check in self:
+            check.operation_product_quantity = 0.0
+            check.operation_product_uom_id = False
+            check.operation_product_quantity_label = False
+            check.has_operation_product_quantity = False
+
+            quantity_source = check._get_operation_product_quantity_source()
+            if not quantity_source:
+                continue
+
+            quantity, source_uom, display_uom = quantity_source
+            if source_uom != display_uom:
+                quantity = source_uom._compute_quantity(
+                    quantity,
+                    display_uom,
+                    round=False,
+                )
+
+            check.operation_product_quantity = quantity
+            check.operation_product_uom_id = display_uom
+            check.operation_product_quantity_label = (
+                check._format_operation_product_quantity(
+                    quantity,
+                    display_uom,
+                )
+            )
+            check.has_operation_product_quantity = True
+
+    def _get_operation_product_quantity_source(self):
+        """Return a reliable quantity source for this particular check.
+
+        A product-level quality check has no direct ``stock.move`` link in
+        Odoo 17.  In that case a move is reliable only when the current
+        picking contains exactly one non-cancelled move for the checked
+        product.  Looking only inside ``picking_id`` also keeps backorders
+        isolated from their parent transfer.
+        """
+        self.ensure_one()
+        if not self.product_id:
+            return False
+
+        display_uom = self.uom_id or self.product_id.uom_id
+        move_line = self.move_line_id
+        if move_line:
+            if move_line.product_id != self.product_id:
+                return False
+            source_uom = move_line.product_uom_id
+            return self._prepare_operation_quantity_source(
+                move_line.quantity,
+                source_uom,
+                display_uom,
+            )
+
+        # quality_mrp computes the standard qty_line from
+        # production_id.qty_producing.  Work-order checks carry the same
+        # production_id, so depending on qty_line keeps this extension
+        # compatible without making optional MRP modules hard dependencies.
+        if 'production_id' in self._fields and self.production_id:
+            return self._prepare_operation_quantity_source(
+                self.qty_line,
+                display_uom,
+                display_uom,
+            )
+
+        if not self.picking_id:
+            return False
+        moves = self.picking_id.move_ids.filtered(
+            lambda move: (
+                move.product_id == self.product_id
+                and move.state != 'cancel'
+            ),
+        )
+        if len(moves) != 1:
+            return False
+
+        move = moves[0]
+        quantity = move.quantity
+        if not quantity and move.state != 'done':
+            quantity = move.product_uom_qty
+        return self._prepare_operation_quantity_source(
+            quantity,
+            move.product_uom,
+            display_uom,
+        )
+
+    def _prepare_operation_quantity_source(
+        self,
+        quantity,
+        source_uom,
+        display_uom,
+    ):
+        self.ensure_one()
+        if not source_uom or not display_uom:
+            return False
+        if source_uom.category_id != display_uom.category_id:
+            # Do not fail an existing quality check because of inconsistent
+            # historical UoM data.  The source UoM remains truthful.
+            display_uom = source_uom
+        return quantity, source_uom, display_uom
+
+    def _format_operation_product_quantity(self, quantity, uom):
+        self.ensure_one()
+        rounding = Decimal(str(uom.rounding or 0.01)).normalize()
+        digits = max(0, -rounding.as_tuple().exponent)
+        formatted_quantity = formatLang(
+            self.env,
+            quantity,
+            digits=digits,
+        )
+        decimal_point = get_lang(self.env).decimal_point
+        if decimal_point in formatted_quantity:
+            formatted_quantity = formatted_quantity.rstrip('0').rstrip(
+                decimal_point,
+            )
+        return _(
+            '%(quantity)s %(uom)s',
+            quantity=formatted_quantity,
+            uom=uom.display_name,
+        )
 
     @api.model_create_multi
     def create(self, vals_list):
