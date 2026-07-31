@@ -19,45 +19,89 @@ class TestGeminiProductMatcher(TransactionCase):
             values['default_code'] = default_code
         return self.env['product.product'].create(values)
 
-    def _ocr_line(self, name):
-        job = self.env['account.gemini.digitization.job'].create({
+    def _partner(self, name='Matcher Vendor'):
+        return self.env['res.partner'].create({'name': name})
+
+    def _supplierinfo(self, product, partner, code):
+        values = {
+            'partner_id': partner.id,
+            'product_tmpl_id': product.product_tmpl_id.id,
+            'product_code': code,
+            'min_qty': 1.0,
+        }
+        if 'product_id' in self.env['product.supplierinfo']._fields:
+            values['product_id'] = product.id
+        return self.env['product.supplierinfo'].create(values)
+
+    def _ocr_line(self, name, supplier_code=False, partner=False):
+        job_values = {
             'name': 'Matcher test',
             'mode': 'full_bill',
             'state': 'review',
-        })
-        return self.env['account.gemini.digitization.line'].create({
+        }
+        if partner:
+            job_values['partner_id'] = partner.id
+        job = self.env['account.gemini.digitization.job'].create(job_values)
+        line_values = {
             'job_id': job.id,
             'sequence': 10,
             'supplier_product_name': name,
             'description': name,
             'quantity': 1.0,
             'price_unit': 1.0,
-        })
+        }
+        if supplier_code:
+            line_values['supplier_product_code'] = supplier_code
+        return self.env['account.gemini.digitization.line'].create(line_values)
 
     def _score(self, ocr_name, product_name):
         line = self._ocr_line(ocr_name)
         product = self._product(product_name)
         return self.matcher._score_product_strict(line, product, partner=False)
 
-    def _full_bill_match(self, ocr_name, product_name, default_code=False):
+    def _full_bill_match(
+        self,
+        ocr_name,
+        product_name,
+        default_code=False,
+        supplier_code=False,
+        partner=False,
+    ):
         product = self._product(product_name, default_code=default_code)
-        return self._full_bill_match_existing_product(ocr_name, product)
+        return self._full_bill_match_existing_product(
+            ocr_name,
+            product,
+            supplier_code=supplier_code,
+            partner=partner,
+        )
 
-    def _full_bill_match_existing_product(self, ocr_name, product):
-        job = self.env['account.gemini.digitization.job'].create({
+    def _full_bill_match_existing_product(
+        self,
+        ocr_name,
+        product,
+        supplier_code=False,
+        partner=False,
+    ):
+        job_values = {
             'name': 'Matcher full bill test',
             'mode': 'full_bill',
             'state': 'review',
-        })
-        line = self.env['account.gemini.digitization.line'].create({
+        }
+        if partner:
+            job_values['partner_id'] = partner.id
+        job = self.env['account.gemini.digitization.job'].create(job_values)
+        line_values = {
             'job_id': job.id,
             'sequence': 10,
             'supplier_product_name': ocr_name,
             'description': ocr_name,
             'quantity': 1.0,
             'price_unit': 1.0,
-        })
-        discovered_products = self.matcher._find_full_bill_products(line, partner=False)
+        }
+        if supplier_code:
+            line_values['supplier_product_code'] = supplier_code
+        line = self.env['account.gemini.digitization.line'].create(line_values)
+        discovered_products = self.matcher._find_full_bill_products(line, partner)
 
         self.matcher._match_full_document_products(job)
 
@@ -97,6 +141,68 @@ class TestGeminiProductMatcher(TransactionCase):
         self.assertEqual(line.match_method, 'normalized_name_exact')
         self.assertEqual(line.match_score, 1.0)
         self.assertEqual(line.matched_product_id, product)
+
+    def test_full_bill_unmatched_supplier_code_does_not_block_exact_name(self):
+        ocr_name = 'Перетворювач DC-DC понижуючий з 24-60V на 24V, 5A'
+        product_name = 'Перетворювач DC-DC понижуючий з 24-60V на 24V, 5A'
+        partner = self._partner()
+
+        line, product, discovered_products = self._full_bill_match(
+            ocr_name,
+            product_name,
+            default_code='RES-BEC-0384',
+            supplier_code='A431220',
+            partner=partner,
+        )
+
+        self.assertIn(product, discovered_products)
+        self.assertEqual(line.match_status, 'matched')
+        self.assertEqual(line.match_method, 'normalized_name_exact')
+        self.assertEqual(line.match_score, 1.0)
+        self.assertEqual(line.matched_product_id, product)
+        self.assertIn('reason_code=supplier_code_unmatched_name_exact', line.match_note)
+        self.assertIn('recognized_supplier_code: A431220', line.match_note)
+        self.assertIn('supplier_code_match_found: false', line.match_note)
+        self.assertIn('name_exact_search_executed: true', line.match_note)
+
+    def test_full_bill_unmatched_supplier_code_without_exact_name_stays_unmatched(self):
+        partner = self._partner()
+        line = self._ocr_line(
+            'Невідомий перетворювач DC-DC 24V 5A',
+            supplier_code='A431220',
+            partner=partner,
+        )
+
+        self.matcher._match_full_document_products(line.job_id)
+
+        self.assertIn(line.match_status, ('not_found', 'ambiguous'))
+        self.assertNotEqual(line.match_method, 'normalized_name_exact')
+        self.assertIn('recognized_supplier_code: A431220', line.match_note)
+        self.assertIn('supplier_code_match_found: false', line.match_note)
+        self.assertIn('name_exact_search_executed: true', line.match_note)
+
+    def test_full_bill_supplier_code_exact_conflicts_with_exact_name(self):
+        partner = self._partner()
+        supplier_product = self._product('Інший товар постачальника')
+        exact_name_product = self._product(
+            'Перетворювач DC-DC понижуючий з 24-60V на 24V, 5A',
+            default_code='RES-BEC-0384',
+        )
+        self._supplierinfo(supplier_product, partner, 'A431220')
+
+        line, _product, _discovered_products = self._full_bill_match_existing_product(
+            'Перетворювач DC-DC понижуючий з 24-60V на 24V, 5A',
+            exact_name_product,
+            supplier_code='A431220',
+            partner=partner,
+        )
+
+        self.assertEqual(line.match_status, 'ambiguous')
+        self.assertEqual(line.match_method, 'supplierinfo_code_exact')
+        self.assertFalse(line.matched_product_id)
+        self.assertIn(supplier_product, line.candidate_product_ids)
+        self.assertIn(exact_name_product, line.candidate_product_ids)
+        self.assertIn('reason_code=supplier_code_name_conflict', line.match_note)
 
     def test_full_bill_exact_normalized_name_handles_dash_spacing_variants(self):
         ocr_variants = [

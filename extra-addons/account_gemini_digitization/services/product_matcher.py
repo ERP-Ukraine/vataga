@@ -3138,12 +3138,46 @@ class ProductMatcher:
         }
         if not locked_candidates:
             return {}
+
+        supplier_code_candidates = self._locked_supplier_code_candidates(locked_candidates)
+        normalized_name_candidates = self._locked_normalized_name_candidates(locked_candidates)
+        supplier_code_product_ids = self._candidate_product_id_set(supplier_code_candidates)
+        normalized_name_product_ids = self._candidate_product_id_set(normalized_name_candidates)
+        if (
+            supplier_code_product_ids
+            and normalized_name_product_ids
+            and supplier_code_product_ids != normalized_name_product_ids
+        ):
+            return {
+                'ambiguous': True,
+                'reason': (
+                    'reason_code=supplier_code_name_conflict; '
+                    'exact supplier-code candidate(s) %s conflict with exact normalized-name candidate(s) %s.'
+                    % (
+                        self._candidate_product_ids_text(supplier_code_candidates),
+                        self._candidate_product_ids_text(normalized_name_candidates),
+                    )
+                ),
+            }
+
         if len(product_ids) == 1:
+            reason_code = 'locked_exact_code'
+            reason_text = 'one active product.product has the exact normalized code/name match.'
+            if (
+                self._line_supplier_articles(line)
+                and normalized_name_candidates
+                and not supplier_code_product_ids
+            ):
+                reason_code = 'supplier_code_unmatched_name_exact'
+                reason_text = (
+                    'recognized supplier code was not linked in supplierinfo; '
+                    'one active product.product matched the exact normalized OCR name.'
+                )
             return {
                 'winner': locked_candidates[0],
                 'reason': (
-                    'reason_code=locked_exact_code; '
-                    'one active product.product has the exact normalized code/name match.'
+                    'reason_code=%s; %s'
+                    % (reason_code, reason_text)
                 ),
             }
 
@@ -3219,6 +3253,34 @@ class ProductMatcher:
             and (candidate.get('score') or 0.0) >= 0.999
             and candidate.get('method') in self.LOCKED_EXACT_METHODS
         )
+
+    def _locked_supplier_code_candidates(self, candidates):
+        return [
+            candidate
+            for candidate in candidates
+            if candidate.get('method') in (
+                'supplierinfo_code_exact',
+                'supplierinfo_code_separatorless_unique',
+            )
+        ]
+
+    def _locked_normalized_name_candidates(self, candidates):
+        return [
+            candidate
+            for candidate in candidates
+            if candidate.get('method') == 'normalized_name_exact'
+        ]
+
+    def _candidate_product_id_set(self, candidates):
+        return {
+            candidate['product'].id
+            for candidate in candidates or []
+            if candidate.get('product')
+        }
+
+    def _candidate_product_ids_text(self, candidates):
+        product_ids = sorted(self._candidate_product_id_set(candidates))
+        return ','.join(str(product_id) for product_id in product_ids) or 'none'
 
     def _write_full_assignment_result(
         self,
@@ -3579,6 +3641,7 @@ class ProductMatcher:
             'decision=%s' % (status or 'unknown'),
             'reason_code=%s' % reason_code,
             'match_method=%s' % (best.get('method') if best else 'none'),
+            'selected_method=%s' % (best.get('method') if best else 'none'),
             'best_score=%.2f' % (best.get('score') if best else 0.0),
             'second_score=%.2f' % (second.get('score') if second else 0.0),
             'candidate_count=%s' % len(candidates),
@@ -3885,11 +3948,33 @@ class ProductMatcher:
                 for code in supplier_articles
             )
         ]
+        supplier_code_candidate_ids = []
+        for seller in supplierinfo_exact:
+            product = self._seller_product(seller)
+            if product:
+                supplier_code_candidate_ids.append(product.id)
         diagnostics = [
             '%s matching diagnostics:' % mode_label,
             'Job mode: %s.' % job.mode,
             'Move ID: %s.' % (job.move_id.id if getattr(job, 'move_id', False) else 'none'),
             'Vendor partner used: %s.' % (partner.id if partner else 'none'),
+            'recognized_supplier_code: %s.' % (
+                getattr(line, 'supplier_product_code', False) or 'none'
+            ),
+            'supplier_code_candidate_ids: %s.' % (
+                ', '.join(str(product_id) for product_id in supplier_code_candidate_ids)
+                if supplier_code_candidate_ids
+                else 'none'
+            ),
+            'supplier_code_match_found: %s.' % (
+                'true' if supplier_code_candidate_ids else 'false'
+            ),
+            'name_exact_search_executed: true.',
+            'name_exact_candidate_ids: %s.' % (
+                ', '.join(str(product_id) for product_id in name_search['exact_candidate_ids'])
+                if name_search['exact_candidate_ids']
+                else 'none'
+            ),
             'Supplier articles raw/normalized: %s.' % (
                 ', '.join(
                     '%s -> %s' % (article, SupplierArticleNormalizer.normalize(article))
