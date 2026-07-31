@@ -1,5 +1,7 @@
 import json
 import logging
+import html
+import re
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
@@ -255,7 +257,7 @@ class AccountGeminiDigitizationJob(models.Model):
         except Exception as error:
             _logger.exception('Gemini automatic digitization pipeline failed.')
             message = _('Не вдалося завершити оцифрування. Дані до документа не застосовано.')
-            self._post_automatic_pipeline_message(message)
+            self._post_automatic_pipeline_message(message, post_to_chatter=True)
             return {
                 'status': 'error',
                 'message': message,
@@ -265,7 +267,7 @@ class AccountGeminiDigitizationJob(models.Model):
 
         if self.state != 'review':
             message = self._get_automatic_manual_review_message()
-            self._post_automatic_pipeline_message(message)
+            self._post_automatic_pipeline_message(message, post_to_chatter=True)
             return {
                 'status': 'manual_review',
                 'message': message,
@@ -277,7 +279,7 @@ class AccountGeminiDigitizationJob(models.Model):
         if blocker:
             self._set_automatic_review_message(blocker)
             message = self._get_automatic_manual_review_message(blocker)
-            self._post_automatic_pipeline_message(message)
+            self._post_automatic_pipeline_message(message, post_to_chatter=True)
             return {
                 'status': 'manual_review',
                 'message': message,
@@ -294,7 +296,7 @@ class AccountGeminiDigitizationJob(models.Model):
             details = self._get_error_message(error)
             self._set_automatic_review_message(details)
             message = self._get_automatic_manual_review_message(details)
-            self._post_automatic_pipeline_message(message)
+            self._post_automatic_pipeline_message(message, post_to_chatter=True)
             return {
                 'status': 'manual_review',
                 'message': message,
@@ -305,7 +307,7 @@ class AccountGeminiDigitizationJob(models.Model):
             _logger.exception('Gemini automatic apply failed.')
             self._set_automatic_review_message(str(error))
             message = self._get_automatic_manual_review_message()
-            self._post_automatic_pipeline_message(message)
+            self._post_automatic_pipeline_message(message, post_to_chatter=True)
             return {
                 'status': 'manual_review',
                 'message': message,
@@ -321,12 +323,18 @@ class AccountGeminiDigitizationJob(models.Model):
                     message,
                     '\n'.join(str(warning) for warning in header_warnings),
                 )
-        self._post_automatic_pipeline_message(message)
         notification_type = 'success'
         status = 'applied'
         if isinstance(apply_result, dict):
             notification_type = apply_result.get('gemini_notification_type', notification_type)
             status = apply_result.get('gemini_status', status)
+        self._post_automatic_pipeline_message(
+            self._get_automatic_chatter_message(message, apply_result),
+            post_to_chatter=self._should_post_automatic_pipeline_chatter(
+                status,
+                notification_type,
+            ),
+        )
         return {
             'status': status,
             'message': message,
@@ -524,56 +532,321 @@ class AccountGeminiDigitizationJob(models.Model):
             return _('Оцифрування завершено. Кількість, ціни та податки в рядках рахунку оновлено.')
         if self.mode == 'partial_purchase':
             return _('Оцифрування завершено. Кількість, ціни та податки в рядках замовлення оновлено.')
-        if self.mode == 'full_bill':
+        if self.mode in ('full_bill', 'full_purchase'):
             if isinstance(apply_result, dict):
                 applied = apply_result.get('gemini_applied_count', 0)
                 skipped = apply_result.get('gemini_skipped_count', 0)
                 if applied and skipped:
-                    return _(
-                        'Оцифрування завершено. Створено рядків: %(applied)s. '
-                        'Не перенесено рядків: %(skipped)s, оскільки товари або дані '
-                        'не вдалося однозначно визначити.'
-                    ) % {
-                        'applied': applied,
-                        'skipped': skipped,
-                    }
-                if not applied:
-                    recognized = apply_result.get('gemini_recognized_lines_count', 0)
-                    if recognized:
-                        return _(
-                            'Оцифрування завершено, але рядки не створено. '
-                            'Розпізнано %(recognized)s рядків, проте товари не вдалося '
-                            'безпечно зіставити. Деталі див. у server log.'
-                        ) % {
-                            'recognized': recognized,
-                        }
-                    return _(
-                        'Оцифрування завершено, але жоден товар не вдалося безпечно '
-                        'зіставити. Дані до рахунку не застосовано.'
+                    return self._format_automatic_problem_summary(
+                        applied,
+                        skipped,
+                        apply_result,
                     )
-            return _('Оцифрування завершено. Усі розпізнані рядки рахунку застосовано.')
-        if self.mode == 'full_purchase':
-            if isinstance(apply_result, dict):
-                applied = apply_result.get('gemini_applied_count', 0)
-                skipped = apply_result.get('gemini_skipped_count', 0)
-                if applied and skipped:
-                    return _(
-                        'Gemini OCR completed. Purchase order lines created: %(applied)s. '
-                        'Skipped lines: %(skipped)s because products or values were not safe to apply.'
-                    ) % {
-                        'applied': applied,
-                        'skipped': skipped,
-                    }
                 if not applied:
-                    return _(
-                        'Gemini OCR completed, but no products could be safely matched. '
-                        'No data was applied to the purchase order.'
-                    )
-                return _('Gemini OCR completed. All recognized purchase order lines were applied.')
+                    return self._format_automatic_no_lines_created_message(apply_result)
+                if self.mode == 'full_purchase':
+                    return _('Оцифрування завершено. Усі розпізнані рядки замовлення застосовано.')
+            if self.mode == 'full_bill':
+                return _('Оцифрування завершено. Усі розпізнані рядки рахунку застосовано.')
             return _('Оцифрування завершено. Рядки замовлення на закупівлю створено.')
         return _('Оцифрування завершено. Дані з документа автоматично застосовано.')
 
-    def _post_automatic_pipeline_message(self, message):
+    def _format_automatic_no_lines_created_message(self, apply_result=False):
+        problem_lines = self._get_automatic_problem_lines()
+        recognized = self._get_apply_result_count(
+            apply_result,
+            'gemini_recognized_lines_count',
+            len(self.line_ids),
+        )
+        if not recognized:
+            return _(
+                'Оцифрування завершено, але Gemini не розпізнав товарні рядки у документі. '
+                'Дані до документа не застосовано.'
+            )
+        if len(problem_lines) == 1:
+            return self._format_single_automatic_problem(problem_lines[0])
+        return self._format_automatic_problem_summary(
+            0,
+            self._get_apply_result_count(
+                apply_result,
+                'gemini_skipped_count',
+                len(problem_lines) or recognized,
+            ),
+            apply_result,
+        )
+
+    def _format_single_automatic_problem(self, line):
+        label = self._short_safe_text(line._display_label(), limit=220)
+        if self._line_has_close_candidates(line):
+            parts = [
+                _('Оцифрування завершено, але рядки не створено.'),
+                '',
+                _('Не вдалося однозначно визначити товар:'),
+                '«%s»' % label,
+            ]
+            candidate_lines = self._format_line_candidate_lines(line, limit=3)
+            if candidate_lines:
+                parts.extend(['', _('Найближчі варіанти:')])
+                parts.extend(candidate_lines)
+            parts.extend([
+                '',
+                _(
+                    'Причина: різниця між кандидатами недостатня для безпечного '
+                    'автоматичного вибору.'
+                ),
+            ])
+            return '\n'.join(parts)
+        return '\n'.join([
+            _('Оцифрування завершено, але рядки не створено.'),
+            '',
+            _('Не вдалося знайти товар:'),
+            '«%s»' % label,
+            '',
+            _('Причина: у базі не знайдено достатньо точного відповідника.'),
+        ])
+
+    def _format_automatic_problem_summary(self, applied, skipped, apply_result=False):
+        problem_lines = self._get_automatic_problem_lines()
+        recognized = self._get_apply_result_count(
+            apply_result,
+            'gemini_recognized_lines_count',
+            len(self.line_ids),
+        )
+        if not skipped:
+            skipped = len(problem_lines)
+
+        parts = [
+            _('Розпізнано рядків: %(recognized)s.') % {
+                'recognized': recognized,
+            },
+            _('Створено: %(applied)s.') % {
+                'applied': applied,
+            },
+            _('Не перенесено: %(skipped)s.') % {
+                'skipped': skipped,
+            },
+        ]
+        if problem_lines:
+            parts.extend(['', _('Не зіставлено:')])
+            for line in problem_lines[:3]:
+                parts.append(
+                    '• %s — %s.' % (
+                        self._short_safe_text(line._display_label(), limit=160),
+                        self._problem_line_reason_label(line),
+                    )
+                )
+            remaining = len(problem_lines) - 3
+            if remaining > 0:
+                parts.append(
+                    _('• Ще %(count)s рядків не перенесено.') % {
+                        'count': remaining,
+                    }
+                )
+        return '\n'.join(parts)
+
+    def _get_automatic_chatter_message(self, message, apply_result=False):
+        problem_lines = self._get_automatic_problem_lines()
+        if not problem_lines:
+            return message
+
+        parts = [
+            message,
+            '',
+            _('Деталі зіставлення OCR:'),
+        ]
+        for line in problem_lines[:5]:
+            parts.append('• OCR: %s' % self._short_safe_text(line._display_label(), limit=220))
+            if line.supplier_product_code:
+                parts.append(
+                    '  %s: %s' % (
+                        _('Артикул постачальника'),
+                        self._short_safe_text(line.supplier_product_code, limit=80),
+                    )
+                )
+            parts.append(
+                '  %s: %s' % (
+                    _('Статус'),
+                    line.match_status or _('невідомо'),
+                )
+            )
+            parts.append(
+                '  %s: %s' % (
+                    _('Причина'),
+                    self._problem_line_reason_sentence(line),
+                )
+            )
+            candidate_lines = self._format_line_candidate_lines(
+                line,
+                limit=3,
+                bullet='  -',
+            )
+            if candidate_lines:
+                parts.append('  %s:' % _('Найближчі варіанти'))
+                parts.extend(candidate_lines)
+        remaining = len(problem_lines) - 5
+        if remaining > 0:
+            parts.append(
+                _('Ще %(count)s проблемних рядків не показано у цьому повідомленні.') % {
+                    'count': remaining,
+                }
+            )
+        return '\n'.join(parts)
+
+    def _get_automatic_problem_lines(self):
+        self.ensure_one()
+        create_lines = self.line_ids.filtered(
+            lambda line: (line.apply_action or 'create_line') == 'create_line'
+        )
+        return create_lines.filtered(
+            lambda line: self._is_automatic_problem_line(line)
+        ).sorted('sequence')
+
+    def _is_automatic_problem_line(self, line):
+        if self.mode == 'full_bill' and line.move_line_id:
+            return False
+        if self.mode == 'full_purchase' and line.purchase_order_line_id:
+            return False
+        if line.match_status in ('ambiguous', 'not_found', 'error'):
+            return True
+        if not line.matched_product_id:
+            return True
+        if not self._is_positive_number(line.quantity):
+            return True
+        if not self._is_positive_number(line.price_unit):
+            return True
+        if line.tax_rate and line.tax_rate > 0 and not line.tax_ids:
+            return True
+        if line.match_summary and str(line.match_summary).startswith('Skipped:'):
+            return True
+        return False
+
+    def _problem_line_reason_label(self, line):
+        if self._line_has_close_candidates(line):
+            return _('знайдено кілька схожих товарів')
+        if line.match_status in ('not_found', 'error') or not line.matched_product_id:
+            return _('товар не знайдено')
+        if not self._is_positive_number(line.quantity):
+            return _('не розпізнано коректну кількість')
+        if not self._is_positive_number(line.price_unit):
+            return _('не розпізнано коректну ціну')
+        if line.tax_rate and line.tax_rate > 0 and not line.tax_ids:
+            return _('не визначено податок')
+        return _('дані рядка не вдалося безпечно застосувати')
+
+    def _problem_line_reason_sentence(self, line):
+        if self._line_has_close_candidates(line):
+            return _(
+                'різниця між кандидатами недостатня для безпечного '
+                'автоматичного вибору.'
+            )
+        if line.match_status in ('not_found', 'error') or not line.matched_product_id:
+            return _('у базі не знайдено достатньо точного відповідника.')
+        if not self._is_positive_number(line.quantity):
+            return _('Gemini не розпізнав додатну кількість для цього рядка.')
+        if not self._is_positive_number(line.price_unit):
+            return _('Gemini не розпізнав додатну ціну для цього рядка.')
+        if line.tax_rate and line.tax_rate > 0 and not line.tax_ids:
+            return _('для розпізнаної ставки ПДВ не вибрано відповідний податок.')
+        if line.match_summary:
+            return self._short_safe_text(line.match_summary, limit=260)
+        return _('рядок не пройшов безпечну перевірку перед застосуванням.')
+
+    def _line_has_close_candidates(self, line):
+        return bool(
+            line.match_status == 'ambiguous'
+            or len(line.candidate_product_ids) > 1
+        )
+
+    def _format_line_candidate_lines(self, line, limit=3, bullet='•'):
+        return [
+            '%s %s' % (bullet, summary)
+            for summary in self._line_candidate_summaries(line, limit=limit)
+        ]
+
+    def _line_candidate_summaries(self, line, limit=3):
+        summaries = []
+        seen = set()
+        for name, score in self._candidate_summaries_from_match_note(line.match_note, limit):
+            display = self._format_candidate_summary(name, score)
+            summaries.append(display)
+            seen.add(self._normalize_summary_key(name))
+            if len(summaries) >= limit:
+                return summaries
+
+        for index, product in enumerate(line.candidate_product_ids[:limit]):
+            name = product.display_name or product.name or str(product.id)
+            key = self._normalize_summary_key(name)
+            if key in seen:
+                continue
+            score = line.match_score if index == 0 and line.match_score else False
+            summaries.append(self._format_candidate_summary(name, score))
+            seen.add(key)
+            if len(summaries) >= limit:
+                break
+        return summaries
+
+    def _candidate_summaries_from_match_note(self, match_note, limit=3):
+        if not match_note:
+            return []
+        summaries = []
+        in_candidates = False
+        candidate_pattern = re.compile(r'^(.+):\s+([0-9]+(?:\.[0-9]+)?)\s+by\s+')
+        for raw_line in str(match_note).splitlines():
+            line = raw_line.strip()
+            if line == 'Top candidates:':
+                in_candidates = True
+                continue
+            if not in_candidates or not line:
+                continue
+            first_part = line.split('|', 1)[0].strip()
+            match = candidate_pattern.match(first_part)
+            if not match:
+                continue
+            summaries.append((match.group(1), float(match.group(2))))
+            if len(summaries) >= limit:
+                break
+        return summaries
+
+    def _format_candidate_summary(self, name, score=False):
+        label = self._short_safe_text(name, limit=140)
+        if score is False or score is None:
+            return label
+        return _('%(name)s — %(score)s%%') % {
+            'name': label,
+            'score': self._format_score_percent(score),
+        }
+
+    def _format_score_percent(self, score):
+        if score is False or score is None:
+            return ''
+        numeric_score = float(score)
+        if numeric_score <= 1:
+            numeric_score *= 100
+        return int(round(numeric_score))
+
+    def _get_apply_result_count(self, apply_result, key, default=0):
+        if isinstance(apply_result, dict):
+            value = apply_result.get(key)
+            if value is not None:
+                return value
+        return default
+
+    def _short_safe_text(self, value, limit=160):
+        text = re.sub(r'\s+', ' ', str(value or '')).strip()
+        if len(text) <= limit:
+            return text
+        return '%s...' % text[:limit - 3]
+
+    def _normalize_summary_key(self, value):
+        return re.sub(r'\s+', ' ', str(value or '').lower()).strip()
+
+    def _should_post_automatic_pipeline_chatter(self, status, notification_type):
+        return bool(
+            status in ('manual_review', 'nothing_applied', 'partial_applied', 'error')
+            or notification_type in ('warning', 'danger')
+        )
+
+    def _post_automatic_pipeline_message(self, message, post_to_chatter=False):
         self.ensure_one()
         _logger.info(
             'Gemini OCR result for %s/%s: %s',
@@ -581,7 +854,38 @@ class AccountGeminiDigitizationJob(models.Model):
             self.res_id,
             message,
         )
+        if not post_to_chatter:
+            return False
+
+        document = self._get_automatic_pipeline_chatter_document()
+        if not document:
+            return False
+        try:
+            document.message_post(
+                body=self._format_automatic_chatter_body(message),
+                subtype_xmlid='mail.mt_note',
+            )
+        except Exception:
+            _logger.exception(
+                'Could not post Gemini OCR result to chatter for %s/%s.',
+                self.res_model,
+                self.res_id,
+            )
+            return False
+        return True
+
+    def _get_automatic_pipeline_chatter_document(self):
+        self.ensure_one()
+        document = self.move_id or self.purchase_order_id
+        if document:
+            return document.exists()
+        if self.res_model in ('account.move', 'purchase.order') and self.res_id:
+            return self.env[self.res_model].browse(self.res_id).exists()
         return False
+
+    def _format_automatic_chatter_body(self, message):
+        lines = html.escape(str(message or '')).splitlines()
+        return '<br/>'.join(lines)
 
     def _unlink_temporary_job(self):
         jobs = self.sudo().exists()
