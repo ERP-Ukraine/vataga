@@ -590,10 +590,7 @@ class AccountGeminiDigitizationJob(models.Model):
                 parts.extend(candidate_lines)
             parts.extend([
                 '',
-                _(
-                    'Причина: різниця між кандидатами недостатня для безпечного '
-                    'автоматичного вибору.'
-                ),
+                _('Причина: %s') % self._problem_line_reason_sentence(line),
             ])
             return '\n'.join(parts)
         return '\n'.join([
@@ -735,6 +732,14 @@ class AccountGeminiDigitizationJob(models.Model):
 
     def _problem_line_reason_sentence(self, line):
         if self._line_has_close_candidates(line):
+            reason_code = self._line_reason_code(line)
+            if reason_code and reason_code != 'unknown':
+                return _(
+                    '%(reason_code)s: різниця між кандидатами недостатня для '
+                    'безпечного автоматичного вибору.'
+                ) % {
+                    'reason_code': reason_code,
+                }
             return _(
                 'різниця між кандидатами недостатня для безпечного '
                 'автоматичного вибору.'
@@ -766,8 +771,8 @@ class AccountGeminiDigitizationJob(models.Model):
     def _line_candidate_summaries(self, line, limit=3):
         summaries = []
         seen = set()
-        for name, score in self._candidate_summaries_from_match_note(line.match_note, limit):
-            display = self._format_candidate_summary(name, score)
+        for name, score, method in self._candidate_summaries_from_match_note(line.match_note, limit):
+            display = self._format_candidate_summary(name, score, method=method)
             summaries.append(display)
             seen.add(self._normalize_summary_key(name))
             if len(summaries) >= limit:
@@ -779,7 +784,13 @@ class AccountGeminiDigitizationJob(models.Model):
             if key in seen:
                 continue
             score = line.match_score if index == 0 and line.match_score else False
-            summaries.append(self._format_candidate_summary(name, score))
+            summaries.append(
+                self._format_candidate_summary(
+                    name,
+                    score,
+                    method=line.match_method if index == 0 else False,
+                )
+            )
             seen.add(key)
             if len(summaries) >= limit:
                 break
@@ -790,7 +801,9 @@ class AccountGeminiDigitizationJob(models.Model):
             return []
         summaries = []
         in_candidates = False
-        candidate_pattern = re.compile(r'^(.+):\s+([0-9]+(?:\.[0-9]+)?)\s+by\s+')
+        candidate_pattern = re.compile(
+            r'^(.+):\s+([0-9]+(?:\.[0-9]+)?)\s+by\s+([^|]+)'
+        )
         for raw_line in str(match_note).splitlines():
             line = raw_line.strip()
             if line == 'Top candidates:':
@@ -802,19 +815,33 @@ class AccountGeminiDigitizationJob(models.Model):
             match = candidate_pattern.match(first_part)
             if not match:
                 continue
-            summaries.append((match.group(1), float(match.group(2))))
+            summaries.append((
+                match.group(1),
+                float(match.group(2)),
+                match.group(3).strip(),
+            ))
             if len(summaries) >= limit:
                 break
         return summaries
 
-    def _format_candidate_summary(self, name, score=False):
+    def _format_candidate_summary(self, name, score=False, method=False):
         label = self._short_safe_text(name, limit=140)
         if score is False or score is None:
             return label
-        return _('%(name)s — %(score)s%%') % {
+        result = _('%(name)s — %(score)s%%') % {
             'name': label,
             'score': self._format_score_percent(score),
         }
+        if method:
+            result = '%s, %s' % (result, method)
+        return result
+
+    def _line_reason_code(self, line):
+        match = re.search(
+            r'reason_code=([a-z0-9_]+)',
+            str(line.match_note or ''),
+        )
+        return match.group(1) if match else False
 
     def _format_score_percent(self, score):
         if score is False or score is None:

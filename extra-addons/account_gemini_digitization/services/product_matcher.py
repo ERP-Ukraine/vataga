@@ -1513,11 +1513,13 @@ class ProductMatcher:
             if supplierinfo_signal == 'none':
                 supplierinfo_signal = 'vendor_supplierinfo_present'
 
-        authoritative_exact = method in (
-            'supplierinfo_code_exact',
-            'default_code_exact',
-            'barcode_exact',
-        )
+        authoritative_exact = method in self.LOCKED_EXACT_METHODS
+        if authoritative_exact:
+            score = 1.0
+            notes.append(
+                'Authoritative exact code match kept as final score 1.00; '
+                'name scoring, generic penalties, and fuzzy penalties are ignored.'
+            )
         internal_penalty = (
             0.0
             if authoritative_exact
@@ -2892,7 +2894,10 @@ class ProductMatcher:
             for candidate in candidates
             if candidate.get('product') and candidate.get('score', 0.0) > 0.0
         ]
-        candidates.sort(key=lambda candidate: candidate['score'], reverse=True)
+        candidates = self._deduplicate_scored_candidates(
+            candidates,
+            include_move_line=include_move_lines,
+        )
         visible_candidates = [
             candidate
             for candidate in candidates
@@ -2981,22 +2986,27 @@ class ProductMatcher:
                 for candidate in visible_candidates
                 if self._is_locked_exact_candidate(candidate)
             ]
-            locked_product_ids = {
-                candidate['product'].id
-                for candidate in locked_candidates
-                if candidate.get('product')
-            }
-            if len(locked_product_ids) == 1:
-                winner = locked_candidates[0]
+            locked_resolution = self._resolve_locked_exact_candidates(
+                item['line'],
+                locked_candidates,
+            )
+            if locked_resolution.get('winner'):
+                winner = locked_resolution['winner']
                 assigned[item['line'].id] = {
                     'winner': winner,
-                    'reason': 'Locked exact article/code match selected before fuzzy assignment.',
+                    'reason': locked_resolution.get('reason') or (
+                        'reason_code=locked_exact_code; '
+                        'Locked exact article/code match selected before fuzzy assignment.'
+                    ),
                 }
                 used_product_ids.add(winner['product'].id)
-            elif locked_candidates:
+            elif locked_resolution.get('ambiguous'):
                 assigned[item['line'].id] = {
                     'status': 'ambiguous',
-                    'reason': 'Several locked exact article/code candidates were found.',
+                    'reason': locked_resolution.get('reason') or (
+                        'reason_code=duplicate_exact_code; '
+                        'Several locked exact article/code candidates were found.'
+                    ),
                 }
 
         remaining = [
@@ -3029,13 +3039,17 @@ class ProductMatcher:
                 winner = available_visible[0]
                 assigned[item['line'].id] = {
                     'winner': winner,
-                    'reason': 'Global one-to-one fuzzy assignment selected this product.',
+                    'reason': (
+                        'reason_code=global_one_to_one_assignment; '
+                        'Global one-to-one fuzzy assignment selected this product.'
+                    ),
                 }
                 used_product_ids.add(winner['product'].id)
             elif visible_candidates:
                 assigned[item['line'].id] = {
                     'status': 'ambiguous',
                     'reason': (
+                        'reason_code=global_assignment_conflict; '
                         'No safe one-to-one product assignment was possible; '
                         'the best product may already be used by another OCR row.'
                     ),
@@ -3043,7 +3057,10 @@ class ProductMatcher:
             else:
                 assigned[item['line'].id] = {
                     'status': 'not_found',
-                    'reason': 'No candidate reached the product candidate threshold.',
+                    'reason': (
+                        'reason_code=score_below_threshold; '
+                        'No candidate reached the product candidate threshold.'
+                    ),
                 }
 
         for item in ordered_results:
@@ -3063,8 +3080,127 @@ class ProductMatcher:
             for candidate in candidates
             if candidate.get('product') and candidate.get('score', 0.0) > 0.0
         ]
-        candidates.sort(key=lambda candidate: candidate['score'], reverse=True)
-        return candidates
+        return self._deduplicate_scored_candidates(candidates)
+
+    def _deduplicate_scored_candidates(self, candidates, include_move_line=False):
+        best_by_key = {}
+        for candidate in candidates:
+            product = candidate.get('product')
+            if not product:
+                continue
+            key = (product.id, candidate.get('move_line').id if include_move_line and candidate.get('move_line') else False)
+            existing = best_by_key.get(key)
+            if not existing:
+                best_by_key[key] = candidate
+                continue
+            if self._candidate_sort_key(candidate) > self._candidate_sort_key(existing):
+                candidate.setdefault('notes', []).extend(existing.get('notes') or [])
+                candidate.setdefault('notes', []).append(
+                    'Duplicate candidate discovery merged for product.product %s.'
+                    % product.id
+                )
+                best_by_key[key] = candidate
+            else:
+                existing.setdefault('notes', []).extend(candidate.get('notes') or [])
+                existing.setdefault('notes', []).append(
+                    'Duplicate candidate discovery merged for product.product %s.'
+                    % product.id
+                )
+        result = list(best_by_key.values())
+        result.sort(key=self._candidate_sort_key, reverse=True)
+        return result
+
+    def _candidate_sort_key(self, candidate):
+        product = candidate.get('product')
+        return (
+            candidate.get('score') or 0.0,
+            1 if self._is_locked_exact_candidate(candidate) else 0,
+            1 if getattr(product, 'purchase_ok', False) else 0,
+            -(getattr(product, 'id', 0) or 0),
+        )
+
+    def _resolve_locked_exact_candidates(self, line, locked_candidates):
+        locked_candidates = self._deduplicate_scored_candidates(locked_candidates)
+        active_candidates = [
+            candidate
+            for candidate in locked_candidates
+            if getattr(candidate.get('product'), 'active', True)
+        ]
+        locked_candidates = active_candidates or locked_candidates
+        product_ids = {
+            candidate['product'].id
+            for candidate in locked_candidates
+            if candidate.get('product')
+        }
+        if not locked_candidates:
+            return {}
+        if len(product_ids) == 1:
+            return {
+                'winner': locked_candidates[0],
+                'reason': (
+                    'reason_code=locked_exact_code; '
+                    'one active product.product has the exact normalized technical code.'
+                ),
+            }
+
+        purchase_candidates = [
+            candidate
+            for candidate in locked_candidates
+            if getattr(candidate.get('product'), 'purchase_ok', False)
+        ]
+        purchase_product_ids = {
+            candidate['product'].id
+            for candidate in purchase_candidates
+            if candidate.get('product')
+        }
+        if len(purchase_product_ids) == 1:
+            return {
+                'winner': purchase_candidates[0],
+                'reason': (
+                    'reason_code=locked_exact_code_purchase_ok; '
+                    'several exact-code products were found, but only one has purchase_ok=True.'
+                ),
+            }
+
+        exact_name_candidates = self._locked_exact_name_candidates(
+            line,
+            purchase_candidates or locked_candidates,
+        )
+        exact_name_product_ids = {
+            candidate['product'].id
+            for candidate in exact_name_candidates
+            if candidate.get('product')
+        }
+        if len(exact_name_product_ids) == 1:
+            return {
+                'winner': exact_name_candidates[0],
+                'reason': (
+                    'reason_code=locked_exact_code_name_tiebreak; '
+                    'several exact-code products were found; full normalized name selected one.'
+                ),
+            }
+
+        return {
+            'ambiguous': True,
+            'reason': (
+                'reason_code=duplicate_exact_code; '
+                'several distinct active product.product records have the same exact normalized technical code.'
+            ),
+        }
+
+    def _locked_exact_name_candidates(self, line, candidates):
+        line_names = set(self._line_normalized_plain_names(line))
+        if not line_names:
+            return []
+        result = []
+        for candidate in candidates:
+            product = candidate.get('product')
+            if not product:
+                continue
+            product_names = set(self._product_normalized_plain_names(product))
+            if line_names & product_names:
+                result.append(candidate)
+        return result
 
     def _visible_candidates(self, candidates):
         return [
@@ -3121,6 +3257,7 @@ class ProductMatcher:
             visible_candidates,
             diagnostics=diagnostics,
             status=values['match_status'],
+            assignment_reason=assignment_reason,
         )
         if assignment_reason:
             values['match_note'] = self._append_text(
@@ -3370,8 +3507,17 @@ class ProductMatcher:
         visible_candidates,
         diagnostics=False,
         status=False,
+        assignment_reason=False,
     ):
         lines = list(diagnostics or [])
+        lines.extend(
+            self._match_decision_diagnostic_lines(
+                candidates,
+                visible_candidates,
+                status,
+                assignment_reason=assignment_reason,
+            )
+        )
         if status == 'not_found':
             if candidates:
                 lines.append(
@@ -3408,6 +3554,99 @@ class ProductMatcher:
         if status == 'ambiguous' and visible_candidates and len(visible_candidates) > 1:
             lines.insert(0, _('Several product candidates require review.'))
         return '\n'.join(lines)
+
+    def _match_decision_diagnostic_lines(
+        self,
+        candidates,
+        visible_candidates,
+        status,
+        assignment_reason=False,
+    ):
+        best = candidates[0] if candidates else False
+        second = candidates[1] if len(candidates) > 1 else False
+        reason_code = self._match_reason_code(
+            status,
+            candidates,
+            visible_candidates,
+            assignment_reason=assignment_reason,
+        )
+        lines = [
+            'Decision diagnostics:',
+            'decision=%s' % (status or 'unknown'),
+            'reason_code=%s' % reason_code,
+            'match_method=%s' % (best.get('method') if best else 'none'),
+            'best_score=%.2f' % (best.get('score') if best else 0.0),
+            'second_score=%.2f' % (second.get('score') if second else 0.0),
+            'candidate_count=%s' % len(candidates),
+            'visible_candidate_count=%s' % len(visible_candidates),
+            'global_assignment_conflict=%s' % (
+                'yes'
+                if reason_code == 'global_assignment_conflict'
+                else 'no'
+            ),
+        ]
+        if candidates:
+            lines.append('top_candidates=%s' % '; '.join(
+                '%s|%.2f|%s|product_id=%s' % (
+                    getattr(candidate['product'], 'display_name', False)
+                    or getattr(candidate['product'], 'name', False)
+                    or candidate['product'].id,
+                    candidate.get('score') or 0.0,
+                    candidate.get('method') or 'unknown',
+                    candidate['product'].id,
+                )
+                for candidate in candidates[:3]
+            ))
+        return lines
+
+    def _match_reason_code(
+        self,
+        status,
+        candidates,
+        visible_candidates,
+        assignment_reason=False,
+    ):
+        reason_match = re.search(
+            r'reason_code=([a-z0-9_]+)',
+            str(assignment_reason or ''),
+        )
+        if reason_match:
+            return reason_match.group(1)
+        if status == 'matched':
+            return 'matched'
+        if self._has_candidate_technical_code_conflict(candidates):
+            return 'technical_code_conflict'
+        if status == 'not_found':
+            return 'score_below_threshold' if candidates else 'no_candidates'
+        if status == 'ambiguous':
+            locked_candidates = [
+                candidate
+                for candidate in visible_candidates
+                if self._is_locked_exact_candidate(candidate)
+            ]
+            locked_product_ids = {
+                candidate['product'].id
+                for candidate in locked_candidates
+                if candidate.get('product')
+            }
+            if len(locked_product_ids) > 1:
+                return 'duplicate_exact_code'
+            if candidates:
+                best = candidates[0]
+                second = candidates[1] if len(candidates) > 1 else False
+                if second and (best.get('score') or 0.0) - (second.get('score') or 0.0) < self.BEST_GAP_MATCH_THRESHOLD:
+                    return 'score_gap_too_small'
+            if assignment_reason:
+                return 'global_assignment_conflict'
+            return 'score_gap_too_small'
+        return 'unknown'
+
+    def _has_candidate_technical_code_conflict(self, candidates):
+        for candidate in candidates or []:
+            notes = ' '.join(candidate.get('notes') or [])
+            if 'conflicting full technical code' in notes:
+                return True
+        return False
 
     def _build_partial_diagnostics(
         self,
