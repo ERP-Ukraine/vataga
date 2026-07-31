@@ -1,0 +1,19 @@
+.o_pivot.o_pivot_demand {
+    .o_pivot_cell_value {
+        &.closed-low {
+            background-color: #d9bfc7 !important;
+        }
+
+        &.closed-medium {
+            background-color: #e4daa8 !important;
+        }
+
+        &.closed-complete {
+            background-color: #71a064 !important;
+        }
+
+        &.closed-over {
+            background-color: #779bb5 !important;
+        }
+    }
+}

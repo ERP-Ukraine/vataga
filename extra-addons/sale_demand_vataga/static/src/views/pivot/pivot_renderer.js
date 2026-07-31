@@ -10,20 +10,46 @@ import {
     useRef,
 } from "@odoo/owl";
 
-export function getClosedCellColor(value) {
+const CLOSED_CELL_COLORS = {
+    "closed-low": "#d9bfc7",
+    "closed-medium": "#e4daa8",
+    "closed-complete": "#71a064",
+    "closed-over": "#779bb5",
+};
+
+export function getClosedCellClass(value) {
     if (typeof value !== "number" || Number.isNaN(value)) {
-        return "white";
+        return "";
     }
     if (value > 1) {
-        return "#779bb5";
+        return "closed-over";
     }
     if (Math.round(value * 100) === 100) {
-        return "#d9ead3";
+        return "closed-complete";
     }
     if (value <= 0.7) {
-        return "#d9bfc7";
+        return "closed-low";
     }
-    return "#e4daa8";
+    return "closed-medium";
+}
+
+export function getClosedCellColor(value) {
+    return CLOSED_CELL_COLORS[getClosedCellClass(value)] || null;
+}
+
+export function getPivotCellClasses(cell) {
+    const classes = {
+        o_empty: cell.value === undefined,
+        "cursor-pointer": cell.value !== undefined,
+        "fw-bold": cell.isBold,
+    };
+    if (cell.measure === "closed") {
+        const closedClass = getClosedCellClass(cell.value);
+        if (closedClass) {
+            classes[closedClass] = true;
+        }
+    }
+    return classes;
 }
 
 export class PivotRendererDemand extends PivotRenderer {
@@ -42,6 +68,9 @@ export class PivotRendererDemand extends PivotRenderer {
     logDemandRenderProfile(stage) {
         const table = this.tableRef.el;
         const rows = table ? [...table.rows] : [];
+        const valueCells = table
+            ? table.querySelectorAll("td.o_pivot_cell_value")
+            : [];
         console.info("[DemandPivotProfile] renderer", {
             stage,
             renderer_ms: Number(
@@ -51,6 +80,13 @@ export class PivotRendererDemand extends PivotRenderer {
             dom_rows: rows.length,
             max_dom_columns: rows.length
                 ? Math.max(...rows.map((row) => row.cells.length))
+                : 0,
+            value_cells: valueCells.length,
+            inline_style_value_cells: table
+                ? table.querySelectorAll("td.o_pivot_cell_value[style]").length
+                : 0,
+            inline_style_elements: table
+                ? table.querySelectorAll("[style]").length
                 : 0,
         });
     }
@@ -135,11 +171,8 @@ export class PivotRendererDemand extends PivotRenderer {
             window.addEventListener(eventType, stopResize);
         }
     }
-    get_color(cell) {
-        if (cell.measure === "closed") {
-            return getClosedCellColor(cell.value);
-        }
-        return "white";
+    getPivotCellClasses(cell) {
+        return getPivotCellClasses(cell);
     }
     onDownloadButtonClicked() {
         if (this.model.getTableWidth() > 16384) {
