@@ -1,5 +1,8 @@
+from decimal import Decimal
+
 from odoo import _, api, Command, fields, models
 from odoo.exceptions import UserError, ValidationError
+from odoo.tools.misc import formatLang, get_lang
 
 from .measurement_utils import (
     format_number,
@@ -16,6 +19,7 @@ class QualityCheck(models.Model):
         'quality_check_id',
         string='Використані ЗВТ',
         copy=False,
+        domain=[('requires_equipment_selection', '=', True)],
     )
     measurement_column_ids = fields.One2many(
         'quality.check.measurement.column',
@@ -62,6 +66,163 @@ class QualityCheck(models.Model):
         string='Матриця показників',
         compute='_compute_measurement_matrix_data',
     )
+    operation_product_quantity = fields.Float(
+        string='Кількість товару',
+        compute='_compute_operation_product_quantity',
+        digits='Product Unit of Measure',
+        readonly=True,
+    )
+    operation_product_uom_id = fields.Many2one(
+        'uom.uom',
+        string='Одиниця вимірювання кількості товару',
+        compute='_compute_operation_product_quantity',
+        readonly=True,
+    )
+    operation_product_quantity_label = fields.Char(
+        string='Кількість товару',
+        compute='_compute_operation_product_quantity',
+        readonly=True,
+    )
+    has_operation_product_quantity = fields.Boolean(
+        compute='_compute_operation_product_quantity',
+    )
+
+    @api.depends(
+        'product_id',
+        'product_id.uom_id',
+        'uom_id',
+        'qty_line',
+        'move_line_id',
+        'move_line_id.product_id',
+        'move_line_id.product_uom_id',
+        'move_line_id.quantity',
+        'picking_id',
+        'picking_id.move_ids.product_id',
+        'picking_id.move_ids.product_uom',
+        'picking_id.move_ids.product_uom_qty',
+        'picking_id.move_ids.quantity',
+        'picking_id.move_ids.state',
+    )
+    def _compute_operation_product_quantity(self):
+        for check in self:
+            check.operation_product_quantity = 0.0
+            check.operation_product_uom_id = False
+            check.operation_product_quantity_label = False
+            check.has_operation_product_quantity = False
+
+            quantity_source = check._get_operation_product_quantity_source()
+            if not quantity_source:
+                continue
+
+            quantity, source_uom, display_uom = quantity_source
+            if source_uom != display_uom:
+                quantity = source_uom._compute_quantity(
+                    quantity,
+                    display_uom,
+                    round=False,
+                )
+
+            check.operation_product_quantity = quantity
+            check.operation_product_uom_id = display_uom
+            check.operation_product_quantity_label = (
+                check._format_operation_product_quantity(
+                    quantity,
+                    display_uom,
+                )
+            )
+            check.has_operation_product_quantity = True
+
+    def _get_operation_product_quantity_source(self):
+        """Return a reliable quantity source for this particular check.
+
+        A product-level quality check has no direct ``stock.move`` link in
+        Odoo 17.  In that case a move is reliable only when the current
+        picking contains exactly one non-cancelled move for the checked
+        product.  Looking only inside ``picking_id`` also keeps backorders
+        isolated from their parent transfer.
+        """
+        self.ensure_one()
+        if not self.product_id:
+            return False
+
+        display_uom = self.uom_id or self.product_id.uom_id
+        move_line = self.move_line_id
+        if move_line:
+            if move_line.product_id != self.product_id:
+                return False
+            source_uom = move_line.product_uom_id
+            return self._prepare_operation_quantity_source(
+                move_line.quantity,
+                source_uom,
+                display_uom,
+            )
+
+        # quality_mrp computes the standard qty_line from
+        # production_id.qty_producing.  Work-order checks carry the same
+        # production_id, so depending on qty_line keeps this extension
+        # compatible without making optional MRP modules hard dependencies.
+        if 'production_id' in self._fields and self.production_id:
+            return self._prepare_operation_quantity_source(
+                self.qty_line,
+                display_uom,
+                display_uom,
+            )
+
+        if not self.picking_id:
+            return False
+        moves = self.picking_id.move_ids.filtered(
+            lambda move: (
+                move.product_id == self.product_id
+                and move.state != 'cancel'
+            ),
+        )
+        if len(moves) != 1:
+            return False
+
+        move = moves[0]
+        quantity = move.quantity
+        if not quantity and move.state != 'done':
+            quantity = move.product_uom_qty
+        return self._prepare_operation_quantity_source(
+            quantity,
+            move.product_uom,
+            display_uom,
+        )
+
+    def _prepare_operation_quantity_source(
+        self,
+        quantity,
+        source_uom,
+        display_uom,
+    ):
+        self.ensure_one()
+        if not source_uom or not display_uom:
+            return False
+        if source_uom.category_id != display_uom.category_id:
+            # Do not fail an existing quality check because of inconsistent
+            # historical UoM data.  The source UoM remains truthful.
+            display_uom = source_uom
+        return quantity, source_uom, display_uom
+
+    def _format_operation_product_quantity(self, quantity, uom):
+        self.ensure_one()
+        rounding = Decimal(str(uom.rounding or 0.01)).normalize()
+        digits = max(0, -rounding.as_tuple().exponent)
+        formatted_quantity = formatLang(
+            self.env,
+            quantity,
+            digits=digits,
+        )
+        decimal_point = get_lang(self.env).decimal_point
+        if decimal_point in formatted_quantity:
+            formatted_quantity = formatted_quantity.rstrip('0').rstrip(
+                decimal_point,
+            )
+        return _(
+            '%(quantity)s %(uom)s',
+            quantity=formatted_quantity,
+            uom=uom.display_name,
+        )
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -169,30 +330,44 @@ class QualityCheck(models.Model):
                     'text_norm': line.text_norm or False,
                     'boolean_expected': boolean_expected,
                 })
-                category_set_values.setdefault(
-                    category_set_key,
-                    {
-                        'quality_check_id': check.id,
-                        'sequence': line.sequence,
-                        'equipment_category_id':
-                            first_category.id,
-                        'equipment_category_name':
-                            first_category.display_name,
-                        'allowed_equipment_category_ids': [
-                            Command.set(categories.ids),
-                        ],
-                        'equipment_category_names_snapshot':
-                            category_names,
-                        'category_set_key': category_set_key,
-                    },
+                selection_categories = categories.filtered(
+                    'requires_equipment_selection',
                 )
+                if selection_categories:
+                    selection_category_set_key = ','.join(
+                        str(category_id)
+                        for category_id in selection_categories.ids
+                    )
+                    selection_category_names = ', '.join(
+                        selection_categories.mapped('display_name'),
+                    )
+                    first_selection_category = selection_categories[0]
+                    category_set_values.setdefault(
+                        selection_category_set_key,
+                        {
+                            'quality_check_id': check.id,
+                            'sequence': line.sequence,
+                            'equipment_category_id':
+                                first_selection_category.id,
+                            'equipment_category_name':
+                                first_selection_category.display_name,
+                            'allowed_equipment_category_ids': [
+                                Command.set(selection_categories.ids),
+                            ],
+                            'equipment_category_names_snapshot':
+                                selection_category_names,
+                            'category_set_key':
+                                selection_category_set_key,
+                        },
+                    )
 
             snapshot_context = {
                 'quality_vataga_snapshot_initialization': True,
             }
-            selection_model.sudo().with_context(**snapshot_context).create(
-                list(category_set_values.values()),
-            )
+            if category_set_values:
+                selection_model.sudo().with_context(
+                    **snapshot_context
+                ).create(list(category_set_values.values()))
             column_model.sudo().with_context(**snapshot_context).create(
                 column_values,
             )
@@ -218,11 +393,15 @@ class QualityCheck(models.Model):
 
     @api.depends(
         'measurement_column_ids',
+        'measurement_column_ids.equipment_category_ids.requires_equipment_selection',
+        'measurement_column_ids.equipment_category_id.requires_equipment_selection',
         'sample_ids',
         'sample_ids.sample_result',
         'sample_ids.is_complete',
         'sample_ids.has_failure',
         'equipment_selection_ids',
+        'equipment_selection_ids.requires_equipment_selection',
+        'equipment_selection_ids.required_equipment_category_ids',
         'equipment_selection_ids.allowed_equipment_category_ids',
         'equipment_selection_ids.equipment_ids',
         'equipment_selection_ids.equipment_ids.category_id',
@@ -232,14 +411,22 @@ class QualityCheck(models.Model):
     def _compute_measurement_matrix_state(self):
         for check in self:
             matrix_required = bool(check.measurement_column_ids)
-            selections = check.equipment_selection_ids
+            required_categories = (
+                check._get_required_measurement_equipment_categories()
+            )
+            selections = check.equipment_selection_ids.filtered(
+                'requires_equipment_selection',
+            )
             samples = check.sample_ids
             check.equipment_selection_complete = (
                 not matrix_required
-                or bool(selections)
-                and all(
-                    selection._has_valid_equipment_selection()
-                    for selection in selections
+                or not required_categories
+                or (
+                    bool(selections)
+                    and all(
+                        selection._has_valid_equipment_selection()
+                        for selection in selections
+                    )
                 )
             )
             check.measurement_matrix_complete = (
@@ -263,6 +450,16 @@ class QualityCheck(models.Model):
                     )
                 )
             )
+
+    def _get_required_measurement_equipment_categories(self):
+        self.ensure_one()
+        categories = self.env['maintenance.equipment.category']
+        for column in self.measurement_column_ids:
+            categories |= (
+                column.equipment_category_ids
+                or column.equipment_category_id
+            )
+        return categories.filtered('requires_equipment_selection')
 
     @api.depends(
         'measurement_column_ids',
@@ -573,7 +770,21 @@ class QualityCheck(models.Model):
                     'перевірка зберігає початковий snapshot.',
                     parameter=invalid_boolean_column.parameter_name,
                 ))
-            missing_equipment = check.equipment_selection_ids.filtered(
+            required_categories = (
+                check._get_required_measurement_equipment_categories()
+            )
+            selections = check.equipment_selection_ids.filtered(
+                'requires_equipment_selection',
+            )
+            if required_categories and not selections:
+                raise ValidationError(_(
+                    'Оберіть щонайменше один допустимий прилад для '
+                    'категорій «%(categories)s».',
+                    categories=', '.join(
+                        required_categories.mapped('display_name'),
+                    ),
+                ))
+            missing_equipment = selections.filtered(
                 lambda selection:
                     not selection._has_valid_equipment_selection(),
             )[:1]
@@ -632,7 +843,9 @@ class QualityCheck(models.Model):
         for check in self:
             check.check_access_rights('write')
             check.check_access_rule('write')
-            check.equipment_selection_ids._snapshot_selected_equipment()
+            check.equipment_selection_ids.filtered(
+                'requires_equipment_selection',
+            )._snapshot_selected_equipment()
 
     def do_pass(self):
         self._validate_measurement_can_pass()

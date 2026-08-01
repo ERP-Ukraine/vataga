@@ -27,6 +27,12 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
         ].create({
             'name': 'Інша категорія (тест)',
         })
+        cls.no_equipment_category = cls.env[
+            'maintenance.equipment.category'
+        ].create({
+            'name': 'Самостійна перевірка (тест)',
+            'requires_equipment_selection': False,
+        })
         cls.numeric_parameter = cls.env[
             'quality.equipment.parameter'
         ].create({
@@ -58,6 +64,13 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
                 cls.string_parameter.id,
             ]),
         ]
+        cls.no_equipment_category.applicable_parameter_ids = [
+            Command.set([
+                cls.numeric_parameter.id,
+                cls.boolean_parameter.id,
+                cls.string_parameter.id,
+            ]),
+        ]
 
         cls.equipment = cls.env['maintenance.equipment'].create({
             'name': 'Цифровий мультиметр',
@@ -80,6 +93,13 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
             'name': 'Інше обладнання',
             'category_id': cls.other_category.id,
             'serial_no': 'OTHER-1',
+        })
+        cls.no_equipment_category_equipment = cls.env[
+            'maintenance.equipment'
+        ].create({
+            'name': 'Технічний запис самостійної перевірки',
+            'category_id': cls.no_equipment_category.id,
+            'serial_no': 'NO-EQUIPMENT-1',
         })
 
         cls.quality_team = cls.env[
@@ -149,10 +169,13 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
         })
 
     def _create_check(self):
+        return self._create_check_for_point(self.quality_point)
+
+    def _create_check_for_point(self, point):
         return self.env['quality.check'].create({
-            'point_id': self.quality_point.id,
-            'team_id': self.quality_point.team_id.id,
-            'test_type_id': self.quality_point.test_type_id.id,
+            'point_id': point.id,
+            'team_id': point.team_id.id,
+            'test_type_id': point.test_type_id.id,
         })
 
     def _add_sample(self, check):
@@ -166,6 +189,20 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
             'test_type_id': self.test_type.id,
             'picking_type_ids': [Command.set(self.picking_type.ids)],
         })
+
+    def _create_boolean_point(self, title, categories):
+        point = self._create_quality_point(title)
+        line = self.env['quality.control.parameter.line'].create({
+            'quality_point_id': point.id,
+            'sequence': 10,
+            'control_type': 'functional',
+            'equipment_category_ids': [
+                Command.set(categories.ids),
+            ],
+            'parameter_id': self.boolean_parameter.id,
+            'text_norm': 'Так',
+        })
+        return point, line
 
     def _run_post_migration(self, migration_version, previous_version):
         migration_path = os.path.join(
@@ -255,6 +292,153 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
             numeric_column.equipment_category_names_snapshot,
             expected_category_names,
         )
+
+    def test_no_equipment_category_keeps_column_without_selection(self):
+        point, line = self._create_boolean_point(
+            'Самостійна перевірка без ЗВТ',
+            self.no_equipment_category,
+        )
+
+        check = self._create_check_for_point(point)
+
+        self.assertEqual(len(check.measurement_column_ids), 1)
+        self.assertEqual(check.measurement_column_ids.source_line_id, line)
+        self.assertFalse(check.equipment_selection_ids)
+        self.assertFalse(self.env[
+            'quality.check.equipment.selection'
+        ].search([('quality_check_id', '=', check.id)]))
+
+    def test_no_equipment_check_passes_without_selection(self):
+        point, _line = self._create_boolean_point(
+            'Успішна самостійна перевірка',
+            self.no_equipment_category,
+        )
+        check = self._create_check_for_point(point)
+        sample = self._add_sample(check)
+        check.update_measurement_visual_result(sample.id, 'yes')
+        check.update_measurement_value(
+            sample.measurement_value_ids.id,
+            {'boolean_value': 'yes'},
+        )
+
+        self.assertTrue(check.equipment_selection_complete)
+        self.assertTrue(check.can_pass_measurement_check)
+        check.do_pass()
+        self.assertEqual(check.quality_state, 'pass')
+
+    def test_existing_no_equipment_selection_is_ignored_while_open(self):
+        self.no_equipment_category.requires_equipment_selection = True
+        point, _line = self._create_boolean_point(
+            'Legacy selection без обладнання',
+            self.no_equipment_category,
+        )
+        check = self._create_check_for_point(point)
+        technical_selection = self.env[
+            'quality.check.equipment.selection'
+        ].search([('quality_check_id', '=', check.id)])
+        self.assertTrue(technical_selection)
+
+        self.no_equipment_category.requires_equipment_selection = False
+        technical_selection.invalidate_recordset()
+        check.invalidate_recordset([
+            'equipment_selection_ids',
+            'equipment_selection_complete',
+            'can_pass_measurement_check',
+        ])
+
+        self.assertFalse(technical_selection.requires_equipment_selection)
+        self.assertFalse(check.equipment_selection_ids)
+        self.assertTrue(check.equipment_selection_complete)
+
+    def test_mixed_categories_require_only_regular_equipment(self):
+        point, _line = self._create_boolean_point(
+            'Змішаний набір категорій',
+            self.category | self.no_equipment_category,
+        )
+
+        check = self._create_check_for_point(point)
+        selection = check.equipment_selection_ids
+        column = check.measurement_column_ids
+
+        self.assertEqual(
+            column.equipment_category_ids,
+            self.category | self.no_equipment_category,
+        )
+        self.assertEqual(
+            selection.allowed_equipment_category_ids,
+            self.category,
+        )
+        self.assertEqual(
+            selection.required_equipment_category_ids,
+            self.category,
+        )
+        with self.cr.savepoint(), self.assertRaises(ValidationError):
+            selection.write({
+                'equipment_ids': [Command.set(
+                    self.no_equipment_category_equipment.ids,
+                )],
+            })
+        selection.invalidate_recordset(['equipment_ids', 'equipment_id'])
+
+        selection.equipment_ids = [Command.set(self.equipment.ids)]
+        self.assertTrue(check.equipment_selection_complete)
+
+    def test_completed_equipment_snapshot_is_not_changed_by_category_flag(self):
+        check = self._create_check()
+        selection = check.equipment_selection_ids
+        selection.equipment_ids = [Command.set(self.equipment.ids)]
+        check.do_fail()
+        expected_snapshot = selection.equipment_display_list_snapshot
+        expected_equipment = selection.equipment_ids
+        self._run_post_migration('17.0.2.15', '17.0.2.14')
+
+        (self.category | self.alternative_category).write({
+            'requires_equipment_selection': False,
+        })
+        selection.invalidate_recordset()
+        check.invalidate_recordset(['equipment_selection_ids'])
+
+        self.assertTrue(selection.requires_equipment_selection)
+        self.assertEqual(check.equipment_selection_ids, selection)
+        self.assertEqual(selection.equipment_ids, expected_equipment)
+        self.assertEqual(
+            selection.equipment_display_list_snapshot,
+            expected_snapshot,
+        )
+
+    def test_regular_category_still_requires_equipment(self):
+        point, _line = self._create_boolean_point(
+            'Звичайна категорія потребує ЗВТ',
+            self.category,
+        )
+
+        check = self._create_check_for_point(point)
+
+        self.assertEqual(len(check.equipment_selection_ids), 1)
+        self.assertFalse(check.equipment_selection_complete)
+        with self.assertRaisesRegex(
+            ValidationError,
+            'Оберіть щонайменше один допустимий прилад',
+        ):
+            check._validate_measurement_can_pass()
+
+    def test_migration_marks_normalized_target_category_idempotently(self):
+        target_category = self.env[
+            'maintenance.equipment.category'
+        ].create({
+            'name': '  Тестування   справності  ',
+        })
+        untouched_category = self.env[
+            'maintenance.equipment.category'
+        ].create({
+            'name': 'Тестування справності інше',
+        })
+
+        self._run_post_migration('17.0.2.15', '17.0.2.14')
+        self._run_post_migration('17.0.2.15', '17.0.2.14')
+
+        self.assertFalse(target_category.requires_equipment_selection)
+        self.assertTrue(untouched_category.requires_equipment_selection)
 
     def test_add_samples_creates_one_cell_per_column(self):
         check = self._create_check()

@@ -58,6 +58,35 @@ class QualityCheckEquipmentSelection(models.Model):
         column2='equipment_id',
         string='Конкретне обладнання',
     )
+    required_equipment_category_ids = fields.Many2many(
+        'maintenance.equipment.category',
+        relation='quality_check_equipment_selection_required_category_rel',
+        column1='selection_id',
+        column2='equipment_category_id',
+        string='Категорії, що потребують вибору ЗВТ',
+        compute='_compute_equipment_selection_requirement',
+        store=True,
+        readonly=True,
+    )
+    requires_equipment_selection = fields.Boolean(
+        string='Потребує вибору конкретного ЗВТ',
+        compute='_compute_equipment_selection_requirement',
+        store=True,
+        readonly=True,
+        index=True,
+    )
+    equipment_category_names_display = fields.Char(
+        string='Допустимі категорії ЗВТ',
+        compute='_compute_equipment_selection_requirement',
+        store=True,
+        readonly=True,
+    )
+    preserve_completed_equipment_selection = fields.Boolean(
+        string='Зберігати історичний рядок ЗВТ',
+        default=False,
+        readonly=True,
+        copy=False,
+    )
     equipment_name_snapshot = fields.Char(
         string='Назва обладнання (snapshot)',
         readonly=True,
@@ -154,7 +183,9 @@ class QualityCheckEquipmentSelection(models.Model):
             ]
         categories = self.env[
             'maintenance.equipment.category'
-        ].browse(category_ids).exists().sorted('id')
+        ].browse(category_ids).exists().filtered(
+            'requires_equipment_selection',
+        ).sorted('id')
         if not categories:
             raise ValidationError(_(
                 'Для рядка вибору ЗВТ потрібна хоча б одна допустима '
@@ -209,6 +240,43 @@ class QualityCheckEquipmentSelection(models.Model):
             for category_id in sorted(category_ids)
         )
 
+    @api.depends(
+        'quality_check_id.quality_state',
+        'preserve_completed_equipment_selection',
+        'allowed_equipment_category_ids',
+        'allowed_equipment_category_ids.requires_equipment_selection',
+        'equipment_category_id',
+        'equipment_category_id.requires_equipment_selection',
+        'equipment_category_names_snapshot',
+        'equipment_category_name',
+    )
+    def _compute_equipment_selection_requirement(self):
+        for selection in self:
+            categories = selection._get_allowed_equipment_categories()
+            if (
+                selection.quality_check_id.quality_state != 'none'
+                and selection.preserve_completed_equipment_selection
+            ):
+                required_categories = categories
+                display_names = (
+                    selection.equipment_category_names_snapshot
+                    or selection.equipment_category_name
+                )
+            else:
+                required_categories = categories.filtered(
+                    'requires_equipment_selection',
+                )
+                display_names = ', '.join(
+                    required_categories.mapped('display_name'),
+                )
+            selection.required_equipment_category_ids = (
+                required_categories
+            )
+            selection.requires_equipment_selection = bool(
+                required_categories
+            )
+            selection.equipment_category_names_display = display_names
+
     def _get_allowed_equipment_categories(self):
         self.ensure_one()
         return (
@@ -220,9 +288,22 @@ class QualityCheckEquipmentSelection(models.Model):
         self.ensure_one()
         return self.equipment_ids or self.equipment_id
 
+    def _get_required_equipment_categories(self):
+        self.ensure_one()
+        if (
+            self.quality_check_id.quality_state != 'none'
+            and self.preserve_completed_equipment_selection
+        ):
+            return self._get_allowed_equipment_categories()
+        return self._get_allowed_equipment_categories().filtered(
+            'requires_equipment_selection',
+        )
+
     def _has_valid_equipment_selection(self):
         self.ensure_one()
-        allowed_categories = self._get_allowed_equipment_categories()
+        allowed_categories = self._get_required_equipment_categories()
+        if not allowed_categories:
+            return True
         selected_equipment = self._get_selected_equipment()
         return bool(
             selected_equipment
@@ -263,7 +344,7 @@ class QualityCheckEquipmentSelection(models.Model):
     def _check_equipment_matches_categories(self):
         for selection in self:
             allowed_categories = (
-                selection._get_allowed_equipment_categories()
+                selection._get_required_equipment_categories()
             )
             invalid_equipment = (
                 selection._get_selected_equipment().filtered(
@@ -278,7 +359,8 @@ class QualityCheckEquipmentSelection(models.Model):
                     ).mapped('display_name'),
                 )
                 category_names = (
-                    selection.equipment_category_names_snapshot
+                    selection.equipment_category_names_display
+                    or selection.equipment_category_names_snapshot
                     or ', '.join(
                         allowed_categories.mapped('display_name'),
                     )
@@ -292,8 +374,16 @@ class QualityCheckEquipmentSelection(models.Model):
 
     def _snapshot_selected_equipment(self):
         for selection in self:
+            required_categories = (
+                selection._get_required_equipment_categories()
+            )
+            if not required_categories:
+                continue
             selected_equipment = (
-                selection._get_selected_equipment().sorted('id')
+                selection._get_selected_equipment().filtered(
+                    lambda equipment:
+                        equipment.category_id in required_categories,
+                ).sorted('id')
             )
             if not selected_equipment:
                 continue

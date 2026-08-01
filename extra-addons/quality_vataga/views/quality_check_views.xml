@@ -23,6 +23,18 @@
                 />
             </xpath>
 
+            <xpath expr="//field[@name='measure_on']" position="after">
+                <field
+                    name="has_operation_product_quantity"
+                    invisible="1"
+                />
+                <field
+                    name="operation_product_quantity_label"
+                    readonly="1"
+                    invisible="not has_operation_product_quantity"
+                />
+            </xpath>
+
             <xpath expr="//sheet/notebook" position="inside">
                 <page
                     string="Показники"
@@ -45,11 +57,16 @@
                         invisible="1"
                     />
 
-                    <group string="Використані ЗВТ" col="1">
+                    <group
+                        string="Використані ЗВТ"
+                        col="1"
+                        invisible="not equipment_selection_ids"
+                    >
                         <field
                             name="equipment_selection_ids"
                             nolabel="1"
                             readonly="quality_state != 'none'"
+                            domain="[('requires_equipment_selection', '=', True)]"
                         >
                             <tree
                                 editable="bottom"
@@ -63,11 +80,15 @@
                                     column_invisible="True"
                                 />
                                 <field
-                                    name="allowed_equipment_category_ids"
+                                    name="required_equipment_category_ids"
                                     column_invisible="True"
                                 />
                                 <field
-                                    name="equipment_category_names_snapshot"
+                                    name="requires_equipment_selection"
+                                    column_invisible="True"
+                                />
+                                <field
+                                    name="equipment_category_names_display"
                                     string="Допустимі категорії ЗВТ"
                                     readonly="1"
                                 />
@@ -75,7 +96,7 @@
                                     name="equipment_ids"
                                     string="Конкретне обладнання"
                                     widget="many2many_tags"
-                                    domain="[('category_id', 'in', allowed_equipment_category_ids)]"
+                                    domain="[('category_id', 'in', required_equipment_category_ids)]"
                                     context="{'quality_vataga_equipment_selection': True}"
                                     options="{'no_create': True, 'no_create_edit': True}"
                                     column_invisible="parent.quality_state != 'none'"
