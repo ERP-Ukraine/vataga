@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="stock_picking_view_form_quality_arrival" model="ir.ui.view">
+        <field name="name">stock.picking.form.quality.arrival</field>
+        <field name="model">stock.picking</field>
+        <field
+            name="inherit_id"
+            ref="quality_control.stock_picking_view_form_inherit_quality"
+        />
+        <field name="arch" type="xml">
+            <xpath expr="//button[@name='check_quality']" position="after">
+                <button
+                    name="action_confirm_quality_arrival"
+                    type="object"
+                    string="Товар фактично надійшов"
+                    class="btn-secondary"
+                    groups="stock.group_stock_user"
+                    invisible="picking_type_code != 'incoming' or state in ('done', 'cancel') or quality_arrival_confirmed"
+                />
+            </xpath>
+
+            <xpath expr="//field[@name='date_done']" position="after">
+                <field
+                    name="quality_arrival_confirmed"
+                    readonly="1"
+                    invisible="not quality_arrival_confirmed"
+                />
+                <field
+                    name="quality_arrival_confirmed_at"
+                    readonly="1"
+                    invisible="not quality_arrival_confirmed"
+                />
+                <field
+                    name="quality_arrival_confirmed_by_id"
+                    readonly="1"
+                    invisible="not quality_arrival_confirmed"
+                    options="{'no_create': True, 'no_open': True}"
+                />
+            </xpath>
+        </field>
+    </record>
+</odoo>

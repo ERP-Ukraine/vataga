@@ -138,6 +138,9 @@ class QualityCheckSample(models.Model):
             raise UserError(_(
                 'Не можна додавати зразки до завершеної перевірки.',
             ))
+        self.env['quality.check'].browse(
+            check_ids,
+        )._ensure_ready_for_inspection()
         samples = super().create(vals_list)
         values_to_create = []
         for sample in samples:
@@ -167,6 +170,7 @@ class QualityCheckSample(models.Model):
             raise UserError(_(
                 'Не можна змінювати зразки завершеної перевірки.',
             ))
+        self.mapped('quality_check_id')._ensure_ready_for_inspection()
         return super().write(vals)
 
     def _has_entered_results(self):
@@ -183,6 +187,7 @@ class QualityCheckSample(models.Model):
         )
 
     def unlink(self):
+        self.mapped('quality_check_id')._ensure_ready_for_inspection()
         if len(self) != 1:
             raise UserError(_(
                 'Можна видалити лише один останній порожній зразок.',
