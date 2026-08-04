@@ -190,6 +190,11 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
             'picking_type_ids': [Command.set(self.picking_type.ids)],
         })
 
+    def _create_visual_only_point(self, title, required=True):
+        point = self._create_quality_point(title)
+        point.visual_sample_control_required = required
+        return point
+
     def _create_boolean_point(self, title, categories):
         point = self._create_quality_point(title)
         line = self.env['quality.control.parameter.line'].create({
@@ -222,9 +227,209 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
             {'quality_check_id': False},
         )
 
+    def test_point_without_matrix_configuration_stays_standard(self):
+        point = self._create_visual_only_point(
+            'Стандартна перевірка без custom matrix',
+            required=False,
+        )
+        check = self._create_check_for_point(point)
+
+        self.assertFalse(check.measurement_matrix_required)
+        self.assertFalse(check.measurement_column_ids)
+        self.assertFalse(check.equipment_selection_ids)
+        self.assertFalse(check.sample_ids)
+        self.assertFalse(check.can_initialize_measurement_matrix)
+        check._validate_measurement_can_pass()
+        with self.assertRaisesRegex(
+            UserError,
+            'матриця показників не потрібна',
+        ):
+            check.add_measurement_samples(1)
+
+    def test_visual_only_check_has_matrix_without_dynamic_structure(self):
+        point = self._create_visual_only_point(
+            'Візуальна перевірка без показників',
+        )
+        check = self._create_check_for_point(point)
+
+        self.assertTrue(check.measurement_matrix_required)
+        self.assertFalse(check.measurement_column_ids)
+        self.assertFalse(check.equipment_selection_ids)
+        self.assertFalse(check.sample_ids)
+        self.assertFalse(check.can_initialize_measurement_matrix)
+        self.assertEqual(check.get_measurement_matrix_data()['columns'], [])
+        with self.assertRaisesRegex(UserError, 'незмінним snapshot'):
+            check.write({'measurement_matrix_required': False})
+
+    def test_visual_only_samples_are_created_without_measurement_values(self):
+        point = self._create_visual_only_point(
+            'Кілька зразків візуального контролю',
+        )
+        check = self._create_check_for_point(point)
+
+        matrix_data = check.add_measurement_samples(3)
+
+        self.assertEqual(check.sample_ids.mapped('sample_number'), [1, 2, 3])
+        self.assertFalse(check.sample_ids.measurement_value_ids)
+        self.assertEqual(len(matrix_data['samples']), 3)
+        self.assertEqual(
+            set(check.sample_ids.mapped('sample_result')),
+            {'pending'},
+        )
+        self.assertFalse(check.measurement_matrix_complete)
+        self.assertTrue(check.equipment_selection_complete)
+
+    def test_visual_only_empty_result_blocks_pass_and_yes_allows_it(self):
+        point = self._create_visual_only_point(
+            'Успішний візуальний контроль',
+        )
+        check = self._create_check_for_point(point)
+        sample = self._add_sample(check)
+
+        self.assertEqual(sample.sample_result, 'pending')
+        self.assertFalse(sample.is_complete)
+        self.assertFalse(sample.has_failure)
+        with self.assertRaisesRegex(
+            ValidationError,
+            'Заповніть візуальний контроль для всіх зразків',
+        ):
+            check.do_pass()
+
+        check.update_measurement_visual_result(sample.id, 'yes')
+
+        self.assertEqual(sample.sample_result, 'pass')
+        self.assertTrue(sample.is_complete)
+        self.assertFalse(sample.has_failure)
+        self.assertTrue(check.measurement_matrix_complete)
+        self.assertTrue(check.can_pass_measurement_check)
+        check.do_pass()
+        self.assertEqual(check.quality_state, 'pass')
+
+    def test_visual_only_no_result_blocks_pass_but_allows_fail(self):
+        point = self._create_visual_only_point(
+            'Невдалий візуальний контроль',
+        )
+        check = self._create_check_for_point(point)
+        sample = self._add_sample(check)
+
+        check.update_measurement_visual_result(sample.id, 'no')
+
+        self.assertEqual(sample.sample_result, 'fail')
+        self.assertTrue(sample.is_complete)
+        self.assertTrue(sample.has_failure)
+        self.assertTrue(check.measurement_matrix_has_failure)
+        self.assertFalse(check.can_pass_measurement_check)
+        with self.assertRaisesRegex(
+            ValidationError,
+            'Доступний лише результат',
+        ):
+            check.do_pass()
+        check.do_fail()
+        self.assertEqual(check.quality_state, 'fail')
+
+    def test_all_visual_only_samples_must_pass(self):
+        point = self._create_visual_only_point(
+            'Груповий візуальний контроль',
+        )
+        check = self._create_check_for_point(point)
+        check.add_measurement_samples(3)
+        first_sample = check.sample_ids.filtered(
+            lambda sample: sample.sample_number == 1,
+        )
+        check.update_measurement_visual_result(first_sample.id, 'yes')
+
+        self.assertFalse(check.measurement_matrix_complete)
+        self.assertFalse(check.can_pass_measurement_check)
+        for sample in check.sample_ids - first_sample:
+            check.update_measurement_visual_result(sample.id, 'yes')
+
+        self.assertTrue(check.measurement_matrix_complete)
+        self.assertTrue(check.can_pass_measurement_check)
+
+    def test_visual_only_empty_tail_can_be_removed(self):
+        point = self._create_visual_only_point(
+            'Видалення порожніх візуальних зразків',
+        )
+        check = self._create_check_for_point(point)
+        check.add_measurement_samples(3)
+
+        matrix_data = check.remove_measurement_samples(2)
+
+        self.assertEqual(check.sample_ids.mapped('sample_number'), [1])
+        self.assertEqual(len(matrix_data['samples']), 1)
+        self.assertFalse(check.sample_ids.measurement_value_ids)
+
+    def test_visual_only_snapshot_is_immutable_after_completion(self):
+        point = self._create_visual_only_point(
+            'Історичний візуальний контроль',
+        )
+        check = self._create_check_for_point(point)
+        check.do_fail()
+
+        point.visual_sample_control_required = False
+        check.invalidate_recordset(['measurement_matrix_required'])
+
+        self.assertEqual(check.quality_state, 'fail')
+        self.assertTrue(check.measurement_matrix_required)
+        self.assertFalse(check.measurement_column_ids)
+        self.assertFalse(check.sample_ids)
+
+    def test_existing_unfinished_visual_only_check_can_be_initialized(self):
+        point = self._create_visual_only_point(
+            'Legacy візуальний контроль',
+            required=False,
+        )
+        check = self._create_check_for_point(point)
+        point.visual_sample_control_required = True
+
+        self.assertTrue(check.can_initialize_measurement_matrix)
+        check.action_initialize_measurement_matrix()
+
+        self.assertTrue(check.measurement_matrix_required)
+        self.assertFalse(check.measurement_column_ids)
+        self.assertFalse(check.equipment_selection_ids)
+        self.assertFalse(check.sample_ids)
+
+    def test_visual_only_post_migration_is_idempotent(self):
+        point = self._create_visual_only_point(
+            'Міграція візуального контролю',
+            required=False,
+        )
+        check = self._create_check_for_point(point)
+        point.visual_sample_control_required = True
+
+        self._run_post_migration('17.0.2.17', '17.0.2.16')
+        self._run_post_migration('17.0.2.17', '17.0.2.16')
+
+        self.assertTrue(check.measurement_matrix_required)
+        self.assertFalse(check.measurement_column_ids)
+        self.assertFalse(check.equipment_selection_ids)
+        self.assertFalse(check.sample_ids)
+
+    def test_post_migration_marks_existing_structured_matrix_required(self):
+        check = self._create_check()
+        column_ids = check.measurement_column_ids.ids
+        selection_ids = check.equipment_selection_ids.ids
+        self.cr.execute(
+            """
+            UPDATE quality_check
+               SET measurement_matrix_required = FALSE
+             WHERE id = %s
+            """,
+            [check.id],
+        )
+        check.invalidate_recordset(['measurement_matrix_required'])
+
+        self._run_post_migration('17.0.2.17', '17.0.2.16')
+
+        self.assertTrue(check.measurement_matrix_required)
+        self.assertEqual(check.measurement_column_ids.ids, column_ids)
+        self.assertEqual(check.equipment_selection_ids.ids, selection_ids)
+
     def test_check_creation_takes_immutable_snapshot(self):
         check = self._create_check()
 
+        self.assertTrue(check.measurement_matrix_required)
         self.assertEqual(len(check.measurement_column_ids), 3)
         self.assertEqual(len(check.equipment_selection_ids), 1)
         self.assertEqual(

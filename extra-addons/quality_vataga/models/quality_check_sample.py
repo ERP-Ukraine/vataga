@@ -65,6 +65,7 @@ class QualityCheckSample(models.Model):
 
     @api.depends(
         'visual_result',
+        'quality_check_id.measurement_matrix_required',
         'quality_check_id.measurement_column_ids',
         'measurement_value_ids',
         'measurement_value_ids.column_id',
@@ -80,7 +81,7 @@ class QualityCheckSample(models.Model):
             )
             actual_column_ids = values.mapped('column_id').ids
             structure_complete = bool(
-                expected_column_ids
+                sample.quality_check_id.measurement_matrix_required
                 and len(values) == len(expected_column_ids)
                 and set(actual_column_ids) == expected_column_ids
                 and all(
