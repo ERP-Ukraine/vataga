@@ -21,6 +21,7 @@
                     name="can_initialize_measurement_matrix"
                     invisible="1"
                 />
+                <field name="measurement_matrix_required" invisible="1"/>
             </xpath>
 
             <xpath expr="//field[@name='measure_on']" position="after">
@@ -39,7 +40,7 @@
                 <page
                     string="Показники"
                     name="quality_vataga_measurements"
-                    invisible="not measurement_column_ids"
+                    invisible="not measurement_matrix_required"
                 >
                     <field name="measurement_column_ids" invisible="1"/>
                     <field name="sample_ids" invisible="1"/>

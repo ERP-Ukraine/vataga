@@ -7,6 +7,9 @@
         <field name="arch" type="xml">
             <xpath expr="//sheet/notebook" position="inside">
                 <page string="Налаштування контролю" name="control_settings">
+                    <group>
+                        <field name="visual_sample_control_required"/>
+                    </group>
                     <field name="control_parameter_line_ids">
                         <tree editable="bottom" default_order="sequence, id">
                             <field name="sequence" widget="handle"/>

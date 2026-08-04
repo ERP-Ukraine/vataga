@@ -81,7 +81,12 @@
                 class="alert alert-warning"
                 role="alert"
             >
-                Заповніть візуальний контроль і всі показники матриці.
+                <t t-if="state.data.columns.length">
+                    Заповніть візуальний контроль і всі показники матриці.
+                </t>
+                <t t-else="">
+                    Заповніть візуальний контроль для всіх зразків.
+                </t>
             </div>
             <div
                 t-if="!state.loading and !checkId"

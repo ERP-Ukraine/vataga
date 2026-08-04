@@ -38,6 +38,12 @@ class QualityCheck(models.Model):
         default=1,
         copy=False,
     )
+    measurement_matrix_required = fields.Boolean(
+        string='Потрібна матриця показників',
+        default=False,
+        readonly=True,
+        copy=False,
+    )
     measurement_matrix_complete = fields.Boolean(
         string='Матрицю показників заповнено',
         compute='_compute_measurement_matrix_state',
@@ -226,11 +232,20 @@ class QualityCheck(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
-        checks = super().create(vals_list)
+        sanitized_vals_list = []
+        for vals in vals_list:
+            sanitized_vals = dict(vals)
+            sanitized_vals.pop('measurement_matrix_required', None)
+            sanitized_vals_list.append(sanitized_vals)
+        checks = super().create(sanitized_vals_list)
         checks._initialize_measurement_snapshot()
         return checks
 
     def write(self, vals):
+        if 'measurement_matrix_required' in vals:
+            raise UserError(_(
+                'Ознака необхідності матриці є незмінним snapshot перевірки.',
+            ))
         if 'point_id' in vals:
             new_point_id = vals.get('point_id') or False
             protected_checks = self.filtered(
@@ -240,6 +255,7 @@ class QualityCheck(models.Model):
                         check.measurement_column_ids
                         or check.equipment_selection_ids
                         or check.sample_ids
+                        or check.measurement_matrix_required
                     )
                 ),
             )
@@ -254,6 +270,15 @@ class QualityCheck(models.Model):
             self._initialize_measurement_snapshot()
         return result
 
+    def _set_measurement_matrix_required(self):
+        checks_to_update = self.filtered(
+            lambda check: not check.measurement_matrix_required,
+        )
+        if checks_to_update:
+            super(QualityCheck, checks_to_update).write({
+                'measurement_matrix_required': True,
+            })
+
     def _initialize_measurement_snapshot(self):
         column_model = self.env['quality.check.measurement.column']
         selection_model = self.env['quality.check.equipment.selection']
@@ -262,6 +287,7 @@ class QualityCheck(models.Model):
             check.check_access_rule('write')
             if (
                 not check.point_id
+                or check.measurement_matrix_required
                 or check.measurement_column_ids
                 or check.equipment_selection_ids
                 or check.sample_ids
@@ -270,6 +296,12 @@ class QualityCheck(models.Model):
             source_lines = check.point_id.control_parameter_line_ids.sorted(
                 key=lambda line: (line.sequence, line.id),
             )
+            if (
+                not source_lines
+                and not check.point_id.visual_sample_control_required
+            ):
+                continue
+            check._set_measurement_matrix_required()
             if not source_lines:
                 continue
 
@@ -376,6 +408,8 @@ class QualityCheck(models.Model):
         'quality_state',
         'point_id',
         'point_id.control_parameter_line_ids',
+        'point_id.visual_sample_control_required',
+        'measurement_matrix_required',
         'measurement_column_ids',
         'equipment_selection_ids',
         'sample_ids',
@@ -385,13 +419,18 @@ class QualityCheck(models.Model):
             check.can_initialize_measurement_matrix = bool(
                 check.quality_state == 'none'
                 and check.point_id
-                and check.point_id.control_parameter_line_ids
+                and (
+                    check.point_id.control_parameter_line_ids
+                    or check.point_id.visual_sample_control_required
+                )
+                and not check.measurement_matrix_required
                 and not check.measurement_column_ids
                 and not check.equipment_selection_ids
                 and not check.sample_ids
             )
 
     @api.depends(
+        'measurement_matrix_required',
         'measurement_column_ids',
         'measurement_column_ids.equipment_category_ids.requires_equipment_selection',
         'measurement_column_ids.equipment_category_id.requires_equipment_selection',
@@ -410,7 +449,7 @@ class QualityCheck(models.Model):
     )
     def _compute_measurement_matrix_state(self):
         for check in self:
-            matrix_required = bool(check.measurement_column_ids)
+            matrix_required = check.measurement_matrix_required
             required_categories = (
                 check._get_required_measurement_equipment_categories()
             )
@@ -482,9 +521,9 @@ class QualityCheck(models.Model):
     def _add_measurement_samples(self, count):
         self.ensure_one()
         self._ensure_measurement_editable()
-        if not self.measurement_column_ids:
+        if not self.measurement_matrix_required:
             raise UserError(_(
-                'Для цієї перевірки немає налаштованих колонок показників.',
+                'Для цієї перевірки матриця показників не потрібна.',
             ))
         if (
             isinstance(count, bool)
@@ -602,12 +641,16 @@ class QualityCheck(models.Model):
                 'Матрицю можна ініціалізувати лише для незавершеної '
                 'перевірки.',
             ))
-        if not self.point_id or not self.point_id.control_parameter_line_ids:
+        if not self.point_id or not (
+            self.point_id.control_parameter_line_ids
+            or self.point_id.visual_sample_control_required
+        ):
             raise UserError(_(
                 'У пункті контролю немає налаштувань для матриці.',
             ))
         if (
-            self.measurement_column_ids
+            self.measurement_matrix_required
+            or self.measurement_column_ids
             or self.equipment_selection_ids
             or self.sample_ids
         ):
@@ -757,7 +800,7 @@ class QualityCheck(models.Model):
             )
 
     def _validate_measurement_can_pass(self):
-        for check in self.filtered('measurement_column_ids'):
+        for check in self.filtered('measurement_matrix_required'):
             invalid_boolean_column = check.measurement_column_ids.filtered(
                 lambda column:
                     column.parameter_type == 'boolean'
@@ -810,9 +853,13 @@ class QualityCheck(models.Model):
                     '«Невдало».',
                 ))
             if not check.measurement_matrix_complete:
+                if check.measurement_column_ids:
+                    raise ValidationError(_(
+                        'Заповніть візуальний контроль і всі комірки матриці '
+                        'показників.',
+                    ))
                 raise ValidationError(_(
-                    'Заповніть візуальний контроль і всі комірки матриці '
-                    'показників.',
+                    'Заповніть візуальний контроль для всіх зразків.',
                 ))
 
     def _validate_measurement_sample_structure(self):
@@ -822,7 +869,7 @@ class QualityCheck(models.Model):
                 values = sample.measurement_value_ids
                 actual_column_ids = values.mapped('column_id').ids
                 structure_complete = bool(
-                    expected_column_ids
+                    check.measurement_matrix_required
                     and len(values) == len(expected_column_ids)
                     and set(actual_column_ids) == expected_column_ids
                     and all(
