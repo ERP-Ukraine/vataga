@@ -254,10 +254,6 @@ class QualityCheckMeasurementValue(models.Model):
             raise UserError(_(
                 'Не можна змінювати показники завершеної перевірки.',
             ))
-        if input_fields & set(vals):
-            self.mapped(
-                'quality_check_id',
-            )._ensure_ready_for_inspection()
         return super().write(vals)
 
     def unlink(self):

@@ -16,16 +16,6 @@
                 />
             </xpath>
 
-            <xpath expr="//header/field[@name='quality_state']" position="after">
-                <field
-                    name="inspection_readiness_state"
-                    widget="badge"
-                    invisible="inspection_readiness_state == 'not_applicable'"
-                    decoration-warning="inspection_readiness_state == 'waiting_arrival'"
-                    decoration-success="inspection_readiness_state == 'ready'"
-                />
-            </xpath>
-
             <xpath expr="//sheet" position="inside">
                 <field
                     name="can_initialize_measurement_matrix"
@@ -131,44 +121,6 @@
                     />
                 </page>
             </xpath>
-        </field>
-    </record>
-
-    <record id="quality_check_view_tree_inspection_readiness" model="ir.ui.view">
-        <field name="name">quality.check.tree.inspection.readiness</field>
-        <field name="model">quality.check</field>
-        <field name="inherit_id" ref="quality_control.quality_check_view_tree"/>
-        <field name="arch" type="xml">
-            <field name="quality_state" position="before">
-                <field
-                    name="inspection_readiness_state"
-                    optional="hide"
-                    widget="badge"
-                    decoration-warning="inspection_readiness_state == 'waiting_arrival'"
-                    decoration-success="inspection_readiness_state == 'ready'"
-                    decoration-muted="inspection_readiness_state == 'not_applicable'"
-                />
-            </field>
-        </field>
-    </record>
-
-    <record id="quality_check_view_search_inspection_readiness" model="ir.ui.view">
-        <field name="name">quality.check.search.inspection.readiness</field>
-        <field name="model">quality.check</field>
-        <field name="inherit_id" ref="quality_control.quality_check_view_search"/>
-        <field name="arch" type="xml">
-            <filter name="progress" position="after">
-                <filter
-                    string="Очікують надходження"
-                    name="waiting_quality_arrival"
-                    domain="[('quality_state', '=', 'none'), ('inspection_readiness_state', '=', 'waiting_arrival')]"
-                />
-                <filter
-                    string="Готові до перевірки"
-                    name="ready_for_inspection"
-                    domain="[('quality_state', '=', 'none'), ('inspection_readiness_state', '=', 'ready')]"
-                />
-            </filter>
         </field>
     </record>
 </odoo>

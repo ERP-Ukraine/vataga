@@ -8,4 +8,3 @@ from . import quality_check_measurement_value
 from . import quality_check_sample
 from . import quality_equipment_parameter
 from . import quality_point
-from . import stock_picking

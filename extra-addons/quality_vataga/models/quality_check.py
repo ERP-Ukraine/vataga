@@ -92,126 +92,6 @@ class QualityCheck(models.Model):
     has_operation_product_quantity = fields.Boolean(
         compute='_compute_operation_product_quantity',
     )
-    inspection_readiness_state = fields.Selection(
-        selection=[
-            ('not_applicable', 'Не застосовується'),
-            ('waiting_arrival', 'Очікує фактичного надходження'),
-            ('ready', 'Готова до перевірки'),
-        ],
-        string='Готовність до перевірки',
-        compute='_compute_inspection_readiness_state',
-        store=True,
-        index=True,
-        readonly=True,
-    )
-
-    @api.depends(
-        'quality_state',
-        'picking_id',
-        'picking_id.state',
-        'picking_id.picking_type_id.code',
-        'picking_id.quality_arrival_confirmed',
-    )
-    def _compute_inspection_readiness_state(self):
-        for check in self:
-            picking = check.picking_id
-            if not picking or picking.picking_type_id.code != 'incoming':
-                check.inspection_readiness_state = 'not_applicable'
-            elif picking.state == 'cancel':
-                check.inspection_readiness_state = 'not_applicable'
-            elif picking.state == 'done':
-                check.inspection_readiness_state = 'ready'
-            elif check.quality_state != 'none':
-                check.inspection_readiness_state = 'not_applicable'
-            elif picking.quality_arrival_confirmed:
-                check.inspection_readiness_state = 'ready'
-            else:
-                check.inspection_readiness_state = 'waiting_arrival'
-
-    def _get_quality_arrival_inspector(self):
-        self.ensure_one()
-
-        def valid_internal_user(user):
-            return user.exists().filtered(
-                lambda candidate: candidate.active and not candidate.share,
-            )
-
-        inspector = valid_internal_user(self.user_id)
-        if inspector:
-            return inspector[:1]
-
-        inspector = valid_internal_user(self.point_id.user_id)
-        if inspector:
-            return inspector[:1]
-
-        team = self.team_id or self.point_id.team_id
-        if not team:
-            return self.env['res.users']
-
-        # Standard Odoo 17 quality.alert.team has no assignee/member field.
-        # Support extensions that add a conventional responsible or member
-        # field, while accepting only one unambiguous internal user.
-        for field_name in (
-            'user_id',
-            'responsible_id',
-            'responsible_user_id',
-            'manager_id',
-        ):
-            field = team._fields.get(field_name)
-            if (
-                field
-                and field.type == 'many2one'
-                and field.comodel_name == 'res.users'
-            ):
-                inspector = valid_internal_user(team[field_name])
-                if inspector:
-                    return inspector[:1]
-
-        for field_name in ('member_ids', 'user_ids'):
-            field = team._fields.get(field_name)
-            if (
-                field
-                and field.type in ('one2many', 'many2many')
-                and field.comodel_name == 'res.users'
-            ):
-                inspectors = valid_internal_user(team[field_name])
-                if len(inspectors) == 1:
-                    return inspectors
-
-        return self.env['res.users']
-
-    def _ensure_ready_for_inspection(self):
-        waiting_checks = self.filtered(
-            lambda check: (
-                check.quality_state == 'none'
-                and check.inspection_readiness_state == 'waiting_arrival'
-            ),
-        )
-        if waiting_checks:
-            raise UserError(_(
-                'Товар ще не позначено як фактично отриманий. Підтвердьте '
-                'надходження у складському переміщенні.',
-            ))
-
-    def _complete_quality_arrival_activities(self):
-        activity_type = self.env.ref(
-            'quality_vataga.mail_activity_type_quality_arrival_inspection',
-            raise_if_not_found=False,
-        )
-        if not activity_type or not self:
-            return
-        quality_check_model = self.env['ir.model']._get('quality.check')
-        activities = self.env['mail.activity'].sudo().search([
-            ('res_model_id', '=', quality_check_model.id),
-            ('res_id', 'in', self.ids),
-            ('activity_type_id', '=', activity_type.id),
-        ])
-        if activities:
-            # Completion follows a successful PASS/FAIL on the exact checks
-            # and is restricted to the dedicated arrival activity type.
-            activities.action_feedback(feedback=_(
-                'Перевірку якості завершено.',
-            ))
 
     @api.depends(
         'product_id',
@@ -836,10 +716,7 @@ class QualityCheck(models.Model):
 
         return {
             'check_id': self.id,
-            'editable': (
-                self.quality_state == 'none'
-                and self.inspection_readiness_state != 'waiting_arrival'
-            ),
+            'editable': self.quality_state == 'none',
             'columns': columns,
             'samples': samples,
             'can_pass': self.can_pass_measurement_check,
@@ -921,7 +798,6 @@ class QualityCheck(models.Model):
                 completed_message
                 or _('Матрицю завершеної перевірки не можна редагувати.'),
             )
-        self._ensure_ready_for_inspection()
 
     def _validate_measurement_can_pass(self):
         for check in self.filtered('measurement_matrix_required'):
@@ -1019,16 +895,10 @@ class QualityCheck(models.Model):
             )._snapshot_selected_equipment()
 
     def do_pass(self):
-        self._ensure_ready_for_inspection()
         self._validate_measurement_can_pass()
         self._snapshot_selected_equipment()
-        result = super().do_pass()
-        self._complete_quality_arrival_activities()
-        return result
+        return super().do_pass()
 
     def do_fail(self):
-        self._ensure_ready_for_inspection()
         self._snapshot_selected_equipment()
-        result = super().do_fail()
-        self._complete_quality_arrival_activities()
-        return result
+        return super().do_fail()
