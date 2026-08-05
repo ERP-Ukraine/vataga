@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <template
+        id="report_deliveryslip_actual_quantity"
+        inherit_id="l10n_ua_stock_reports.sales_invoice_template"
+        priority="100"
+    >
+        <xpath
+            expr="//t[@t-set='lines' and @t-value='o.move_ids.filtered(lambda x: x.product_uom_qty)']"
+            position="attributes"
+        >
+            <attribute name="t-value">
+                o.move_ids.filtered(
+                    lambda move: move.quantity
+                    if o.state == 'done'
+                    else move.product_uom_qty
+                )
+            </attribute>
+        </xpath>
+
+        <xpath
+            expr="//span[@t-field='move.product_uom_qty' or (@t-esc and contains(@t-esc, 'move.product_uom_qty') and not(contains(@t-esc, 'unit_cost')))]"
+            position="replace"
+        >
+            <t
+                t-set="qty"
+                t-value="move.quantity if o.state == 'done' else move.product_uom_qty"
+            />
+            <span t-esc="qty"/>
+        </xpath>
+
+        <xpath
+            expr="//*[contains(@t-esc, 'unit_cost') and contains(@t-esc, 'move.product_uom_qty')]"
+            position="attributes"
+        >
+            <attribute name="t-esc">unit_cost * qty</attribute>
+        </xpath>
+    </template>
+</odoo>
