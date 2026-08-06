@@ -8,6 +8,11 @@ import {
 
 QUnit.module("sale_demand_vataga", () => {
     QUnit.test("closed color follows the displayed percentage", (assert) => {
+        assert.strictEqual(
+            getClosedCellColor(0),
+            null,
+            "0% keeps the standard pivot background"
+        );
         assert.strictEqual(getClosedCellColor(0.7), "#d9bfc7", "70% is pink");
         assert.strictEqual(getClosedCellColor(0.85), "#e4daa8", "85% is yellow");
         assert.strictEqual(
@@ -28,6 +33,8 @@ QUnit.module("sale_demand_vataga", () => {
     });
 
     QUnit.test("closed color classes match the thresholds", (assert) => {
+        assert.strictEqual(getClosedCellClass(0), "");
+        assert.strictEqual(getClosedCellClass(0.01), "closed-low");
         assert.strictEqual(getClosedCellClass(0.7), "closed-low");
         assert.strictEqual(getClosedCellClass(0.85), "closed-medium");
         assert.strictEqual(getClosedCellClass(0.999966), "closed-complete");
@@ -45,6 +52,10 @@ QUnit.module("sale_demand_vataga", () => {
             ...commonCell,
             measure: "closed",
         };
+        const zeroClosedCell = {
+            ...closedCell,
+            value: 0,
+        };
 
         assert.notOk(
             Object.keys(getPivotCellClasses(commonCell)).some((className) =>
@@ -52,5 +63,11 @@ QUnit.module("sale_demand_vataga", () => {
             )
         );
         assert.ok(getPivotCellClasses(closedCell)["closed-complete"]);
+        assert.notOk(
+            Object.keys(getPivotCellClasses(zeroClosedCell)).some((className) =>
+                className.startsWith("closed-")
+            ),
+            "a 0% closed cell has no custom background class"
+        );
     });
 });
