@@ -1,0 +1,238 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <template
+        id="report_deliveryslip_actual_quantity"
+        inherit_id="l10n_ua_stock_reports.sales_invoice_template"
+        priority="100"
+    >
+        <xpath
+            expr="//t[@t-set='lines' and @t-value='o.move_ids.filtered(lambda x: x.product_uom_qty)']"
+            position="attributes"
+        >
+            <attribute name="t-value">
+                o.move_ids.filtered(
+                    lambda move: move.product_uom_qty or move.quantity
+                )
+            </attribute>
+        </xpath>
+
+        <xpath
+            expr="//div[contains(concat(' ', normalize-space(@class), ' '), ' page ')]"
+            position="attributes"
+        >
+            <attribute name="t-attf-class">page {{ 'o_vataga_internal_transfer_report' if o.picking_type_id.code == 'internal' else '' }}</attribute>
+        </xpath>
+
+        <xpath
+            expr="//div[contains(concat(' ', normalize-space(@class), ' '), ' page ')]"
+            position="inside"
+        >
+            <t t-if="o.picking_type_id.code == 'internal'">
+                <style>
+                    .o_vataga_internal_transfer_report {
+                        font-size: 10.5pt !important;
+                        line-height: 1.25 !important;
+                    }
+                    .o_vataga_internal_transfer_report * {
+                        line-height: 1.25 !important;
+                    }
+                    .o_vataga_internal_transfer_report h1,
+                    .o_vataga_internal_transfer_report h2,
+                    .o_vataga_internal_transfer_report .h1,
+                    .o_vataga_internal_transfer_report .h2 {
+                        font-size: 16.5pt !important;
+                        line-height: 1.2 !important;
+                    }
+                    .o_vataga_internal_transfer_report table {
+                        width: 100% !important;
+                        table-layout: fixed !important;
+                    }
+                    .o_vataga_internal_transfer_report thead {
+                        display: table-header-group;
+                    }
+                    .o_vataga_internal_transfer_report tr {
+                        page-break-inside: avoid;
+                    }
+                    .o_vataga_internal_transfer_report th {
+                        font-size: 9.8pt !important;
+                        font-weight: 700 !important;
+                        text-align: center !important;
+                        vertical-align: middle !important;
+                    }
+                    .o_vataga_internal_transfer_report td {
+                        font-size: 10pt !important;
+                        vertical-align: top !important;
+                    }
+                    .o_vataga_internal_transfer_report .o_vataga_col_sequence {
+                        width: 4% !important;
+                    }
+                    .o_vataga_internal_transfer_report .o_vataga_col_product {
+                        width: 40% !important;
+                        overflow-wrap: break-word;
+                        word-wrap: break-word;
+                    }
+                    .o_vataga_internal_transfer_report .o_vataga_col_quantity,
+                    .o_vataga_internal_transfer_report .o_vataga_col_demand,
+                    .o_vataga_internal_transfer_report .o_vataga_col_issued {
+                        width: 7% !important;
+                        text-align: right !important;
+                    }
+                    .o_vataga_internal_transfer_report .o_vataga_col_uom {
+                        width: 5% !important;
+                        text-align: center !important;
+                    }
+                    .o_vataga_internal_transfer_report .o_vataga_col_price,
+                    .o_vataga_internal_transfer_report .o_vataga_col_amount {
+                        width: 9% !important;
+                        text-align: right !important;
+                    }
+                    .o_vataga_internal_transfer_report .o_vataga_col_barcode {
+                        width: 12% !important;
+                        word-break: break-word;
+                    }
+                    .o_vataga_internal_transfer_report .text-muted,
+                    .o_vataga_internal_transfer_report small,
+                    .o_vataga_internal_transfer_report .small {
+                        font-size: 9.5pt !important;
+                    }
+                </style>
+            </t>
+        </xpath>
+
+        <xpath expr="//thead//th[normalize-space(.)='№']" position="attributes">
+            <attribute name="class" add="o_vataga_col_sequence text-center" separator=" "/>
+        </xpath>
+
+        <xpath
+            expr="//thead//th[contains(normalize-space(.), 'Товари')]"
+            position="attributes"
+        >
+            <attribute name="class" add="o_vataga_col_product" separator=" "/>
+        </xpath>
+
+        <xpath expr="//thead//th[normalize-space(.)='Кіл-ть']" position="attributes">
+            <attribute name="class" add="o_vataga_col_quantity text-center" separator=" "/>
+        </xpath>
+
+        <xpath expr="//thead//th[normalize-space(.)='Кіл-ть']" position="after">
+            <th
+                t-if="o.picking_type_id.code == 'internal'"
+                class="o_vataga_col_demand text-center"
+            >Попит</th>
+            <th
+                t-if="o.picking_type_id.code == 'internal'"
+                class="o_vataga_col_issued text-center"
+            >Видано</th>
+        </xpath>
+
+        <xpath expr="//thead//th[normalize-space(.)='Од.']" position="attributes">
+            <attribute name="class" add="o_vataga_col_uom text-center" separator=" "/>
+        </xpath>
+
+        <xpath
+            expr="//thead//th[contains(normalize-space(.), 'Ціна без ПДВ')]"
+            position="attributes"
+        >
+            <attribute name="class" add="o_vataga_col_price text-end" separator=" "/>
+        </xpath>
+
+        <xpath
+            expr="//thead//th[contains(normalize-space(.), 'Сума без ПДВ')]"
+            position="attributes"
+        >
+            <attribute name="class" add="o_vataga_col_amount text-end" separator=" "/>
+        </xpath>
+
+        <xpath
+            expr="//thead//th[contains(normalize-space(.), 'Штрих-код')]"
+            position="attributes"
+        >
+            <attribute name="class" add="o_vataga_col_barcode" separator=" "/>
+        </xpath>
+
+        <xpath
+            expr="//tbody//td[@t-field='move.name' or @t-esc='move.name' or @t-out='move.name' or contains(@t-field, 'description_picking') or contains(@t-esc, 'description_picking') or contains(@t-out, 'description_picking') or .//*[@t-field='move.name' or @t-esc='move.name' or @t-out='move.name' or contains(@t-field, 'description_picking') or contains(@t-esc, 'description_picking') or contains(@t-out, 'description_picking')]]"
+            position="replace"
+        >
+            <td class="o_vataga_col_product">
+                <t t-if="o.picking_type_id.code == 'internal'">
+                    <span t-esc="move.product_id.display_name"/>
+                </t>
+                <t t-else="">
+                    <span t-esc="move.name"/>
+                </t>
+            </td>
+        </xpath>
+
+        <xpath
+            expr="//tbody//td[.//span[@t-field='move.product_uom_qty' or (@t-esc and contains(@t-esc, 'move.product_uom_qty') and not(contains(@t-esc, 'unit_cost')))]]"
+            position="attributes"
+        >
+            <attribute name="class" add="o_vataga_col_quantity text-end" separator=" "/>
+        </xpath>
+
+        <xpath
+            expr="//tbody//td[.//span[@t-field='move.product_uom_qty' or (@t-esc and contains(@t-esc, 'move.product_uom_qty') and not(contains(@t-esc, 'unit_cost')))]]"
+            position="after"
+        >
+            <td
+                t-if="o.picking_type_id.code == 'internal'"
+                class="o_vataga_col_demand text-end"
+            >
+                <span t-field="move.product_uom_qty"/>
+            </td>
+            <td
+                t-if="o.picking_type_id.code == 'internal'"
+                class="o_vataga_col_issued text-end"
+            >
+                <span t-field="move.quantity"/>
+            </td>
+        </xpath>
+
+        <xpath
+            expr="//span[@t-field='move.product_uom_qty' or (@t-esc and contains(@t-esc, 'move.product_uom_qty') and not(contains(@t-esc, 'unit_cost')))]"
+            position="replace"
+        >
+            <t
+                t-set="qty"
+                t-value="move.quantity if o.state == 'done' else move.product_uom_qty"
+            />
+            <span t-esc="qty"/>
+        </xpath>
+
+        <xpath
+            expr="//tbody//td[@t-field='move.product_uom' or @t-field='move.product_uom.name' or @t-esc='move.product_uom.name' or .//*[@t-field='move.product_uom' or @t-field='move.product_uom.name' or @t-esc='move.product_uom.name']]"
+            position="attributes"
+        >
+            <attribute name="class" add="o_vataga_col_uom text-center" separator=" "/>
+        </xpath>
+
+        <xpath
+            expr="//tbody//td[(contains(@t-esc, 'unit_cost') and not(contains(@t-esc, 'product_uom_qty'))) or .//*[contains(@t-esc, 'unit_cost') and not(contains(@t-esc, 'product_uom_qty'))]]"
+            position="attributes"
+        >
+            <attribute name="class" add="o_vataga_col_price text-end" separator=" "/>
+        </xpath>
+
+        <xpath
+            expr="//tbody//td[(contains(@t-esc, 'unit_cost') and contains(@t-esc, 'move.product_uom_qty')) or .//*[contains(@t-esc, 'unit_cost') and contains(@t-esc, 'move.product_uom_qty')]]"
+            position="attributes"
+        >
+            <attribute name="class" add="o_vataga_col_amount text-end" separator=" "/>
+        </xpath>
+
+        <xpath
+            expr="//tbody//td[contains(@t-field, 'barcode') or contains(@t-esc, 'barcode') or contains(@t-out, 'barcode') or .//*[contains(@t-field, 'barcode') or contains(@t-esc, 'barcode') or contains(@t-out, 'barcode')]]"
+            position="attributes"
+        >
+            <attribute name="class" add="o_vataga_col_barcode" separator=" "/>
+        </xpath>
+
+        <xpath
+            expr="//*[contains(@t-esc, 'unit_cost') and contains(@t-esc, 'move.product_uom_qty')]"
+            position="attributes"
+        >
+            <attribute name="t-esc">unit_cost * qty</attribute>
+        </xpath>
+    </template>
+</odoo>
