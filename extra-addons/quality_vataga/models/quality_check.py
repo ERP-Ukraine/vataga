@@ -92,6 +92,21 @@ class QualityCheck(models.Model):
     has_operation_product_quantity = fields.Boolean(
         compute='_compute_operation_product_quantity',
     )
+    arrival_warehouse_id = fields.Many2one(
+        'stock.warehouse',
+        string='Склад',
+        related='picking_id.picking_type_id.warehouse_id',
+        store=True,
+        readonly=True,
+        index=True,
+    )
+    arrival_scheduled_date = fields.Datetime(
+        string='Запланована дата надходження',
+        related='picking_id.scheduled_date',
+        store=True,
+        readonly=True,
+        index=True,
+    )
 
     @api.depends(
         'product_id',

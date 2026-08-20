@@ -34,6 +34,17 @@
                     readonly="1"
                     invisible="not has_operation_product_quantity"
                 />
+                <field
+                    name="arrival_warehouse_id"
+                    readonly="1"
+                    invisible="not picking_id"
+                    options="{'no_create': True, 'no_open': True}"
+                />
+                <field
+                    name="arrival_scheduled_date"
+                    readonly="1"
+                    invisible="not picking_id"
+                />
             </xpath>
 
             <xpath expr="//sheet/notebook" position="inside">
@@ -120,6 +131,53 @@
                         class="w-100 o_quality_measurement_matrix_field"
                     />
                 </page>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="quality_check_view_tree_arrival_details" model="ir.ui.view">
+        <field name="name">quality.check.tree.arrival.details</field>
+        <field name="model">quality.check</field>
+        <field name="inherit_id" ref="quality_control.quality_check_view_tree"/>
+        <field name="arch" type="xml">
+            <field name="quality_state" position="before">
+                <field name="arrival_warehouse_id" optional="show"/>
+                <field
+                    name="production_id"
+                    string="Виробництво"
+                    optional="show"
+                />
+                <field name="arrival_scheduled_date" optional="show"/>
+            </field>
+        </field>
+    </record>
+
+    <record id="quality_check_view_search_arrival_details" model="ir.ui.view">
+        <field name="name">quality.check.search.arrival.details</field>
+        <field name="model">quality.check</field>
+        <field name="inherit_id" ref="quality_control.quality_check_view_search"/>
+        <field name="arch" type="xml">
+            <xpath expr="//search" position="inside">
+                <field name="arrival_warehouse_id"/>
+                <field name="production_id" string="Виробництво"/>
+                <field name="arrival_scheduled_date"/>
+                <group expand="0" string="Групувати за">
+                    <filter
+                        string="Склад"
+                        name="group_by_arrival_warehouse"
+                        context="{'group_by': 'arrival_warehouse_id'}"
+                    />
+                    <filter
+                        string="Виробництво"
+                        name="group_by_production"
+                        context="{'group_by': 'production_id'}"
+                    />
+                    <filter
+                        string="Запланована дата надходження"
+                        name="group_by_arrival_scheduled_date"
+                        context="{'group_by': 'arrival_scheduled_date'}"
+                    />
+                </group>
             </xpath>
         </field>
     </record>
