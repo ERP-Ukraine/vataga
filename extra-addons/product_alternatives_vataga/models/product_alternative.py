@@ -1377,7 +1377,7 @@ class ProductAnalytic(models.Model):
                 kit_total_received = self._sum_purchase_quantity_for_products(
                     kit_products,
                     product.uom_id,
-                    'product_qty',
+                    'qty_received',
                     product,
                 )
                 need_bom_lines = bom.bom_line_ids.filtered(

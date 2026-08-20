@@ -27,6 +27,26 @@ class TestDemandPurchase(TestDemand):
                 'type': 'phantom',
             }
         )
+        self.partial_kit_product = Product.create(
+            {'name': 'Partially Received Kit Product'}
+        )
+        MRPBOM.create(
+            {
+                'product_qty': 1,
+                'product_tmpl_id': self.partial_kit_product.product_tmpl_id.id,
+                'company_id': self.company.id,
+                'bom_line_ids': [
+                    Command.create(
+                        {
+                            'product_id': self.buy_product1.id,
+                            'product_qty': 2,
+                            'product_uom_id': self.buy_product1.uom_id.id,
+                        }
+                    ),
+                ],
+                'type': 'phantom',
+            }
+        )
         while MRPBOM.search([('need_update_to_purchase', '=', True)]):
             MRPBOM._cron_create_total_product_line_ids()
 
@@ -229,11 +249,68 @@ class TestDemandPurchase(TestDemand):
             Command.create({'product_id': self.kit_product.id, 'product_qty': 1})
         ]
         purchase.button_confirm()
-        purchase.picking_ids.button_validate()
         product_analytic = self.env['product.analytic'].search(
-            [('sale_contract_id', '=', self.sell_analytic_1.id), ('product_id', '=', self.buy_product1.id)]
+            [
+                ('sale_contract_id', '=', self.sell_analytic_1.id),
+                ('product_id', '=', self.buy_product1.id),
+            ]
         )
+        self.assertEqual(purchase.order_line.qty_received, 0)
+        self.assertEqual(product_analytic.qty_received, 0)
+        purchase.picking_ids.button_validate()
         self.assertEqual(product_analytic.qty_received, 5)
+
+    def test_qty_received_with_partially_received_kit_product(self):
+        self.env['sale.order'].create(
+            {
+                'partner_id': self.partner.id,
+                'order_line': [
+                    Command.create(
+                        {
+                            'product_id': self.sell_product_2.id,
+                            'analytic_distribution': {
+                                f'{self.sell_analytic_1.id}': 100
+                            },
+                            'product_uom_qty': 1,
+                        }
+                    ),
+                ],
+            }
+        ).action_confirm()
+        while self.env['sale.order.line.purchase'].search(
+            [
+                ('sale_contract_id', '!=', False),
+                ('product_analytic_id', '=', False),
+                ('state', '=', 'sale'),
+            ],
+        ):
+            self.env['product.analytic']._cron_create_product_analytic()
+        purchase = self.env['purchase.order'].create(
+            {
+                'partner_id': self.partner.id,
+                'seller_contract_id': self.sell_analytic_1.id,
+            }
+        )
+        purchase.order_line = [
+            Command.create(
+                {'product_id': self.partial_kit_product.id, 'product_qty': 10}
+            )
+        ]
+        purchase.button_confirm()
+        product_analytic = self.env['product.analytic'].search(
+            [
+                ('sale_contract_id', '=', self.sell_analytic_1.id),
+                ('product_id', '=', self.buy_product1.id),
+            ]
+        )
+        self.assertEqual(purchase.order_line.qty_received, 0)
+        self.assertEqual(product_analytic.qty_received, 0)
+
+        purchase.picking_ids.move_ids.write({'quantity': 3, 'picked': True})
+        purchase.picking_ids.with_context(skip_backorder=True).button_validate()
+
+        self.assertEqual(purchase.order_line.qty_received, 3)
+        self.assertEqual(product_analytic.qty_received, 6)
 
     def test_qty_received_with_kit_product_different_uom(self):
         self.env['sale.order'].create(
