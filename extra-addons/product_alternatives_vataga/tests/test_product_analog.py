@@ -214,6 +214,61 @@ class TestProductAnalog(TransactionCase):
         purchase.picking_ids.button_validate()
         return purchase
 
+    def _create_purchase_with_received_quantity(
+        self,
+        product,
+        contract,
+        ordered_quantity,
+        received_quantity=0,
+        analog_original_product=False,
+    ):
+        line_vals = {
+            'product_id': product.id,
+            'product_qty': ordered_quantity,
+            'price_unit': 1,
+            'analytic_distribution': {str(contract.id): 100},
+        }
+        if analog_original_product:
+            line_vals['analog_original_product_id'] = analog_original_product.id
+        purchase = self.env['purchase.order'].create(
+            {
+                'partner_id': self.partner.id,
+                'seller_contract_id': contract.id,
+                'order_line': [Command.create(line_vals)],
+            }
+        )
+        purchase.button_confirm()
+        if received_quantity:
+            purchase.picking_ids.move_ids.write(
+                {'quantity': received_quantity, 'picked': True}
+            )
+            purchase.picking_ids.with_context(skip_backorder=True).button_validate()
+        return purchase
+
+    def _create_kit_product(self, component_product, component_quantity):
+        kit_product = self._create_product(
+            'Kit for %s' % component_product.name
+        )
+        self.MrpBom.create(
+            {
+                'product_tmpl_id': kit_product.product_tmpl_id.id,
+                'product_id': kit_product.id,
+                'product_qty': 1,
+                'product_uom_id': kit_product.uom_id.id,
+                'type': 'phantom',
+                'bom_line_ids': [
+                    Command.create(
+                        {
+                            'product_id': component_product.id,
+                            'product_qty': component_quantity,
+                            'product_uom_id': component_product.uom_id.id,
+                        }
+                    ),
+                ],
+            }
+        )
+        return kit_product
+
     def _recompute_analytic_rollups(self, *product_analytics):
         product_analytics = self.ProductAnalytic.browse(
             [analytic.id for analytic in product_analytics if analytic]
@@ -1464,6 +1519,72 @@ class TestProductAnalog(TransactionCase):
         self.assertEqual(pivot_total['demand'], 10)
         self.assertEqual(pivot_total['in_invoice'], 5)
         self.assertEqual(pivot_total['qty_received'], 5)
+
+    def test_confirmed_unreceived_kit_does_not_add_received_components(self):
+        component = self._create_product('Unreceived kit component')
+        kit_product = self._create_kit_product(component, 2)
+        contract = self._create_seller_contract('Unreceived Kit Contract')
+        component_analytic = self._create_product_analytic(component, contract)
+
+        purchase = self._create_purchase_with_received_quantity(
+            kit_product,
+            contract,
+            ordered_quantity=10,
+        )
+
+        self.assertEqual(purchase.order_line.qty_received, 0)
+        component_analytic.invalidate_recordset(['qty_received'])
+        self.assertEqual(component_analytic.qty_received, 0)
+
+    def test_partially_received_kit_adds_only_received_components(self):
+        component = self._create_product('Partially received kit component')
+        kit_product = self._create_kit_product(component, 2)
+        contract = self._create_seller_contract('Partial Kit Contract')
+        component_analytic = self._create_product_analytic(component, contract)
+
+        purchase = self._create_purchase_with_received_quantity(
+            kit_product,
+            contract,
+            ordered_quantity=10,
+            received_quantity=3,
+        )
+
+        self.assertEqual(purchase.order_line.qty_received, 3)
+        component_analytic.invalidate_recordset(['qty_received'])
+        self.assertEqual(component_analytic.qty_received, 6)
+
+    def test_received_quantity_combines_direct_analog_and_kit(self):
+        component = self._create_product('Combined received component')
+        analog = self._create_product('Combined received analog')
+        kit_product = self._create_kit_product(component, 2)
+        contract = self._create_seller_contract('Combined Received Contract')
+        self._create_analog_line(component, analog)
+        component_analytic = self._create_product_analytic(component, contract)
+        analog_analytic = self._create_product_analytic(analog, contract)
+
+        self._create_purchase_with_received_quantity(
+            component,
+            contract,
+            ordered_quantity=4,
+            received_quantity=4,
+        )
+        self._create_purchase_with_received_quantity(
+            analog,
+            contract,
+            ordered_quantity=5,
+            received_quantity=5,
+            analog_original_product=component,
+        )
+        self._create_purchase_with_received_quantity(
+            kit_product,
+            contract,
+            ordered_quantity=10,
+            received_quantity=3,
+        )
+
+        (component_analytic | analog_analytic).invalidate_recordset(['qty_received'])
+        self.assertEqual(component_analytic.qty_received, 15)
+        self.assertEqual(analog_analytic.qty_received, 0)
 
     def test_product_analytic_rollup_does_not_mix_contracts(self):
         product_a = self._create_product('Contract main A')

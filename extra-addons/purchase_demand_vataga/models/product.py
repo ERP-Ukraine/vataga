@@ -33,7 +33,7 @@ class ProductAnalytic(models.Model):
                     kit_total_in_received = 0
                     for line in kit_purchase_lines:
                         kit_total_in_received += line.product_uom._compute_quantity(
-                            line.product_qty, line.product_id.uom_id
+                            line.qty_received, line.product_id.uom_id
                         )
                     need_bom_lines = bom.bom_line_ids.filtered(
                         lambda line: line.product_id == product_analytic.product_id
