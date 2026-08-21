@@ -1,10 +1,10 @@
 <templates>
     <t t-name="sale_demand_vataga.PivotRendererDemand" t-inherit="web.PivotRenderer" t-inherit-mode="primary">
+        <xpath expr="//div[hasclass('o_pivot')]" position="attributes">
+            <attribute name="class" add="o_pivot_demand" separator=" "/>
+        </xpath>
         <xpath expr="//td[hasclass('o_pivot_cell_value')]" position="attributes">
-            <attribute name="class" del="bg-100"/>
-            <attribute name="t-att-style">
-                'background-color: ' + get_color(cell)
-            </attribute>
+            <attribute name="t-att-class">getPivotCellClasses(cell)</attribute>
         </xpath>
         <xpath expr="//tbody//t[@t-call='web.PivotHeader']" position="replace">
             <t t-call="sale_demand_vataga.PivotHeader">

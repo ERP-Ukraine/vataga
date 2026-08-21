@@ -1,6 +1,6 @@
 {
     'name': 'Sale Demand Vataga',
-    'version': '2.6',
+    'version': '2.10',
     'category': 'Sales/Sales',
     'author': 'ERP Ukraine LLC',
     'website': 'https://erp.co.ua',
@@ -28,7 +28,12 @@
         'web.assets_backend': [
             'sale_demand_vataga/static/src/views/pivot/pivot_renderer.xml',
             'sale_demand_vataga/static/src/views/pivot/pivot_renderer.js',
+            'sale_demand_vataga/static/src/views/pivot/pivot_renderer.scss',
             'sale_demand_vataga/static/src/views/pivot/pivot_view.js',
-        ]
+        ],
+        'web.qunit_suite_tests': [
+            'sale_demand_vataga/static/tests/pivot_renderer_tests.js',
+            'sale_demand_vataga/static/tests/pivot_view_tests.js',
+        ],
     },
 }

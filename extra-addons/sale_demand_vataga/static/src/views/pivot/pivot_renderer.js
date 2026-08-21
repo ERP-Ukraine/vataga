@@ -4,13 +4,94 @@
 import { download } from "@web/core/network/download";
 import { PivotRenderer } from "@web/views/pivot/pivot_renderer"
 import {
+    onMounted,
+    onPatched,
+    onWillPatch,
     useRef,
 } from "@odoo/owl";
+
+const CLOSED_CELL_COLORS = {
+    "closed-low": "#d9bfc7",
+    "closed-medium": "#e4daa8",
+    "closed-complete": "#71a064",
+    "closed-over": "#779bb5",
+};
+
+export function getClosedCellClass(value) {
+    if (typeof value !== "number" || Number.isNaN(value)) {
+        return "";
+    }
+    if (value === 0) {
+        return "";
+    }
+    if (value > 1) {
+        return "closed-over";
+    }
+    if (Math.round(value * 100) === 100) {
+        return "closed-complete";
+    }
+    if (value <= 0.7) {
+        return "closed-low";
+    }
+    return "closed-medium";
+}
+
+export function getClosedCellColor(value) {
+    return CLOSED_CELL_COLORS[getClosedCellClass(value)] || null;
+}
+
+export function getPivotCellClasses(cell) {
+    const classes = {
+        o_empty: cell.value === undefined,
+        "cursor-pointer": cell.value !== undefined,
+        "fw-bold": cell.isBold,
+    };
+    if (cell.measure === "closed") {
+        const closedClass = getClosedCellClass(cell.value);
+        if (closedClass) {
+            classes[closedClass] = true;
+        }
+    }
+    return classes;
+}
 
 export class PivotRendererDemand extends PivotRenderer {
     setup() {
         this.rootRef = useRef("root");
-        return super.setup();
+        super.setup();
+        if (this.model.demandProfileEnabled) {
+            this.demandRenderStartedAt = performance.now();
+            onMounted(() => this.logDemandRenderProfile("mounted"));
+            onPatched(() => this.logDemandRenderProfile("patched"));
+            onWillPatch(() => {
+                this.demandRenderStartedAt = performance.now();
+            });
+        }
+    }
+    logDemandRenderProfile(stage) {
+        const table = this.tableRef.el;
+        const rows = table ? [...table.rows] : [];
+        const valueCells = table
+            ? table.querySelectorAll("td.o_pivot_cell_value")
+            : [];
+        console.info("[DemandPivotProfile] renderer", {
+            stage,
+            renderer_ms: Number(
+                (performance.now() - this.demandRenderStartedAt).toFixed(2)
+            ),
+            dom_cells: table ? table.querySelectorAll("th, td").length : 0,
+            dom_rows: rows.length,
+            max_dom_columns: rows.length
+                ? Math.max(...rows.map((row) => row.cells.length))
+                : 0,
+            value_cells: valueCells.length,
+            inline_style_value_cells: table
+                ? table.querySelectorAll("td.o_pivot_cell_value[style]").length
+                : 0,
+            inline_style_elements: table
+                ? table.querySelectorAll("[style]").length
+                : 0,
+        });
     }
     onStartResize(ev) {
         this.resizing = true;
@@ -93,25 +174,8 @@ export class PivotRendererDemand extends PivotRenderer {
             window.addEventListener(eventType, stopResize);
         }
     }
-    get_color(cell) {
-        function nearlyEqual(a, b, epsilon = 1e-8) {
-            return Math.abs(a - b) < epsilon;
-        }
-        if (cell.measure === 'closed' && cell.value !== undefined) {
-            if (cell.value <= 0.7){
-                return '#d9bfc7'
-            }
-            if (nearlyEqual(cell.value, 1)){
-                return '#71a064'
-            }
-            if (cell.value < 1){
-                return '#e4daa8'
-            }
-            if (cell.value > 1){
-                return '#779bb5'
-            }
-        }
-        return 'white'
+    getPivotCellClasses(cell) {
+        return getPivotCellClasses(cell);
     }
     onDownloadButtonClicked() {
         if (this.model.getTableWidth() > 16384) {

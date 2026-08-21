@@ -1,4 +1,12 @@
+import json
+import logging
+import threading
+import time
+
 from odoo import api, fields, models
+
+
+_logger = logging.getLogger(__name__)
 
 
 class ProductProduct(models.Model):
@@ -61,6 +69,128 @@ class ProductAnalytic(models.Model):
     )
     
     kit_bom_ids = fields.Many2many(comodel_name='mrp.bom', compute='_compute_kit_bom_ids', store=True)
+
+    @api.model
+    def web_read_group(
+        self,
+        domain,
+        fields,
+        groupby,
+        limit=None,
+        offset=0,
+        orderby=False,
+        lazy=True,
+    ):
+        if not self.env.context.get('profile_demand_pivot'):
+            return super().web_read_group(
+                domain,
+                fields,
+                groupby,
+                limit=limit,
+                offset=offset,
+                orderby=orderby,
+                lazy=lazy,
+            )
+
+        query_durations = []
+        current_thread = threading.current_thread()
+        query_hooks = getattr(current_thread, 'query_hooks', None)
+        owns_query_hooks = query_hooks is None
+        if owns_query_hooks:
+            query_hooks = []
+            current_thread.query_hooks = query_hooks
+
+        def query_hook(cr, query, params, start, context):
+            def record_duration(delay):
+                query_durations.append(delay)
+
+            return record_duration
+
+        query_hooks.append(query_hook)
+        started_at = time.perf_counter()
+        try:
+            result = super().web_read_group(
+                domain,
+                fields,
+                groupby,
+                limit=limit,
+                offset=offset,
+                orderby=orderby,
+                lazy=lazy,
+            )
+        finally:
+            rpc_duration = time.perf_counter() - started_at
+            query_hooks.remove(query_hook)
+            if owns_query_hooks and not query_hooks:
+                del current_thread.query_hooks
+
+        groups = result.get('groups', [])
+        normalized_groupby = [
+            groupby_spec.split(':', 1)[0].split('.', 1)[0]
+            for groupby_spec in groupby
+        ]
+
+        def relational_id(group, field_name):
+            value = group.get(field_name)
+            if isinstance(value, (list, tuple)):
+                return value[0]
+            return value
+
+        product_ids = {
+            relational_id(group, 'product_id')
+            for group in groups
+            if relational_id(group, 'product_id')
+        }
+        contract_ids = {
+            relational_id(group, 'sale_contract_id')
+            for group in groups
+            if relational_id(group, 'sale_contract_id')
+        }
+        sql_duration = sum(query_durations)
+        metrics = {
+            'web_read_group_ms': round(rpc_duration * 1000, 2),
+            'sql_ms': round(sql_duration * 1000, 2),
+            'sql_max_ms': round(max(query_durations, default=0) * 1000, 2),
+            'sql_queries': len(query_durations),
+            'orm_non_sql_ms': round(
+                max(0, rpc_duration - sql_duration) * 1000,
+                2,
+            ),
+            'product_analytic_records': sum(
+                group.get('__count', 0) for group in groups
+            ),
+            'product_groups': (
+                len(product_ids) if 'product_id' in normalized_groupby else 0
+            ),
+            'contract_groups': (
+                len(contract_ids)
+                if 'sale_contract_id' in normalized_groupby
+                else 0
+            ),
+            'returned_cells': (
+                len(groups)
+                if {
+                    'product_id',
+                    'sale_contract_id',
+                }.issubset(normalized_groupby)
+                else 0
+            ),
+            'returned_groups': len(groups),
+            'response_json_bytes': len(
+                json.dumps(
+                    result,
+                    ensure_ascii=False,
+                    default=str,
+                ).encode('utf-8')
+            ),
+            'groupby': groupby,
+            'active_measures': fields,
+        }
+        _logger.info(
+            'Demand pivot server profile: %s',
+            json.dumps(metrics, ensure_ascii=False),
+        )
+        return result
 
     @api.depends('product_id')
     def _compute_kit_bom_ids(self):
