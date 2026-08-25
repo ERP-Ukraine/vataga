@@ -21,9 +21,6 @@ export function getClosedCellClass(value) {
     if (typeof value !== "number" || Number.isNaN(value)) {
         return "";
     }
-    if (value === 0) {
-        return "";
-    }
     if (value > 1) {
         return "closed-over";
     }
