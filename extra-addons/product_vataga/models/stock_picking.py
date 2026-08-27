@@ -1,3 +1,36 @@
+from odoo import _, models
+from odoo.exceptions import UserError
+
+
+class StockPicking(models.Model):
+    _inherit = 'stock.picking'
+
+    def _check_internal_move_locations(self):
+        for picking in self.filtered(
+            lambda picking: picking.picking_type_code == 'internal'
+        ):
+            relevant_moves = picking.move_ids.filtered(
+                lambda move: move.state != 'cancel' and not move.scrapped
+            )
+            if any(
+                move.location_id != picking.location_id
+                or move.location_dest_id != picking.location_dest_id
+                for move in relevant_moves
+            ):
+                raise UserError(
+                    _(
+                        'Неможливо провести внутрішнє переміщення.\n'
+                        'Місце джерела або призначення в одному з товарів не '
+                        'відповідає місцям переміщення.\n'
+                        'Перевірте документ перед проведенням.'
+                    )
+                )
+
+    def button_validate(self):
+        self._check_internal_move_locations()
+        return super().button_validate()
+
+
 # Transfer/package labels are disabled. The product label override remains active
 # through views/report_product_label_dymo.xml.
 #
