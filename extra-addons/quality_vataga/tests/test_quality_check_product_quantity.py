@@ -131,6 +131,17 @@ class TestQualityCheckProductQuantity(TransactionCase):
         self.assertTrue(check.has_operation_product_quantity)
         self.assertEqual(check.operation_product_quantity, 14)
 
+    def test_incoming_check_exposes_picking_and_quantity_label(self):
+        picking = self._create_picking()
+        move = self._create_move(picking, quantity=555)
+        self._create_move_line(move, quantity=555)
+
+        check = self._create_check(picking_id=picking.id)
+
+        self.assertEqual(check.picking_id, picking)
+        self.assertEqual(check.operation_product_quantity, 555)
+        self.assertIn('555', check.operation_product_quantity_label)
+
     def test_product_check_falls_back_to_planned_quantity(self):
         picking = self._create_picking()
         self._create_move(picking, quantity=20)
@@ -151,8 +162,11 @@ class TestQualityCheckProductQuantity(TransactionCase):
         current_check = self._create_check(picking_id=current_picking.id)
         backorder_check = self._create_check(picking_id=backorder_picking.id)
 
+        self.assertEqual(current_check.picking_id, current_picking)
+        self.assertEqual(backorder_check.picking_id, backorder_picking)
         self.assertEqual(current_check.operation_product_quantity, 5)
         self.assertEqual(backorder_check.operation_product_quantity, 15)
+        self.assertIn('15', backorder_check.operation_product_quantity_label)
 
     def test_ambiguous_moves_and_manual_check_hide_quantity(self):
         picking = self._create_picking()
@@ -164,6 +178,7 @@ class TestQualityCheckProductQuantity(TransactionCase):
 
         self.assertFalse(ambiguous_check.has_operation_product_quantity)
         self.assertFalse(ambiguous_check.operation_product_quantity_label)
+        self.assertFalse(manual_check.picking_id)
         self.assertFalse(manual_check.has_operation_product_quantity)
         self.assertFalse(manual_check.operation_product_quantity_label)
 
