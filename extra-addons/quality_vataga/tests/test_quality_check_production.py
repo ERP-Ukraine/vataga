@@ -74,12 +74,15 @@ class TestQualityCheckProduction(TransactionCase):
         self.assertEqual(production_field.comodel_name, 'mrp.production')
 
     def test_mrp_check_keeps_production_without_arrival_details(self):
-        production = self._create_production()
+        production = self._create_production(quantity=5)
+        production.qty_producing = 5
 
         check = self._create_check(production=production)
 
         self.assertEqual(check.production_id, production)
         self.assertFalse(check.picking_id)
+        self.assertEqual(check.operation_product_quantity, 5)
+        self.assertIn('5', check.operation_product_quantity_label)
         self.assertFalse(check.arrival_warehouse_id)
         self.assertFalse(check.arrival_scheduled_date)
 

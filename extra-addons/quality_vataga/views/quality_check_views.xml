@@ -141,6 +141,16 @@
         <field name="inherit_id" ref="quality_control.quality_check_view_tree"/>
         <field name="arch" type="xml">
             <field name="quality_state" position="before">
+                <field
+                    name="operation_product_quantity_label"
+                    string="Кількість товару"
+                    optional="show"
+                />
+                <field
+                    name="picking_id"
+                    string="Номер надходження"
+                    optional="show"
+                />
                 <field name="arrival_warehouse_id" optional="show"/>
                 <field
                     name="production_id"
@@ -158,6 +168,7 @@
         <field name="inherit_id" ref="quality_control.quality_check_view_search"/>
         <field name="arch" type="xml">
             <xpath expr="//search" position="inside">
+                <field name="picking_id" string="Номер надходження"/>
                 <field name="arrival_warehouse_id"/>
                 <field name="production_id" string="Виробництво"/>
                 <field name="arrival_scheduled_date"/>
