@@ -44,7 +44,7 @@
                     <tree editable="bottom" create="0" delete="0" string="Journal Items" default_order="sequence, id">
                         <field name="sequence" column_invisible="True" />
                         <field name="product_id" optional="show" readonly="1" />
-                        <field name="name" widget="section_and_note_text" optional="show" readonly="1" />
+                        <field name="name" widget="section_and_note_text" optional="show" />
                         <field name="account_id"
                             groups="account.group_account_readonly"
                             optional="hide"
