@@ -140,15 +140,13 @@
         <field name="model">quality.check</field>
         <field name="inherit_id" ref="quality_control.quality_check_view_tree"/>
         <field name="arch" type="xml">
+            <xpath expr="/tree/field[@name='picking_id']" position="attributes">
+                <attribute name="string">Номер надходження</attribute>
+            </xpath>
             <field name="quality_state" position="before">
                 <field
                     name="operation_product_quantity_label"
                     string="Кількість товару"
-                    optional="show"
-                />
-                <field
-                    name="picking_id"
-                    string="Номер надходження"
                     optional="show"
                 />
                 <field name="arrival_warehouse_id" optional="show"/>
