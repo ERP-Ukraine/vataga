@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from odoo import Command, fields
 from odoo.exceptions import UserError, ValidationError
 from odoo.tests import TransactionCase
@@ -831,14 +833,23 @@ class TestProductAnalog(TransactionCase):
         self.assertFalse(analytic_c.demand_comment)
         self.assertEqual(analog_analytic.demand_comment, '(A)')
 
-        bill = self._create_vendor_bill_from_distribution(
-            product_b,
-            {str(contract.id): 100},
-            100,
-            purchase_line=purchase.order_line,
-        )
+        # Exercise the actual PO -> draft bill path, not a hand-built AML.
+        product_b.property_account_expense_id = self.expense_account
+        purchase.with_context(default_journal_id=self.purchase_journal.id).action_create_invoice()
+        bill = purchase.invoice_ids
+        bill.invoice_date = fields.Date.today()
+        self.assertEqual(bill.state, 'draft')
+        self.assertEqual(bill.invoice_line_ids.product_id, product_b)
         self.assertEqual(bill.invoice_line_ids.analog_original_product_id, product_a)
-        self._recompute_analytic_rollups(analytic_a, analytic_c, analog_analytic)
+        bill.action_post()
+        self.assertEqual(bill.invoice_line_ids.analog_original_product_id, product_a)
+        self.assertEqual(
+            bill.invoice_line_ids._get_analog_original_product_for_rollup(), product_a,
+        )
+        self.assertEqual(analytic_a.in_invoice, 100)
+        bill.button_draft()
+        self.assertEqual(analytic_a.in_invoice, 0)
+        bill.action_post()
 
         self.assertEqual(analytic_a.in_invoice, 100)
         self.assertEqual(analytic_c.in_invoice, 0)
@@ -851,6 +862,121 @@ class TestProductAnalog(TransactionCase):
         )[0]
         self.assertEqual(pivot_total['in_invoice'], 100)
         self.assertEqual(pivot_total['qty_received'], 100)
+
+    def test_purchase_origin_overrides_self_selection_and_late_link(self):
+        original = self._create_product('PO original')
+        analog = self._create_product('PO analog')
+        self._create_analog_line(original, analog)
+        contract = self._create_seller_contract('PO origin contract')
+        purchase = self._create_received_purchase(analog, contract, 3, original)
+        for move_type in ('in_invoice', 'in_refund'):
+            with self.subTest(move_type=move_type):
+                bill = self._create_vendor_bill_from_distribution(
+                    analog, {str(contract.id): 100}, 3,
+                    move_type=move_type, analog_original_product=analog,
+                    purchase_line=purchase.order_line, post=False,
+                )
+                line = bill.invoice_line_ids
+                self.assertEqual(line.analog_original_product_id, original)
+                line.write({'analog_original_product_id': analog.id})
+                self.assertEqual(line.analog_original_product_id, original)
+                bill.action_post()
+                self.assertEqual(line._get_analog_original_product_for_rollup(), original)
+
+        manual = self._create_vendor_bill_from_distribution(
+            analog, {str(contract.id): 100}, 2, post=False,
+        )
+        self.assertEqual(manual.invoice_line_ids.analog_original_product_id, analog)
+        manual.invoice_line_ids.purchase_line_id = purchase.order_line
+        self.assertEqual(manual.invoice_line_ids.analog_original_product_id, original)
+
+    def test_manual_invoice_selection_survives_post_and_ambiguous_origins(self):
+        original = self._create_product('Manual original')
+        other = self._create_product('Other original')
+        analog = self._create_product('Manual analog')
+        self._create_analog_line(original, analog)
+        self._create_analog_line(other, analog)
+        contract = self._create_seller_contract('Manual origin contract')
+        bill = self._create_vendor_bill_from_distribution(
+            analog, {str(contract.id): 100}, 2,
+            analog_original_product=original, post=False,
+        )
+        line = bill.invoice_line_ids
+        line.analog_original_product_id = other
+        bill.action_post()
+        bill.button_draft()
+        bill.action_post()
+        self.assertFalse(line._get_purchase_lines_for_analog_origin())
+        self.assertEqual(line.analog_original_product_id, other)
+        self.assertEqual(line._get_analog_original_product_for_rollup(), other)
+
+        first = self._create_received_purchase(analog, contract, 1, original)
+        second = self._create_received_purchase(analog, contract, 1, other)
+        # The optional plural purchase relation is not installed everywhere.
+        with patch.object(
+            type(line), '_get_purchase_lines_for_analog_origin',
+            return_value=first.order_line | second.order_line,
+        ):
+            self.assertFalse(line._get_purchase_line_analog_original_product())
+            line._sync_analog_original_product()
+            self.assertEqual(line.analog_original_product_id, other)
+            self.assertEqual(line._get_analog_original_product_for_rollup(), other)
+
+        unrelated = self._create_product('Invalid PO target')
+        for selections, expected in (
+            ((original, original), original),
+            ((original, False), False),
+            ((unrelated,), False),
+        ):
+            with self.subTest(selections=selections):
+                origins = self.env['purchase.order.line']
+                for selected in selections:
+                    origins |= origins.new({
+                        'product_id': analog.id,
+                        'analog_original_product_id': selected.id if selected else False,
+                    })
+                with patch.object(
+                    type(line), '_get_purchase_lines_for_analog_origin', return_value=origins,
+                ):
+                    self.assertEqual(
+                        line._get_purchase_line_analog_original_product(),
+                        expected or self.Product,
+                    )
+
+    def test_backfill_purchase_self_target_is_scoped_and_idempotent(self):
+        original = self._create_product('Repair original')
+        analog = self._create_product('Repair analog')
+        self._create_analog_line(original, analog)
+        contract = self._create_seller_contract('Repair contract')
+        purchase = self._create_received_purchase(analog, contract, 3, original)
+        analytic = self._create_product_analytic(analog, contract)
+        bill = self._create_vendor_bill_from_distribution(
+            analog, {str(contract.id): 100}, 3, purchase_line=purchase.order_line,
+        )
+        manual = self._create_vendor_bill(analog, contract, 2)
+        line = bill.invoice_line_ids
+        line.flush_recordset(['analog_original_product_id'])
+        self.env.cr.execute(
+            'UPDATE account_move_line SET analog_original_product_id = %s WHERE id = %s',
+            [analog.id, line.id],
+        )
+        line.invalidate_recordset(['analog_original_product_id'])
+        analytic.flush_recordset(['in_invoice'])
+        self.env.cr.execute(
+            'UPDATE product_analytic SET in_invoice = 5 WHERE id = %s', [analytic.id],
+        )
+        analytic.invalidate_recordset(['in_invoice'])
+        self.assertEqual(line._get_analog_original_product_for_rollup(), original)
+        self.assertEqual(line._backfill_purchase_analog_original_products(batch_size=1), 1)
+        self.assertEqual(line.analog_original_product_id, original)
+        self.assertEqual(manual.invoice_line_ids.analog_original_product_id, analog)
+        self.assertEqual(analytic.in_invoice, 2)
+        target = self.ProductAnalytic.search([
+            ('product_id', '=', original.id), ('sale_contract_id', '=', contract.id),
+        ])
+        self.assertEqual(target.in_invoice, 3)
+        self.assertEqual(target.qty_received, 3)
+        self.assertEqual(line._backfill_purchase_analog_original_products(batch_size=1), 0)
 
     def test_purchase_main_product_shows_only_direct_analog_counterpart(self):
         product_a = self._create_product('Bidirectional purchase main A')

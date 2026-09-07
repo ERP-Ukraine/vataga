@@ -1554,20 +1554,22 @@ class AccountMoveLine(models.Model):
 
     def _get_purchase_line_analog_original_product(self):
         self.ensure_one()
-        purchase_line_origins = self._get_purchase_lines_for_analog_origin().mapped(
-            'analog_original_product_id'
-        )
-        return (
+        purchase_lines = self._get_purchase_lines_for_analog_origin()
+        purchase_line_origins = purchase_lines.mapped('analog_original_product_id')
+        # Missing selections must not make a mixed origin look unambiguous.
+        if len(purchase_line_origins) != 1 or not all(
+            line.analog_original_product_id for line in purchase_lines
+        ):
+            return self.env['product.product']
+        return self.product_id._get_selected_analog_rollup_target_product(
             purchase_line_origins
-            if len(purchase_line_origins) == 1
-            else self.env['product.product']
         )
 
     def _get_analog_original_product_for_rollup(self):
         self.ensure_one()
         selected_product = (
-            self.analog_original_product_id
-            or self._get_purchase_line_analog_original_product()
+            self._get_purchase_line_analog_original_product()
+            or self.analog_original_product_id
         )
         return self.product_id._get_selected_analog_rollup_target_product(
             selected_product
@@ -1617,7 +1619,8 @@ class AccountMoveLine(models.Model):
     def _set_default_analog_original_product(self):
         self.ensure_one()
         self.analog_original_product_id = (
-            self._get_default_analog_original_product()
+            self._get_purchase_line_analog_original_product()
+            or self._get_default_analog_original_product()
         )
 
     @api.model
@@ -1667,6 +1670,8 @@ class AccountMoveLine(models.Model):
     def _get_analog_sync_target_product(self):
         self.ensure_one()
         purchase_line_origin = self._get_purchase_line_analog_original_product()
+        if purchase_line_origin:
+            return purchase_line_origin
         allowed_products = (
             self.product_id._get_allowed_analog_rollup_target_products()
         )
@@ -1677,8 +1682,6 @@ class AccountMoveLine(models.Model):
             and self.analog_original_product_id in allowed_products
         ):
             return self.analog_original_product_id
-        if purchase_line_origin and purchase_line_origin in allowed_products:
-            return purchase_line_origin
         return self._get_default_analog_original_product()
 
     def _write_with_prepared_analog_original_product(self, vals):
@@ -1717,6 +1720,57 @@ class AccountMoveLine(models.Model):
                 line.with_context(
                     product_alternatives_skip_analog_origin_sync=True
                 ).write({'analog_original_product_id': target_product.id or False})
+
+    @api.model
+    def _backfill_purchase_analog_original_products(self, batch_size=500):
+        """Repair only historical empty/self selections with a certain PO target."""
+        if batch_size <= 0:
+            raise ValueError('batch_size must be positive')
+        origin_fields = [
+            name for name in ('purchase_line_id', 'purchase_line_ids')
+            if name in self._fields
+        ]
+        if not origin_fields:
+            return 0
+        domain = [
+            ('move_id.move_type', 'in', ('in_invoice', 'in_refund')),
+            ('move_id.state', 'in', ('draft', 'posted')),
+            ('product_id', '!=', False),
+        ] + ['|'] * (len(origin_fields) - 1) + [
+            (name, '!=', False) for name in origin_fields
+        ]
+        last_id = 0
+        repaired = 0
+        while True:
+            lines = self.search(
+                domain + [('id', '>', last_id)], order='id', limit=batch_size,
+            )
+            if not lines:
+                break
+            last_id = lines[-1].id
+            for line in lines:
+                target = line._get_purchase_line_analog_original_product()
+                if (
+                    not target
+                    or target == line.analog_original_product_id
+                    or (
+                        line.analog_original_product_id
+                        and line.analog_original_product_id != line.product_id
+                    )
+                ):
+                    continue
+                analytics = line._get_analog_product_analytic_recompute_targets()
+                if line.move_id.state == 'posted':
+                    # The new resolver already sees the PO target. Include the
+                    # old self row explicitly so its stored total is cleared.
+                    contracts = line._get_seller_contracts_for_analog_target()
+                    analytics |= self.env['product.analytic']._find_analog_rollup_product_analytics(
+                        {(line.product_id.id, contract.id) for contract in contracts}
+                    )
+                line.write({'analog_original_product_id': target.id})
+                analytics._recompute_analog_invoice_fields()
+                repaired += 1
+        return repaired
 
     @api.constrains('product_id', 'analog_original_product_id')
     def _check_analog_original_product_id(self):
