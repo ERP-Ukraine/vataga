@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <template
+        id="report_picking_actual_quantity"
+        inherit_id="stock.report_picking"
+        priority="100"
+    >
+        <xpath expr="//th[@name='th_from']" position="before">
+            <th
+                name="th_actual_quantity"
+                t-if="o.picking_type_id.code == 'internal'"
+                groups="stock.group_stock_multi_locations"
+                style="width: 20mm;"
+            >
+                <strong>Кількість</strong>
+            </th>
+        </xpath>
+
+        <xpath
+            expr="//tr[@t-as='ml' and starts-with(normalize-space(@t-foreach), 'o.move_line_ids_without_package.sorted(')]/td[span[@t-esc='ml.location_id.display_name']]"
+            position="before"
+        >
+            <td
+                name="td_actual_quantity"
+                t-if="o.picking_type_id.code == 'internal'"
+                groups="stock.group_stock_multi_locations"
+            >&#160;</td>
+        </xpath>
+    </template>
+</odoo>
