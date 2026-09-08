@@ -18,6 +18,14 @@
         <field name="arch" type="xml">
             <xpath expr="//group[@name='partner_details']" position="inside">
                 <field name="deal_closed"/>
+                <field name="project_account_id" groups="analytic.group_analytic_accounting"
+                    options="{'no_create': True, 'no_open': True}"/>
+                <field name="budget_account_id" groups="analytic.group_analytic_accounting"
+                    options="{'no_create': True, 'no_open': True}"/>
+                <field name="cash_flow_item_account_id" groups="analytic.group_analytic_accounting"
+                    options="{'no_create': True, 'no_open': True}"/>
+                <field name="seller_contract_id" groups="analytic.group_analytic_accounting"
+                    options="{'no_create': True, 'no_open': True}"/>
             </xpath>
         </field>
     </record>
