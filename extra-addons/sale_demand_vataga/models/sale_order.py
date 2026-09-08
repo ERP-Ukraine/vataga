@@ -8,9 +8,68 @@ from odoo import api, fields, models
 class SaleOrder(models.Model):
     _inherit = 'sale.order'
 
+    ANALYTIC_HEADER_FIELDS = (
+        'project_account_id',
+        'budget_account_id',
+        'cash_flow_item_account_id',
+        'seller_contract_id',
+    )
+
+    project_account_id = fields.Many2one(
+        'account.analytic.account', string='Проект',
+        domain="[('is_plan_project', '=', True)]",
+    )
+    budget_account_id = fields.Many2one(
+        'account.analytic.account', string='Бюджет',
+        domain="[('is_plan_budget', '=', True)]",
+    )
+    cash_flow_item_account_id = fields.Many2one(
+        'account.analytic.account', string='Стаття Cashflow',
+        domain="[('is_plan_cash_flow_item', '=', True)]",
+    )
+    seller_contract_id = fields.Many2one(
+        'account.analytic.account', string='Контракт продажу',
+        domain="[('is_plan_seller_contract', '=', True)]",
+    )
+
     deal_closed = fields.Boolean(
         'Deal closed', help='Everything is signed, paid, shipped and documented.'
     )
+
+    def _get_header_analytic_distribution(self):
+        self.ensure_one()
+        account_ids = sorted({
+            str(self[field_name].id)
+            for field_name in self.ANALYTIC_HEADER_FIELDS if self[field_name]
+        })
+        return {','.join(account_ids): 100} if account_ids else False
+
+    def _sync_header_analytic_distribution(self):
+        for order in self:
+            distribution = order._get_header_analytic_distribution()
+            order.order_line.filtered(lambda line: not line.display_type).update({
+                'analytic_distribution': distribution,
+            })
+
+    @api.onchange(*ANALYTIC_HEADER_FIELDS)
+    def _onchange_header_analytic_distribution(self):
+        self._sync_header_analytic_distribution()
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        orders = super().create(vals_list)
+        # Also covers header values supplied through context defaults.
+        orders.filtered(
+            lambda order: order._get_header_analytic_distribution()
+        )._sync_header_analytic_distribution()
+        return orders
+
+    def write(self, vals):
+        result = super().write(vals)
+        if set(vals).intersection(self.ANALYTIC_HEADER_FIELDS):
+            # Explicitly writing empty headers must clear the previous distribution.
+            self._sync_header_analytic_distribution()
+        return result
 
 
 class SaleOrderLine(models.Model):
@@ -18,6 +77,15 @@ class SaleOrderLine(models.Model):
 
     need_to_purchase_ids = fields.One2many('sale.order.line.purchase', 'order_line_id')
     bom_id = fields.Many2one('mrp.bom')
+
+    @api.depends('product_id', 'order_id', 'order_id.partner_id')
+    def _compute_analytic_distribution(self):
+        product_lines = self.filtered(lambda line: not line.display_type)
+        super(SaleOrderLine, product_lines)._compute_analytic_distribution()
+        for line in product_lines.filtered('order_id'):
+            distribution = line.order_id._get_header_analytic_distribution()
+            if distribution:
+                line.analytic_distribution = distribution
 
     def set_bom_id(self):
         for line in self:
@@ -37,6 +105,18 @@ class SaleOrderLine(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        vals_list = [dict(vals) for vals in vals_list]
+        for vals in vals_list:
+            order = self.env['sale.order'].browse(
+                vals.get('order_id') or self.env.context.get('default_order_id')
+            )
+            display_type = vals.get(
+                'display_type', self.env.context.get('default_display_type')
+            )
+            if order and not display_type:
+                distribution = order._get_header_analytic_distribution()
+                if distribution:
+                    vals['analytic_distribution'] = distribution
         result = super().create(vals_list)
         result.set_bom_id()
         result.create_need_to_purchase_ids()
