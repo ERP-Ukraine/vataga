@@ -1,4 +1,5 @@
 from odoo import _, fields, models
+from odoo.exceptions import AccessError
 
 
 class AccountMove(models.Model):
@@ -23,6 +24,15 @@ class AccountMove(models.Model):
     seller_contract_id = fields.Many2one(
         'account.analytic.account', domain="[('is_plan_seller_contract', '=', True)]"
     )
+
+    def js_remove_outstanding_partial(self, partial_id):
+        if not self.env.user.has_group(
+            'account_vataga.group_account_payment_unreconcile'
+        ):
+            raise AccessError(_(
+                "У вас немає прав для відв'язки платежів від рахунків."
+            ))
+        return super().js_remove_outstanding_partial(partial_id)
 
     def write(self, vals):
         posted_invoice_lines = self.env['account.move.line']

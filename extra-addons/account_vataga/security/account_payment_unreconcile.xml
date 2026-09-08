@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="group_account_payment_unreconcile" model="res.groups">
+        <field name="name">Бухгалтер (відв'язка платежів)</field>
+        <field name="category_id" ref="base.module_category_accounting_accounting"/>
+    </record>
+
+    <!-- Resolve the UI-created __custom__ group without creating a duplicate.
+         Run on every upgrade; the helper only links, preserving existing groups. -->
+    <function model="res.groups" name="_link_payment_unreconcile_group"/>
+</odoo>
