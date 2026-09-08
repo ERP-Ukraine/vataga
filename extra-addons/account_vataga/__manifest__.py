@@ -1,6 +1,6 @@
 {
     'name' : 'Accounting Vataga',
-    'version': '1.14',
+    'version': '1.15',
     'category': 'Accounting/Accounting',
     'author': 'ERP Ukraine LLC',
     'website': 'https://erp.co.ua',
@@ -14,11 +14,16 @@
         'analytic_vataga',
     ],
     'data': [
+        'security/account_payment_unreconcile.xml',
         'data/account_payment_view.xml',
         'views/account_move.xml',
         'views/res_config_settings_views.xml',
         'views/account_payment_view.xml',
         'wizard/account_payment_register.xml',
     ],
-    'assets': {},
+    'assets': {
+        'web.assets_backend': [
+            'account_vataga/static/src/components/account_payment_unreconcile.xml',
+        ],
+    },
 }

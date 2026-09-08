@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="account_vataga.AccountPaymentPopOver"
+       t-inherit="account.AccountPaymentPopOver" t-inherit-mode="extension">
+        <xpath expr="//button[contains(@class, 'js_unreconcile_payment')]" position="attributes">
+            <attribute name="groups">account_vataga.group_account_payment_unreconcile</attribute>
+        </xpath>
+    </t>
+</templates>
