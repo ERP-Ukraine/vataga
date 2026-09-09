@@ -36,6 +36,18 @@ class SaleOrder(models.Model):
         'Deal closed', help='Everything is signed, paid, shipped and documented.'
     )
 
+    def _prepare_invoice(self):
+        values = super()._prepare_invoice()
+        values.update({
+            field_name: self[field_name].id
+            for field_name in self.ANALYTIC_HEADER_FIELDS
+        })
+        return values
+
+    def _get_invoice_grouping_keys(self):
+        # One invoice header cannot represent different orders' analytics.
+        return super()._get_invoice_grouping_keys() + list(self.ANALYTIC_HEADER_FIELDS)
+
     def _get_header_analytic_distribution(self):
         self.ensure_one()
         account_ids = sorted({
