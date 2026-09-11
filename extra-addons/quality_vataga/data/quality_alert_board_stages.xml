@@ -8,7 +8,7 @@
                eval="max(obj([ref('quality.quality_alert_stage_0'), ref('quality.quality_alert_stage_1'), ref('quality.quality_alert_stage_2'), ref('quality.quality_alert_stage_3')]).mapped('sequence')) + 10"/>
     </record>
     <record id="quality_alert_stage_board_approval" model="quality.alert.stage">
-        <field name="name">На візуванні</field>
+        <field name="name">На затвердженні</field>
         <field name="sequence" model="quality.alert.stage"
                eval="obj(ref('quality_vataga.quality_alert_stage_board_analysis')).sequence + 10"/>
     </record>
