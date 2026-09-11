@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="group_quality_board_approval" model="res.groups">
+        <field name="name">Затвердження рішень технічної ради</field>
+        <field name="category_id" model="res.groups"
+               eval="obj(ref('quality.group_quality_user')).category_id.id"/>
+        <field name="implied_ids" eval="[(4, ref('quality.group_quality_user'))]"/>
+    </record>
+    <record id="quality.group_quality_manager" model="res.groups">
+        <field name="implied_ids" eval="[(4, ref('quality_vataga.group_quality_board_approval'))]"/>
+    </record>
+</odoo>

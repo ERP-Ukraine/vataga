@@ -171,6 +171,102 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
     def _create_check(self):
         return self._create_check_for_point(self.quality_point)
 
+    def test_alert_description_contains_only_failures_and_escapes_html(self):
+        check = self._create_check()
+        sample = self._add_sample(check)
+        check.update_measurement_visual_result(sample.id, 'no')
+        numeric = sample.measurement_value_ids.filtered(lambda value: value.parameter_type == 'numeric')
+        boolean = sample.measurement_value_ids.filtered(lambda value: value.parameter_type == 'boolean')
+        text = sample.measurement_value_ids.filtered(lambda value: value.parameter_type == 'string')
+        check.update_measurement_value(numeric.id, {'numeric_input': '11'})
+        check.update_measurement_value(boolean.id, {'boolean_value': 'yes'})
+        check.update_measurement_value(text.id, {
+            'string_value': '<script>alert(1)</script>', 'manual_result': 'fail',
+        })
+        description = str(check._get_technical_board_failure_description())
+        self.assertIn(numeric.column_id.parameter_name, description)
+        self.assertIn(numeric.failure_reason, description)
+        self.assertIn('візуальний контроль', description)
+        self.assertIn('11', description)
+        self.assertNotIn(boolean.column_id.parameter_name, description)
+        self.assertNotIn('<script>', description)
+        self.assertIn('&lt;script&gt;', description)
+        self.assertEqual(check.quality_state, 'none')
+
+        check.do_fail()
+        alerts = self.env['quality.alert'].create([
+            {'check_id': check.id, 'team_id': self.quality_team.id,
+             'description': '<p>Existing inspector note</p>'},
+            {'check_id': check.id, 'team_id': self.quality_team.id},
+            {'team_id': self.quality_team.id, 'description': '<p>Unrelated alert</p>'},
+        ])
+        for alert in alerts[:2]:
+            self.assertIn(numeric.column_id.parameter_name, alert.description)
+            self.assertIn(numeric.failure_reason, alert.description)
+            self.assertIn('візуальний контроль', alert.description)
+            self.assertNotIn('<script>', alert.description)
+        self.assertIn('Existing inspector note', alerts[0].description)
+        self.assertIn('Unrelated alert', alerts[2].description)
+        self.assertNotIn('Виявлені невідповідності', alerts[2].description)
+
+    def test_failed_alert_creation_does_not_require_write(self):
+        point = self._create_visual_only_point('Create-only alert check')
+        check = self._create_check_for_point(point)
+        sample = self._add_sample(check)
+        check.update_measurement_visual_result(sample.id, 'no')
+        check.do_fail()
+        user = self.env['res.users'].with_context(no_reset_password=True).create({
+            'name': 'Create-only Quality inspector',
+            'login': 'quality_board_create_only',
+            'groups_id': [Command.set(self.env.ref('quality.group_quality_user').ids)],
+            'company_id': self.env.company.id,
+            'company_ids': [Command.set(self.env.company.ids)],
+        })
+        self.env['ir.rule'].create({
+            'name': 'Test deny alert writes',
+            'model_id': self.env['ir.model']._get_id('quality.alert'),
+            'domain_force': "[('id', '=', 0)]",
+            'perm_read': False, 'perm_create': False,
+            'perm_write': True, 'perm_unlink': False,
+        })
+        alert = self.env['quality.alert'].with_user(user).create({
+            'check_id': check.id, 'team_id': self.quality_team.id,
+            'description': '<p>Original note</p>',
+        })
+        self.assertIn('Original note', alert.description)
+        self.assertIn('візуальний контроль', alert.description)
+
+    def test_alert_description_uses_default_check_and_preserves_default_text(self):
+        point = self._create_visual_only_point('Alert description visual check')
+        check = self._create_check_for_point(point)
+        sample = self._add_sample(check)
+        check.update_measurement_visual_result(sample.id, 'no')
+        check.do_fail()
+        alert = self.env['quality.alert'].with_context(
+            default_check_id=check.id,
+            default_description='<p>Action default note</p>',
+        ).create({'team_id': self.quality_team.id})
+        self.assertEqual(alert.check_id, check)
+        self.assertIn('Action default note', alert.description)
+        self.assertIn('візуальний контроль', alert.description)
+
+    def test_alert_without_failed_check_preserves_description(self):
+        check = self._create_check()
+        for values in ({}, {'check_id': check.id}):
+            alert = self.env['quality.alert'].create(dict(
+                values, team_id=self.quality_team.id,
+                description='<p>Existing note</p>',
+            ))
+            self.assertIn('Existing note', alert.description)
+            self.assertNotIn('Виявлені невідповідності', alert.description)
+
+    def test_alert_description_empty_for_pending_and_passed_values(self):
+        check = self._create_check()
+        self.assertFalse(check._get_technical_board_failure_description())
+        sample = self._add_sample(check)
+        check.update_measurement_visual_result(sample.id, 'yes')
+        self.assertFalse(check._get_technical_board_failure_description())
+
     def _create_check_for_point(self, point):
         return self.env['quality.check'].create({
             'point_id': point.id,

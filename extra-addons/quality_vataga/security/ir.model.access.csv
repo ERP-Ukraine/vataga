@@ -5,3 +5,4 @@ access_quality_check_equipment_selection,quality.check.equipment.selection,model
 access_quality_check_measurement_column,quality.check.measurement.column,model_quality_check_measurement_column,base.group_user,1,0,0,0
 access_quality_check_sample,quality.check.sample,model_quality_check_sample,base.group_user,1,0,0,0
 access_quality_check_measurement_value,quality.check.measurement.value,model_quality_check_measurement_value,base.group_user,1,0,0,0
+access_quality_alert_full_control_line,quality.alert.full.control.line,model_quality_alert_full_control_line,quality.group_quality_user,1,1,1,1
