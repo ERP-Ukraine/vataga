@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="quality_alert_board_form" model="ir.ui.view">
+        <field name="name">quality.alert.technical.board</field>
+        <field name="model">quality.alert</field>
+        <field name="inherit_id" ref="quality_control.quality_alert_view_form"/>
+        <field name="arch" type="xml">
+            <!-- Own controls: no dependency on an Enterprise header or notebook. -->
+            <xpath expr="/form/sheet | /form[not(sheet)]" position="inside">
+                <group name="technical_board_action">
+                    <field name="is_board_approval_stage" invisible="1"/>
+                    <button name="action_approve_technical_board" type="object"
+                            string="Затвердити рішення" class="oe_highlight"
+                            groups="quality_vataga.group_quality_board_approval"
+                            invisible="is_approved or not is_board_approval_stage or approval_user_id != uid"/>
+                </group>
+                <group string="Рішення Технічної ради">
+                    <group>
+                        <field name="decision_type" readonly="is_approved"/>
+                        <field name="approval_user_id" readonly="is_approved" options="{'no_create': True}"/>
+                    </group>
+                    <group>
+                        <field name="is_approved" readonly="1"/>
+                        <field name="approved_by_id" readonly="1" invisible="not is_approved"/>
+                        <field name="approved_at" readonly="1" invisible="not is_approved"/>
+                    </group>
+                </group>
+                <notebook name="technical_board_notebook" invisible="decision_type != 'full_control'">
+                    <page string="Суцільний контроль" name="technical_board_full_control">
+                        <field name="full_control_line_ids">
+                            <tree editable="bottom">
+                                <field name="date"/>
+                                <field name="checked_qty"/>
+                                <field name="good_qty"/>
+                                <field name="bad_qty"/>
+                                <field name="inspector_id"/>
+                            </tree>
+                        </field>
+                        <group>
+                            <field name="full_control_checked_qty"/>
+                            <field name="full_control_good_qty"/>
+                            <field name="full_control_bad_qty"/>
+                        </group>
+                    </page>
+                </notebook>
+            </xpath>
+        </field>
+    </record>
+</odoo>
