@@ -220,3 +220,33 @@ msgstr "Дата з рядка банківської виписки, узгод
 #, python-format
 msgid "uah"
 msgstr "грн"
+
+#. module: account_vataga
+#: model_terms:ir.ui.view,arch_db:account_vataga.view_move_form_account
+msgid "UoM"
+msgstr "Од. виміру"
+
+#. module: account_vataga
+#: model_terms:ir.ui.view,arch_db:account_vataga.view_move_form_account
+msgid "Price"
+msgstr "Ціна"
+
+#. module: account_vataga
+#: model_terms:ir.ui.view,arch_db:account_vataga.view_move_form_account
+msgid "Disc.%"
+msgstr "Зниж.%"
+
+#. module: account_vataga
+#: model_terms:ir.ui.view,arch_db:account_vataga.view_move_form_account
+msgid "Tax excl."
+msgstr "Без податків"
+
+#. module: account_vataga
+#: model_terms:ir.ui.view,arch_db:account_vataga.view_move_form_account
+msgid "Tax incl."
+msgstr "З податками"
+
+#. module: account_vataga
+#: model_terms:ir.ui.view,arch_db:account_vataga.view_move_form_account
+msgid "Journal Items"
+msgstr "Елементи журналу"
