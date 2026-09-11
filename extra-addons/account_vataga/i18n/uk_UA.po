@@ -239,12 +239,12 @@ msgstr "Зниж.%"
 #. module: account_vataga
 #: model_terms:ir.ui.view,arch_db:account_vataga.view_move_form_account
 msgid "Tax excl."
-msgstr "Без податків"
+msgstr "Без ПДВ"
 
 #. module: account_vataga
 #: model_terms:ir.ui.view,arch_db:account_vataga.view_move_form_account
 msgid "Tax incl."
-msgstr "З податками"
+msgstr "З ПДВ"
 
 #. module: account_vataga
 #: model_terms:ir.ui.view,arch_db:account_vataga.view_move_form_account
