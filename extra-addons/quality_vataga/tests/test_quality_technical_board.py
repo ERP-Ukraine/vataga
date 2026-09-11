@@ -44,7 +44,54 @@ class TestQualityTechnicalBoard(TransactionCase):
             'decision_type': 'accept_as_is',
         }
         vals.update(values)
+        if vals['stage_id'] == self.stages['approval_stage'].id:
+            # Reach approval through the public action, then arrange invalid
+            # decision/assignee states where a test specifically needs them.
+            setup = dict(vals, stage_id=self.stages['analysis_stage'].id,
+                         decision_type='accept_as_is', approval_user_id=self.approver.id)
+            alert = self.env['quality.alert'].create(setup)
+            alert.action_send_for_board_approval()
+            alert.write({key: vals[key] for key in ('decision_type', 'approval_user_id')})
+            return alert
         return self.env['quality.alert'].create(vals)
+
+    def test_manual_stage_changes_fail_before_mutating_record(self):
+        alert = self._alert(stage_id=self.stages['analysis_stage'].id).with_user(self.regular)
+        for key in ('approval_stage', 'execution_stage'):
+            with self.assertRaises(UserError):
+                alert.write({'stage_id': self.stages[key].id, 'decision_type': 'full_control'})
+            alert.invalidate_recordset()
+            self.assertEqual(alert.stage_id, self.stages['analysis_stage'])
+            self.assertEqual(alert.decision_type, 'accept_as_is')
+
+    def test_send_then_approve_are_the_only_forward_transitions(self):
+        alert = self._alert(stage_id=self.stages['analysis_stage'].id)
+        alert.with_user(self.regular).action_send_for_board_approval()
+        self.assertEqual(alert.stage_id, self.stages['approval_stage'])
+        with self.assertRaises(UserError):
+            alert.with_user(self.approver).write({'stage_id': self.stages['execution_stage'].id})
+        self.assertEqual(alert.stage_id, self.stages['approval_stage'])
+        alert.with_user(self.approver).action_approve_technical_board()
+        self.assertEqual(alert.stage_id, self.stages['execution_stage'])
+        for key in ('analysis_stage', 'approval_stage'):
+            with self.assertRaises(UserError):
+                alert.with_user(self.approver).write({'stage_id': self.stages[key].id})
+            alert.invalidate_recordset()
+            self.assertEqual(alert.stage_id, self.stages['execution_stage'])
+        with self.assertRaises(UserError):
+            alert.action_send_for_board_approval()
+
+    def test_send_requires_decision_and_assignee(self):
+        cases = (
+            ({'decision_type': False}, 'Оберіть рішення Технічної ради.'),
+            ({'approval_user_id': False}, 'Оберіть користувача, який має затвердити рішення.'),
+        )
+        for values, message in cases:
+            alert = self._alert(stage_id=self.stages['analysis_stage'].id, **values)
+            with self.assertRaisesRegex(UserError, message):
+                alert.with_user(self.regular).action_send_for_board_approval()
+            alert.invalidate_recordset()
+            self.assertEqual(alert.stage_id, self.stages['analysis_stage'])
 
     def _line(self, alert, **values):
         vals = {'alert_id': alert.id, 'checked_qty': 10, 'good_qty': 8, 'bad_qty': 2}
@@ -124,6 +171,10 @@ class TestQualityTechnicalBoard(TransactionCase):
             self._alert().write({'stage_id': self.stages['execution_stage'].id})
         with self.assertRaises(UserError):
             self._alert(stage_id=self.stages['execution_stage'].id)
+        with self.assertRaises(UserError):
+            self.env['quality.alert'].create({
+                'team_id': self.team.id, 'stage_id': self.stages['approval_stage'].id,
+            })
 
     def test_approved_decision_and_assignee_are_immutable(self):
         alert = self._alert().with_user(self.approver)
@@ -148,9 +199,31 @@ class TestQualityTechnicalBoard(TransactionCase):
         self.assertIn(self.manager, allowed)
         self.assertNotIn(self.regular, allowed)
 
-    def test_default_stage_stays_outside_board_workflow(self):
+    def test_default_stage_is_board_analysis(self):
         alert = self.env['quality.alert'].create({'team_id': self.team.id})
-        self.assertNotIn(alert.stage_id, list(self.stages.values()))
+        self.assertEqual(alert.stage_id, self.stages['analysis_stage'])
+
+    def test_stage_domain_contains_only_board_stages(self):
+        alerts = self.env['quality.alert']
+        domain = alerts._fields['stage_id'].domain(alerts)
+        allowed = self.env['quality.alert.stage'].search(domain)
+        self.assertEqual(set(allowed.ids), {s.id for s in self.stages.values()})
+        for index in range(4):
+            self.assertNotIn(self.env.ref('quality.quality_alert_stage_%s' % index), allowed)
+
+    def test_kanban_excludes_populated_legacy_stages_without_moving_alerts(self):
+        standard = self.env.ref('quality.quality_alert_stage_0')
+        before = standard.read(['name', 'sequence'])
+        legacy = self._alert(stage_id=standard.id)
+        alert = self._alert(stage_id=self.stages['analysis_stage'].id)
+        groups = self.env['quality.alert'].read_group(
+            [('id', 'in', (legacy | alert).ids)], ['stage_id'], ['stage_id'],
+        )
+        self.assertEqual({row['stage_id'][0] for row in groups},
+                         {stage.id for stage in self.stages.values()})
+        self.assertEqual(legacy.stage_id, standard)
+        self.assertEqual(standard.read(['name', 'sequence']), before)
+        self.assertIn(legacy, self.env['quality.alert'].search([('id', '=', legacy.id)]))
 
     def test_quality_manager_can_approve_when_assigned(self):
         alert = self._alert(approval_user_id=self.manager.id)
@@ -165,6 +238,27 @@ class TestQualityTechnicalBoard(TransactionCase):
         self.assertLess(stages[1].sequence, stages[2].sequence)
         standard = [self.env.ref('quality.quality_alert_stage_%s' % i) for i in range(4)]
         self.assertFalse(set(s.id for s in standard) & set(s.id for s in stages))
+        self.assertEqual(stages[1].with_context(lang=None).name, 'На затвердженні')
+
+    def test_upgrade_renames_only_board_approval_stage(self):
+        import os
+        import runpy
+        from odoo.modules.module import get_module_path
+
+        standard = self.env['quality.alert.stage'].browse([
+            self.env.ref('quality.quality_alert_stage_%s' % index).id
+            for index in range(4)
+        ])
+        before = standard.read(['name', 'sequence'])
+        approval = self.stages['approval_stage']
+        approval.with_context(lang=None).name = 'Previous board approval label'
+        script = runpy.run_path(os.path.join(
+            get_module_path('quality_vataga'), 'migrations', '17.0.2.23', 'post-migration.py',
+        ))
+        script['migrate'](self.cr, '17.0.2.22')
+        script['migrate'](self.cr, '17.0.2.22')
+        self.assertEqual(approval.with_context(lang=None).name, 'На затвердженні')
+        self.assertEqual(standard.read(['name', 'sequence']), before)
 
     def test_registered_inherited_view(self):
         from lxml import etree
@@ -174,6 +268,13 @@ class TestQualityTechnicalBoard(TransactionCase):
         arch = self.env['quality.alert'].with_user(self.approver).get_view(
             view_id=view.inherit_id.id, view_type='form')['arch']
         tree = etree.fromstring(arch.encode())
+        from odoo.tools.safe_eval import safe_eval
+        stage_node = tree.xpath("//field[@name='stage_id']")[0]
+        self.assertEqual(stage_node.get('widget'), 'quality_board_statusbar')
+        self.assertEqual(stage_node.get('readonly'), '1')
+        self.assertFalse(safe_eval(stage_node.get('options'))['clickable'])
+        allowed = self.env['quality.alert.stage'].search(safe_eval(stage_node.get('domain')))
+        self.assertEqual(set(allowed.ids), {stage.id for stage in self.stages.values()})
         self.assertTrue(tree.xpath("//button[@name='action_approve_technical_board']"))
         self.assertTrue(tree.xpath("//field[@name='full_control_line_ids']"))
         regular_arch = self.env['quality.alert'].with_user(self.regular).get_view(

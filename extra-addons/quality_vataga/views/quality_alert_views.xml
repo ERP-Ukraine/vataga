@@ -5,10 +5,20 @@
         <field name="model">quality.alert</field>
         <field name="inherit_id" ref="quality_control.quality_alert_view_form"/>
         <field name="arch" type="xml">
+            <xpath expr="//field[@name='stage_id']" position="attributes">
+                <attribute name="widget">quality_board_statusbar</attribute>
+                <attribute name="domain">[('id', 'in', [%(quality_vataga.quality_alert_stage_board_analysis)d, %(quality_vataga.quality_alert_stage_board_approval)d, %(quality_vataga.quality_alert_stage_board_execution)d])]</attribute>
+                <attribute name="options">{'clickable': False, 'no_create': True, 'no_open': True}</attribute>
+                <attribute name="readonly">1</attribute>
+            </xpath>
             <!-- Own controls: no dependency on an Enterprise header or notebook. -->
             <xpath expr="/form/sheet | /form[not(sheet)]" position="inside">
                 <group name="technical_board_action">
+                    <field name="is_board_analysis_stage" invisible="1"/>
                     <field name="is_board_approval_stage" invisible="1"/>
+                    <button name="action_send_for_board_approval" type="object"
+                            string="Передати на затвердження" class="oe_highlight"
+                            invisible="is_approved or not is_board_analysis_stage"/>
                     <button name="action_approve_technical_board" type="object"
                             string="Затвердити рішення" class="oe_highlight"
                             groups="quality_vataga.group_quality_board_approval"
