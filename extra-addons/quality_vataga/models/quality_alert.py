@@ -17,7 +17,6 @@ class QualityAlert(models.Model):
     _inherit = 'quality.alert'
 
     stage_id = fields.Many2one(
-        readonly=True,
         default=lambda self: self.env.ref(BOARD_STAGE_XMLIDS[0]),
         domain=lambda self: [('id', 'in', self._board_stages().ids)],
         group_expand='_expand_board_stages',

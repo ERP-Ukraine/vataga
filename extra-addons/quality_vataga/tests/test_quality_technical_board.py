@@ -270,8 +270,8 @@ class TestQualityTechnicalBoard(TransactionCase):
         tree = etree.fromstring(arch.encode())
         from odoo.tools.safe_eval import safe_eval
         stage_node = tree.xpath("//field[@name='stage_id']")[0]
-        self.assertEqual(stage_node.get('widget'), 'quality_board_statusbar')
-        self.assertEqual(stage_node.get('readonly'), '1')
+        self.assertEqual(stage_node.get('widget'), 'statusbar')
+        self.assertEqual(stage_node.get('readonly'), '0')
         self.assertFalse(safe_eval(stage_node.get('options'))['clickable'])
         allowed = self.env['quality.alert.stage'].search(safe_eval(stage_node.get('domain')))
         self.assertEqual(set(allowed.ids), {stage.id for stage in self.stages.values()})
