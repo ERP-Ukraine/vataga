@@ -8,7 +8,7 @@
     'depends': [
         'mrp',
     ],
-    'version': '1.1',
+    'version': '1.2',
     'license': 'LGPL-3',
     'auto_install': True,
     'demo': [],
