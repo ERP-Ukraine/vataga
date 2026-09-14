@@ -180,7 +180,8 @@ class MrpBomLine(models.Model):
                 )
             if changes:
                 line.bom_id._post_bom_autolog(
-                    _("Змінено компонент: %(changes)s") % {
+                    _("Змінено компонент: %(product)s; %(changes)s") % {
+                        'product': line.product_id.display_name or _("Порожньо"),
                         'changes': '; '.join(changes),
                     }
                 )
