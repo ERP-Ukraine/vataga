@@ -1,0 +1,3 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_mrp_component_availability,mrp.component.availability,model_mrp_component_availability,mrp.group_mrp_user,1,1,1,1
+access_mrp_component_availability_line,mrp.component.availability.line,model_mrp_component_availability_line,mrp.group_mrp_user,1,1,1,1
