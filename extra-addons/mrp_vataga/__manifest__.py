@@ -8,12 +8,14 @@
     'depends': [
         'mrp',
     ],
-    'version': '1.2.1',
+    'version': '1.3',
     'license': 'LGPL-3',
     'auto_install': True,
     'demo': [],
     'data': [
+        'security/ir.model.access.csv',
         'data/mail_message_subtype.xml',
+        'wizard/component_availability_views.xml',
     ],
     'installable': True,
     'application': False,

@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_mrp_component_availability_form" model="ir.ui.view">
+        <field name="name">mrp.component.availability.form</field>
+        <field name="model">mrp.component.availability</field>
+        <field name="arch" type="xml">
+            <form string="Наявність комплектуючих">
+                <sheet>
+                    <field name="product_tmpl_id" invisible="1"/>
+                    <field name="checked" invisible="1"/>
+                    <group col="8">
+                        <field name="product_id" options="{'no_create': True, 'no_open': True}"
+                               domain="[('type', 'in', ['product', 'consu']), '|', ('company_id', '=', False), ('company_id', 'in', allowed_company_ids)]"/>
+                        <field name="bom_id" options="{'no_create': True, 'no_open': True}"
+                               domain="[('product_tmpl_id', '=', product_tmpl_id), '|', ('product_id', '=', False), ('product_id', '=', product_id), '|', ('company_id', '=', False), ('company_id', 'in', allowed_company_ids)]"/>
+                        <field name="quantity"/>
+                        <field name="warehouse_ids" widget="many2many_tags"
+                               options="{'no_create': True, 'no_open': True}"
+                               domain="[('company_id', 'in', allowed_company_ids)]"/>
+                    </group>
+                    <div class="d-flex align-items-center gap-2 mb-3">
+                        <button name="action_check" type="object" string="Перевірити" class="oe_highlight"/>
+                        <span>Кількість готового товару в одиницях:</span>
+                        <field name="product_uom_id" options="{'no_open': True}"/>
+                    </div>
+                    <div class="alert alert-success" invisible="not checked or line_ids">
+                        Комплектуючих достатньо для вказаної кількості товару.
+                    </div>
+                    <field name="line_ids" nolabel="1">
+                        <tree create="0" edit="0" delete="0" open_form_view="0">
+                            <field name="category_id" options="{'no_open': True}"/>
+                            <field name="product_id" options="{'no_open': True}"/>
+                            <field name="default_code"/>
+                            <field name="demand_per_unit"/>
+                            <field name="total_demand"/>
+                            <field name="free_qty"/>
+                            <field name="reserved_qty"/>
+                            <field name="shortage_qty"/>
+                            <field name="uom_id" optional="show" options="{'no_open': True}"/>
+                        </tree>
+                    </field>
+                </sheet>
+            </form>
+        </field>
+    </record>
+    <record id="action_mrp_component_availability" model="ir.actions.act_window">
+        <field name="name">Наявність комплектуючих</field>
+        <field name="res_model">mrp.component.availability</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_mrp_component_availability_form"/>
+        <field name="target">current</field>
+    </record>
+    <menuitem id="menu_mrp_component_availability" name="Наявність комплектуючих"
+              parent="mrp.menu_mrp_reporting" action="action_mrp_component_availability"
+              groups="mrp.group_mrp_user" sequence="40"/>
+</odoo>
