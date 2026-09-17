@@ -1192,6 +1192,12 @@ class ProductAnalytic(models.Model):
         has_explicit_original_product=False,
         keep_legacy_ambiguous=False,
     ):
+        # Historical origins must not hide an independent product's own lines.
+        if (
+            product == rollup_product
+            and not product._get_allowed_analog_rollup_target_products()
+        ):
+            return True
         if has_explicit_original_product and not selected_original_product:
             return False
         if selected_original_product:
