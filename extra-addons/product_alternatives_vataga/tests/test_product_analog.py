@@ -1752,6 +1752,47 @@ class TestProductAnalog(TransactionCase):
         self.assertEqual(analytic_2.in_invoice, 5)
         self.assertEqual(analytic_2.qty_received, 4)
 
+    def _check_unlinked_product_keeps_own_operations(self, use_self_origin):
+        product = self._create_product('Unlinked product')
+        former_main = self._create_product('Former main product')
+        contract = self._create_seller_contract('Unlinked product contract')
+        analog_line = self._create_analog_line(former_main, product)
+        analytic = self._create_sale_demand(product, contract, 60)
+        former_main_analytic = self._create_product_analytic(former_main, contract)
+        original = product if use_self_origin else former_main
+        bill = self._create_vendor_bill(
+            product, contract, 40, analog_original_product=original,
+        )
+        purchase = self._create_purchase_with_received_quantity(
+            product, contract, ordered_quantity=40, received_quantity=40,
+            analog_original_product=original,
+        )
+        self._recompute_analytic_rollups(analytic, former_main_analytic)
+        self.assertEqual(analytic.in_invoice, 40 if use_self_origin else 0)
+        self.assertEqual(analytic.qty_received, 40 if use_self_origin else 0)
+        self.assertEqual(former_main_analytic.in_invoice, 0 if use_self_origin else 40)
+        self.assertEqual(former_main_analytic.qty_received, 0 if use_self_origin else 40)
+
+        analog_line.unlink()
+
+        self.assertFalse(product._get_allowed_analog_rollup_target_products())
+        self.assertEqual(bill.invoice_line_ids.analog_original_product_id, original)
+        self.assertEqual(purchase.order_line.analog_original_product_id, original)
+        self.assertEqual(bill.state, 'posted')
+        self.assertEqual(purchase.order_line.qty_received, 40)
+        self.assertEqual(analytic.demand, 60)
+        self.assertEqual(analytic.in_invoice, 40)
+        self.assertEqual(analytic.qty_received, 40)
+        self.assertAlmostEqual(analytic.closed, 40 / 60)
+        self.assertEqual(former_main_analytic.in_invoice, 0)
+        self.assertEqual(former_main_analytic.qty_received, 0)
+
+    def test_unlinked_product_with_historical_self_origin(self):
+        self._check_unlinked_product_keeps_own_operations(use_self_origin=True)
+
+    def test_unlinked_product_with_historical_other_origin(self):
+        self._check_unlinked_product_keeps_own_operations(use_self_origin=False)
+
     def test_changing_analog_link_recomputes_old_product_analytics(self):
         product_a = self._create_product('Changed main A')
         product_b = self._create_product('Changed old analog B')
@@ -1794,8 +1835,8 @@ class TestProductAnalog(TransactionCase):
         )
         self.assertEqual(main_analytic.in_invoice, 0)
         self.assertEqual(main_analytic.qty_received, 0)
-        self.assertEqual(old_analog_analytic.in_invoice, 0)
-        self.assertEqual(old_analog_analytic.qty_received, 0)
+        self.assertEqual(old_analog_analytic.in_invoice, 4)
+        self.assertEqual(old_analog_analytic.qty_received, 3)
         pivot_total = self.ProductAnalytic.read_group(
             [
                 ('sale_contract_id', '=', contract.id),
@@ -1804,8 +1845,8 @@ class TestProductAnalog(TransactionCase):
             ['in_invoice:sum', 'qty_received:sum'],
             [],
         )[0]
-        self.assertEqual(pivot_total['in_invoice'], 0)
-        self.assertEqual(pivot_total['qty_received'], 0)
+        self.assertEqual(pivot_total['in_invoice'], 4)
+        self.assertEqual(pivot_total['qty_received'], 3)
 
     def test_backfill_historical_invoice_creates_target_once(self):
         main_product = self._create_product('Historical invoice main')
