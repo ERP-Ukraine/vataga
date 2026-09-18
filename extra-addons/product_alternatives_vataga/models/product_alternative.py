@@ -1318,15 +1318,54 @@ class ProductAnalytic(models.Model):
         if not products:
             return 0
         total_quantity = 0
+        remaining_returns = {}
         for line in self._get_related_invoice_lines_for_products(
             products,
             rollup_product,
-        ):
+        ).sorted('id'):
             quantity = line.product_uom_id._compute_quantity(
                 line.quantity,
                 target_uom,
+                round=False,
             )
-            total_quantity += quantity if line.move_type == 'in_invoice' else -quantity
+            if line.move_type == 'in_invoice':
+                total_quantity += quantity
+                continue
+
+            # A credit note alone is not evidence of returned goods. Reuse the
+            # purchase links (including historical/multiple-link support), but
+            # never guess a purchase from the product or contract alone.
+            purchase_lines = line._get_purchase_lines_for_analog_origin().filtered(
+                lambda purchase: purchase.product_id == line.product_id
+                and purchase.company_id == line.company_id
+            )
+            moves = purchase_lines.move_ids
+            # Standard returns keep purchase_line_id; the origin link also
+            # covers historical returns that only reference the receipt move.
+            moves |= moves.returned_move_ids
+            returns = moves.filtered(
+                lambda move: move.state == 'done'
+                and move.product_id == line.product_id
+                and move.company_id == line.company_id
+                and move.location_id.usage == 'internal'
+                and move.location_dest_id.usage == 'supplier'
+                and move._is_purchase_return()
+            )
+            quantity = max(quantity, 0)
+            for move in returns.sorted('id'):
+                if move.id not in remaining_returns:
+                    remaining_returns[move.id] = max(
+                        move.product_uom._compute_quantity(
+                            move.quantity, target_uom, round=False,
+                        ),
+                        0,
+                    )
+                deducted = min(quantity, remaining_returns[move.id])
+                total_quantity -= deducted
+                quantity -= deducted
+                remaining_returns[move.id] -= deducted
+                if not quantity:
+                    break
         return total_quantity
 
     def _sum_purchase_quantity_for_products(
@@ -1401,26 +1440,42 @@ class ProductAnalytic(models.Model):
                 total_quantity += kit_total_received * bom_lines_uom_qty
         return total_quantity
 
-    @api.depends(
-        'sale_contract_id.seller_move_line_ids',
-        'sale_contract_id.seller_move_line_ids.product_id',
-        'sale_contract_id.seller_move_line_ids.analog_original_product_id',
-        'sale_contract_id.seller_move_line_ids.quantity',
-        'sale_contract_id.seller_move_line_ids.analytic_distribution',
-        'sale_contract_id.seller_move_line_ids.seller_contract_id',
-        'sale_contract_id.seller_move_line_ids.product_uom_id',
-        'sale_contract_id.seller_move_line_ids.move_type',
-        'sale_contract_id.seller_move_line_ids.move_id.state',
-        'sale_contract_id.seller_move_line_ids.move_id.move_type',
-        'sale_contract_id.seller_move_line_ids.move_id.seller_contract_id',
-        'need_to_purchase_ids',
-        'need_to_purchase_ids.product_qty',
-        'kit_bom_ids',
-        'product_id.product_tmpl_id.analog_line_ids.product_id',
-        'product_id.product_tmpl_id.analog_line_ids.is_primary_link',
-        'product_id.analog_source_line_ids',
-        'product_id.analog_source_line_ids.is_primary_link',
-    )
+    def _get_invoice_quantity_dependencies(self):
+        dependencies = [
+            'sale_contract_id.seller_move_line_ids',
+            'sale_contract_id.seller_move_line_ids.product_id',
+            'sale_contract_id.seller_move_line_ids.analog_original_product_id',
+            'sale_contract_id.seller_move_line_ids.quantity',
+            'sale_contract_id.seller_move_line_ids.analytic_distribution',
+            'sale_contract_id.seller_move_line_ids.seller_contract_id',
+            'sale_contract_id.seller_move_line_ids.product_uom_id',
+            'sale_contract_id.seller_move_line_ids.move_type',
+            'sale_contract_id.seller_move_line_ids.move_id.state',
+            'sale_contract_id.seller_move_line_ids.move_id.move_type',
+            'sale_contract_id.seller_move_line_ids.move_id.seller_contract_id',
+            'need_to_purchase_ids',
+            'need_to_purchase_ids.product_qty',
+            'kit_bom_ids',
+            'product_id.product_tmpl_id.analog_line_ids.product_id',
+            'product_id.product_tmpl_id.analog_line_ids.is_primary_link',
+            'product_id.analog_source_line_ids',
+            'product_id.analog_source_line_ids.is_primary_link',
+        ]
+        # Include optional multi-purchase links without requiring a custom field.
+        for link in ('purchase_line_id', 'purchase_line_ids'):
+            if link not in self.env['account.move.line']._fields:
+                continue
+            prefix = 'sale_contract_id.seller_move_line_ids.' + link
+            dependencies.append(prefix)
+            for move_path in ('.move_ids', '.move_ids.returned_move_ids'):
+                for field in (
+                    'state', 'quantity', 'product_uom', 'product_id',
+                    'company_id', 'location_id.usage', 'location_dest_id.usage',
+                ):
+                    dependencies.append(prefix + move_path + '.' + field)
+        return dependencies
+
+    @api.depends(lambda self: self._get_invoice_quantity_dependencies())
     def _compute_numbers(self):
         for product_analytic in self:
             product_analytic.demand = sum(

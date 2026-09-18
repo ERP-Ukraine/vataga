@@ -247,6 +247,127 @@ class TestProductAnalog(TransactionCase):
             purchase.picking_ids.with_context(skip_backorder=True).button_validate()
         return purchase
 
+    def _create_supplier_return(self, purchase, quantity, done=True):
+        receipt = purchase.order_line.move_ids.filtered(
+            lambda move: move.state == 'done'
+            and move.location_id.usage == 'supplier'
+            and move.location_dest_id.usage == 'internal'
+        )
+        receipt.ensure_one()
+        returned = self.StockMove.create({
+            'name': 'Test supplier return',
+            'product_id': receipt.product_id.id,
+            'product_uom': receipt.product_uom.id,
+            'product_uom_qty': quantity,
+            'location_id': receipt.location_dest_id.id,
+            'location_dest_id': receipt.location_id.id,
+            'purchase_line_id': purchase.order_line.id,
+            'origin_returned_move_id': receipt.id,
+            'to_refund': True,
+        })
+        returned._action_confirm()
+        if done:
+            returned.write({'quantity': quantity, 'picked': True})
+            returned._action_done()
+        return returned
+
+    def _prepare_vendor_refund_quantity_case(self, refund_quantity):
+        product = self._create_product('Vendor refund quantity product')
+        contract = self._create_seller_contract('Vendor refund quantity contract')
+        analytic = self._create_sale_demand(product, contract, 1400)
+        purchase = self._create_purchase_with_received_quantity(
+            product, contract, ordered_quantity=1400, received_quantity=1400,
+        )
+        bill = self._create_vendor_bill_from_distribution(
+            product, {str(contract.id): 100}, 1400,
+            seller_contract=contract, purchase_line=purchase.order_line,
+            post=False,
+        )
+        bill.invoice_line_ids.write({'price_unit': 345.54})
+        bill.action_post()
+        refund = self._create_vendor_bill_from_distribution(
+            product, {str(contract.id): 100}, refund_quantity,
+            move_type='in_refund', seller_contract=contract,
+            purchase_line=purchase.order_line, post=False,
+        )
+        refund.invoice_line_ids.write({'price_unit': 345.54, 'discount': 59.9062})
+        refund.action_post()
+        self.assertEqual(analytic.in_invoice, 1400)
+        self.assertEqual(analytic.qty_received, 1400)
+        return analytic, purchase, refund
+
+    def test_price_only_vendor_refund_keeps_invoice_quantity(self):
+        analytic, purchase, refund = self._prepare_vendor_refund_quantity_case(1400)
+        self.assertFalse(purchase.order_line.move_ids.filtered(
+            lambda move: move._is_purchase_return()
+        ))
+        self.assertEqual(refund.invoice_line_ids.quantity, 1400)
+        self.assertEqual(analytic.in_invoice, 1400)
+        self.assertEqual(analytic.closed, 1)
+
+    def test_vendor_refund_deducts_done_supplier_return(self):
+        analytic, purchase, refund = self._prepare_vendor_refund_quantity_case(400)
+        # Posting the refund before the return also verifies stored-field
+        # invalidation when the stock movement is subsequently completed.
+        self._create_supplier_return(purchase, 400)
+        self.assertEqual(analytic.in_invoice, 1000)
+        self.assertEqual(analytic.qty_received, 1000)
+        self.assertAlmostEqual(analytic.closed, 1000 / 1400)
+
+    def test_vendor_refund_is_capped_by_actual_return(self):
+        analytic, purchase, refund = self._prepare_vendor_refund_quantity_case(1400)
+        self._create_supplier_return(purchase, 400)
+        self.assertEqual(analytic.in_invoice, 1000)
+
+    def test_multiple_vendor_refunds_share_return_limit(self):
+        analytic, purchase, refund = self._prepare_vendor_refund_quantity_case(300)
+        self._create_supplier_return(purchase, 400)
+        self.assertEqual(analytic.in_invoice, 1100)
+        self._create_vendor_bill_from_distribution(
+            analytic.product_id, {str(analytic.sale_contract_id.id): 100}, 300,
+            move_type='in_refund', seller_contract=analytic.sale_contract_id,
+            purchase_line=purchase.order_line,
+        )
+        self.assertEqual(analytic.in_invoice, 1000)
+
+    def test_pending_and_cancelled_supplier_returns_do_not_reduce_invoice(self):
+        analytic, purchase, refund = self._prepare_vendor_refund_quantity_case(1400)
+        returned = self._create_supplier_return(purchase, 400, done=False)
+        self.assertEqual(analytic.in_invoice, 1400)
+        returned._action_cancel()
+        self.assertEqual(analytic.in_invoice, 1400)
+
+    def test_return_on_another_purchase_does_not_reduce_invoice(self):
+        analytic, purchase, refund = self._prepare_vendor_refund_quantity_case(1400)
+        other_purchase = self._create_purchase_with_received_quantity(
+            analytic.product_id, analytic.sale_contract_id,
+            ordered_quantity=400, received_quantity=400,
+        )
+        self._create_supplier_return(other_purchase, 400)
+        self._recompute_analytic_rollups(analytic)
+        self.assertEqual(analytic.in_invoice, 1400)
+
+    def test_supplier_return_without_refund_does_not_reduce_invoice(self):
+        analytic, purchase, refund = self._prepare_vendor_refund_quantity_case(400)
+        refund.button_draft()
+        self._create_supplier_return(purchase, 400)
+        self.assertEqual(analytic.in_invoice, 1400)
+
+    def test_vendor_refund_posted_after_supplier_return(self):
+        analytic, purchase, refund = self._prepare_vendor_refund_quantity_case(400)
+        refund.button_draft()
+        self._create_supplier_return(purchase, 400)
+        refund.action_post()
+        self.assertEqual(analytic.in_invoice, 1000)
+
+    def test_supplier_return_linked_only_through_original_receipt(self):
+        analytic, purchase, refund = self._prepare_vendor_refund_quantity_case(400)
+        returned = self._create_supplier_return(purchase, 400, done=False)
+        returned.purchase_line_id = False
+        returned.write({'quantity': 400, 'picked': True})
+        returned._action_done()
+        self.assertEqual(analytic.in_invoice, 1000)
+
     def _create_kit_product(self, component_product, component_quantity):
         kit_product = self._create_product(
             'Kit for %s' % component_product.name
@@ -726,8 +847,8 @@ class TestProductAnalog(TransactionCase):
         main_analytic.invalidate_recordset(['in_invoice', 'closed'])
         analog_analytic.invalidate_recordset(['demand', 'in_invoice', 'closed'])
 
-        self.assertEqual(main_analytic.in_invoice, 3)
-        self.assertAlmostEqual(main_analytic.closed, 0.3)
+        self.assertEqual(main_analytic.in_invoice, 4)
+        self.assertAlmostEqual(main_analytic.closed, 0.4)
         self.assertEqual(analog_analytic.demand, 0)
         self.assertEqual(analog_analytic.in_invoice, 0)
         self.assertEqual(analog_analytic.closed, 0)
@@ -1629,9 +1750,9 @@ class TestProductAnalog(TransactionCase):
         self._recompute_analytic_rollups(main_analytic, analog_analytic)
 
         self.assertEqual(main_analytic.demand, 10)
-        self.assertEqual(main_analytic.in_invoice, 5)
+        self.assertEqual(main_analytic.in_invoice, 6)
         self.assertEqual(main_analytic.qty_received, 5)
-        self.assertEqual(main_analytic.closed, 0.5)
+        self.assertEqual(main_analytic.closed, 0.6)
         self.assertEqual(analog_analytic.demand, 0)
         self.assertEqual(analog_analytic.in_invoice, 0)
         self.assertEqual(analog_analytic.qty_received, 0)
@@ -1643,7 +1764,7 @@ class TestProductAnalog(TransactionCase):
             ['sale_contract_id'],
         )[0]
         self.assertEqual(pivot_total['demand'], 10)
-        self.assertEqual(pivot_total['in_invoice'], 5)
+        self.assertEqual(pivot_total['in_invoice'], 6)
         self.assertEqual(pivot_total['qty_received'], 5)
 
     def test_confirmed_unreceived_kit_does_not_add_received_components(self):
