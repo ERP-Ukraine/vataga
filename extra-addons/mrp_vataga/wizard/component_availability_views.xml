@@ -25,12 +25,11 @@
                         <span>Кількість готового товару в одиницях:</span>
                         <field name="product_uom_id" options="{'no_open': True}"/>
                     </div>
-                    <p class="text-muted">Попит на 1 — теоретична норма BOM. Попит загальний — потреба після врахування готових підзбірок.</p>
                     <div class="alert alert-success" invisible="not checked or line_ids">
                         Комплектуючих достатньо для вказаної кількості товару.
                     </div>
                     <field name="line_ids" nolabel="1">
-                        <tree create="0" edit="0" delete="0" open_form_view="0" default_order="category_id, product_id, id">
+                        <tree create="0" edit="0" delete="0" open_form_view="0" limit="200" default_order="category_id, product_id, id">
                             <field name="category_id" options="{'no_open': True}"/>
                             <field name="product_id" options="{'no_open': True}"/>
                             <field name="default_code" optional="show"/>
@@ -51,7 +50,7 @@
         <field name="model">mrp.component.availability.line</field>
         <field name="arch" type="xml">
             <tree string="Нестача комплектуючих" create="0" edit="0" delete="0"
-                  default_order="category_id, product_id, id">
+                  limit="200" default_order="category_id, product_id, id">
                 <field name="category_id" options="{'no_open': True}"/>
                 <field name="product_id" options="{'no_open': True}"/>
                 <field name="default_code" optional="show"/>
