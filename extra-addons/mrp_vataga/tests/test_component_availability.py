@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from odoo import fields
 from odoo.exceptions import AccessError, ValidationError
 from odoo.tests import tagged
@@ -174,7 +176,7 @@ class TestComponentAvailability(TransactionCase):
         with self.assertRaises((ValidationError, AccessError)):
             wizard.action_check()
 
-    def test_direct_bom_lines_only(self):
+    def test_phantom_bom_nets_existing_subassemblies(self):
         self.env['mrp.bom'].create({
             'product_tmpl_id': self.component.product_tmpl_id.id,
             'type': 'phantom',
@@ -184,7 +186,9 @@ class TestComponentAvailability(TransactionCase):
         })
         wizard = self._wizard()
         wizard.action_check()
-        self.assertEqual(wizard.line_ids.product_id, self.component)
+        self.assertEqual(wizard.line_ids.product_id, self.empty)
+        self.assertEqual(wizard.line_ids.demand_per_unit, 20)
+        self.assertEqual(wizard.line_ids.total_demand, 60)
 
     def test_check_does_not_write_business_records(self):
         wizard = self._wizard()
@@ -227,3 +231,139 @@ class TestComponentAvailability(TransactionCase):
         wizard.product_id = first
         wizard.action_check()
         self.assertEqual(wizard.line_ids.shortage_qty, 20)
+
+    def _child_bom(self, product, components, **values):
+        return self.env['mrp.bom'].create({
+            'product_tmpl_id': product.product_tmpl_id.id,
+            'product_uom_id': product.uom_id.id,
+            'bom_line_ids': [fields.Command.create({
+                'product_id': component.id, 'product_qty': qty,
+                'product_uom_id': component.uom_id.id,
+            }) for component, qty in components],
+            **values,
+        })
+
+    def test_nested_zero_partial_and_full_subassembly_stock(self):
+        self._child_bom(self.component, [(self.empty, 3)])
+        # Root needs 20 B; fixtures supply 14 physical B (6 reserved).
+        wizard = self._wizard()
+        wizard.action_check()
+        self.assertEqual(wizard.line_ids.demand_per_unit, 6)
+        self.assertEqual(wizard.line_ids.total_demand, 18)
+        self.assertEqual(wizard.line_ids.product_id, self.empty)
+        # Select a warehouse with no B, rather than relying on global stock.
+        clean = self.env['stock.warehouse'].create({'name': 'No B', 'code': 'CAVN'})
+        wizard.warehouse_ids = clean
+        wizard.action_check()
+        self.assertEqual(wizard.line_ids.total_demand, 60)
+        wizard.warehouse_ids = self.outside
+        wizard.action_check()
+        self.assertFalse(wizard.line_ids)
+
+    def test_shared_leaf_stock_is_applied_once(self):
+        branch = self.env['product.product'].create({'name': 'Second branch', 'detailed_type': 'product'})
+        self.bom.write({'bom_line_ids': [fields.Command.create({
+            'product_id': branch.id, 'product_qty': 2,
+        })]})
+        self._child_bom(self.component, [(self.empty, 4)])
+        self._child_bom(branch, [(self.empty, 6)])
+        self.env['stock.quant']._update_available_quantity(self.empty, self.w1.lot_stock_id, 70)
+        wizard = self._wizard()
+        wizard.action_check()
+        # 6 missing first assemblies * 4 + 10 second assemblies * 6 = 84.
+        self.assertEqual(len(wizard.line_ids), 1)
+        self.assertEqual(wizard.line_ids.demand_per_unit, 14)
+        self.assertEqual(wizard.line_ids.total_demand, 84)
+        self.assertEqual(wizard.line_ids.shortage_qty, 14)
+
+    def test_shared_subassembly_at_different_depths(self):
+        branch = self.env['product.product'].create({'name': 'Intermediate branch', 'detailed_type': 'product'})
+        self.bom.bom_line_ids.write({'product_qty': 10})
+        self.bom.write({'bom_line_ids': [fields.Command.create({
+            'product_id': branch.id, 'product_qty': 10,
+        })]})
+        self._child_bom(branch, [(self.component, 1)])
+        self._child_bom(self.component, [(self.empty, 3)])
+        wizard = self._wizard(quantity=2)
+        wizard.action_check()
+        # B demand is 10 direct + 10 via the branch. Its 14 units count once.
+        self.assertEqual(wizard.line_ids.total_demand, 18)
+        self.assertEqual(wizard.line_ids.demand_per_unit, 30)
+        # Reverse root line order: allocation must not depend on traversal order.
+        self.bom.bom_line_ids[0].sequence = 99
+        wizard.action_check()
+        self.assertEqual(wizard.line_ids.total_demand, 18)
+
+    def test_multilevel_uom_and_non_unit_child_bom(self):
+        middle = self.env['product.product'].create({'name': 'Middle', 'detailed_type': 'product'})
+        self._child_bom(self.component, [(middle, 6)], product_qty=2)
+        child = self._child_bom(middle, [(self.empty, 24)], product_qty=1,
+                               product_uom_id=self.env.ref('uom.product_uom_dozen').id)
+        # Same UoM category, different BOM line UoM (1 dozen = 12 units).
+        child.bom_line_ids.write({
+            'product_qty': 2, 'product_uom_id': self.env.ref('uom.product_uom_dozen').id,
+        })
+        self.env['stock.quant']._update_available_quantity(middle, self.w2.lot_stock_id, 3)
+        wizard = self._wizard()
+        wizard.action_check()
+        # A -> 2 B -> 6 middle -> 12 leaf. Net: (6 B * 3 - 3 middle) * 2.
+        self.assertEqual(wizard.line_ids.demand_per_unit, 12)
+        self.assertEqual(wizard.line_ids.total_demand, 30)
+
+    def test_cycle_error_contains_product_path(self):
+        # Standard Odoo prevents creating cycles. Bypass only that constraint in
+        # this fixture to simulate corrupted/imported legacy data.
+        Bom = self.env['mrp.bom']
+        constraints = [method for method in Bom._constraint_methods if method.__name__ != '_check_bom_cycle']
+        with patch.object(type(Bom), '_constraint_methods', constraints):
+            self._child_bom(self.component, [(self.finished, 1)])
+        wizard = self._wizard()
+        with self.assertRaisesRegex(ValidationError, 'Виявлено цикл специфікацій:.*Availability'):
+            wizard.action_check()
+
+    def test_child_bom_selection_variant_template_company_and_type(self):
+        attribute = self.env['product.attribute'].create({
+            'name': 'Child variation',
+            'value_ids': [fields.Command.create({'name': name}) for name in ('A', 'B')],
+        })
+        template = self.env['product.template'].create({
+            'name': 'Child variants', 'detailed_type': 'product',
+            'attribute_line_ids': [fields.Command.create({
+                'attribute_id': attribute.id, 'value_ids': [fields.Command.set(attribute.value_ids.ids)],
+            })],
+        })
+        first, second = template.product_variant_ids
+        self._child_bom(first, [(self.empty, 2)], sequence=10)
+        specific = self._child_bom(first, [(self.empty, 3)], product_id=first.id, sequence=1)
+        self.bom.bom_line_ids.product_id = first
+        wizard = self._wizard()
+        wizard.action_check()
+        self.assertEqual(wizard.line_ids.total_demand, 60)
+        self.bom.bom_line_ids.product_id = second
+        wizard.action_check()
+        self.assertEqual(wizard.line_ids.total_demand, 40)
+        other = self.env['res.company'].create({'name': 'Foreign BOM company'})
+        self._child_bom(second, [(self.empty, 99)], company_id=other.id, sequence=0)
+        wizard.with_context(allowed_company_ids=[self.env.company.id, other.id]).action_check()
+        self.assertEqual(wizard.line_ids.total_demand, 40)
+        specific.active = False
+        self.bom.bom_line_ids.product_id = first
+        wizard.action_check()
+        self.assertEqual(wizard.line_ids.total_demand, 40)
+
+    def test_result_action_search_sort_and_group(self):
+        wizard = self._wizard()
+        wizard.action_check()
+        other = self._wizard()
+        other.action_check()
+        action = wizard.action_open_results()
+        Line = self.env['mrp.component.availability.line']
+        self.assertEqual(Line.search(action['domain']), wizard.line_ids)
+        self.assertEqual(action['target'], 'current')
+        for field in ('category_id', 'product_id', 'default_code', 'demand_per_unit',
+                      'total_demand', 'free_qty', 'reserved_qty', 'shortage_qty', 'uom_id'):
+            self.assertTrue(Line._fields[field].store)
+            self.assertEqual(Line.search(action['domain'], order=field), wizard.line_ids)
+        groups = Line.read_group(action['domain'], ['total_demand:sum'], ['category_id'])
+        self.assertEqual(groups[0]['total_demand'], 20)
+        self.assertEqual(Line.search(action['domain'] + [('product_id.name', 'ilike', 'Availability')]), wizard.line_ids)
