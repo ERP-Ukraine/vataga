@@ -92,7 +92,7 @@ def format_value(record, name):
         for ids, percent in sorted(raw.items()):
             accounts = record.env['account.analytic.account'].browse(ids).exists()
             label = ' / '.join(accounts.mapped('display_name')) or EMPTY
-            entries.append('%s — %g%%' % (label, percent))
+            entries.append('%s (%g%%)' % (label, percent))
         return raw, '; '.join(entries) or EMPTY
     if field.type == 'selection':
         return value, dict(field._description_selection(record.env)).get(value, EMPTY)
@@ -125,7 +125,7 @@ def snapshot(record, names=None):
 
 def changes(record, before, after):
     return [
-        '%s: "%s" → "%s"' % (field_label(record, name), before[name][1], after[name][1])
+        '%s: було "%s", стало "%s"' % (field_label(record, name), before[name][1], after[name][1])
         for name in before if before[name][0] != after[name][0]
     ]
 

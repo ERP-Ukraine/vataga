@@ -72,7 +72,8 @@ class TestInvoiceAutolog(InvoiceHeaderAnalyticsCommon):
         self.assertTrue(messages)
         body = unescape(' '.join(messages.mapped('body')))
         self.assertIn(label, body)
-        self.assertIn('→', body)
+        self.assertIn('було "', body)
+        self.assertIn('", стало "', body)
         before = self._logs(invoice)
         record.write(vals)
         self.assertEqual(self._logs(invoice), before, 'Same values must not create logs')
@@ -102,11 +103,11 @@ class TestInvoiceAutolog(InvoiceHeaderAnalyticsCommon):
         vals = {'to_check': True, 'auto_post': 'at_date', 'invoice_date': '2026-09-20'}
         body = self._edit(invoice, vals, invoice._fields['to_check'].string)
         self.assertEqual(len(self._logs(invoice) - before), 1)
-        self.assertIn('"Ні" → "Так"', body)
+        self.assertIn('було "Ні", стало "Так"', body)
         self.assertIn('2026-09-20', body)
         self.assertIn(dict(invoice._fields['auto_post']._description_selection(self.env))['at_date'], body)
         self.assertNotIn('"at_date"', body)
-        self._edit(invoice, {'to_check': False}, '"Так" → "Ні"')
+        self._edit(invoice, {'to_check': False}, 'було "Так", стало "Ні"')
         raw, display = format_value(invoice, 'create_date')
         self.assertEqual(raw, invoice.create_date)
         self.assertTrue(display)
@@ -133,6 +134,36 @@ class TestInvoiceAutolog(InvoiceHeaderAnalyticsCommon):
         line._compute_totals()
         self.env.flush_all()
         self.assertEqual(self._logs(invoice), before)
+
+    def test_plain_text_separators_preserve_real_names(self):
+        invoice = self._create_header_invoice(headers={})
+        body = self._edit(invoice, {'ref': 'Contract 195'},
+                          'було "Порожньо", стало "Contract 195"')
+        self.assertNotIn('→', body)
+        self.assertNotIn('—', body)
+        self._edit(invoice, {'ref': False}, 'було "Contract 195", стало "Порожньо"')
+        self._edit(invoice, {'ref': 'Contract A → B — original'},
+                   'було "Порожньо", стало "Contract A → B — original"')
+
+        line = invoice.invoice_line_ids
+        first = self.env['account.analytic.account'].browse(self.headers['project_account_id'])
+        second = self.replacement_project
+        for distribution in (
+            {str(first.id): 100},
+            {str(first.id): 60, str(second.id): 40},
+        ):
+            line.write({'analytic_distribution': distribution})
+            expected = '; '.join(
+                '%s (%g%%)' % (self.env['account.analytic.account'].browse(int(key)).display_name, percent)
+                for key, percent in sorted(distribution.items(), key=lambda item: int(item[0]))
+            )
+            self.assertEqual(format_value(line, 'analytic_distribution')[1], expected)
+            self.assertNotIn('—', expected)
+            self.assertNotIn('→', expected)
+        first.name = 'Project A → B — original'
+        line.write({'analytic_distribution': {str(first.id): 100}})
+        self.assertEqual(format_value(line, 'analytic_distribution')[1],
+                         '%s (100%%)' % first.display_name)
 
     def test_detailed_command_create_and_delete(self):
         invoice = self._create_header_invoice(headers={})
@@ -173,6 +204,9 @@ class TestInvoiceAutolog(InvoiceHeaderAnalyticsCommon):
         messages = self._logs(invoice) - before
         self.assertEqual(len(messages), 1)
         body = unescape(str(messages.body))
+        self.assertNotIn('→', body)
+        self.assertNotIn('—', body)
+        self.assertIn('; ', body)
         for name in ('quantity', 'name', 'price_unit', 'blocked'):
             self.assertIn(line._fields[name].string, body)
         # Equal display names do not imply equal relation values.
