@@ -1,6 +1,6 @@
 {
     'name' : 'Accounting Vataga',
-    'version': '1.18',
+    'version': '1.19',
     'category': 'Accounting/Accounting',
     'author': 'ERP Ukraine LLC',
     'website': 'https://erp.co.ua',
