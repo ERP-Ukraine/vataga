@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Keep this view out of the default PLM view selection. -->
+    <record id="view_bom_change_log_tree" model="ir.ui.view">
+        <field name="name">mrp.eco.bom.change.vataga.log.tree</field>
+        <field name="model">mrp.eco.bom.change</field>
+        <field name="priority">100</field>
+        <field name="arch" type="xml">
+            <tree string="Журнал змін специфікацій" create="0" edit="0" delete="0"
+                  default_order="write_date desc, id desc">
+                <field name="write_date" string="Дата"/>
+                <field name="vataga_bom_id" string="Специфікація / виріб"
+                       widget="many2one" options="{'no_create': True}"/>
+                <field name="product_id" string="Номенклатура"
+                       widget="many2one" options="{'no_create': True}"/>
+                <field name="old_product_qty" string="Кількість було"/>
+                <field name="new_product_qty" string="Кількість стало"/>
+                <field name="eco_id" string="Заявка на зміну специфікації"
+                       widget="many2one" options="{'no_create': True}"/>
+                <field name="old_uom_id" string="Одиниця виміру було" optional="hide"/>
+                <field name="new_uom_id" string="Одиниця виміру стало" optional="hide"/>
+            </tree>
+        </field>
+    </record>
+
+    <record id="view_bom_change_log_search" model="ir.ui.view">
+        <field name="name">mrp.eco.bom.change.vataga.log.search</field>
+        <field name="model">mrp.eco.bom.change</field>
+        <field name="priority">100</field>
+        <field name="arch" type="xml">
+            <search string="Журнал змін специфікацій">
+                <field name="product_id" string="Номенклатура"/>
+                <field name="vataga_bom_id" string="Специфікація / виріб"/>
+                <field name="eco_id" string="Заявка на зміну специфікації"/>
+                <filter name="change_date" string="Дата" date="write_date"/>
+                <separator/>
+                <filter name="added" string="Додано" domain="[('change_type', '=', 'add')]"/>
+                <filter name="removed" string="Видалено" domain="[('change_type', '=', 'remove')]"/>
+                <filter name="updated" string="Змінено" domain="[('change_type', '=', 'update')]"/>
+                <group expand="0" string="Групувати за">
+                    <filter name="group_date" string="За датою" context="{'group_by': 'write_date:day'}"/>
+                    <filter name="group_bom" string="За специфікацією / виробом" context="{'group_by': 'vataga_bom_id'}"/>
+                    <filter name="group_product" string="За номенклатурою" context="{'group_by': 'product_id'}"/>
+                    <filter name="group_eco" string="За заявкою на зміну специфікації" context="{'group_by': 'eco_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_bom_change_log" model="ir.actions.act_window">
+        <field name="name">Журнал змін специфікацій</field>
+        <field name="res_model">mrp.eco.bom.change</field>
+        <field name="view_mode">tree</field>
+        <field name="view_id" ref="view_bom_change_log_tree"/>
+        <field name="search_view_id" ref="view_bom_change_log_search"/>
+        <field name="domain">[('eco_id', '!=', False)]</field>
+        <field name="context">{'create': False, 'edit': False, 'delete': False}</field>
+    </record>
+
+    <menuitem id="menu_bom_change_log" name="Журнал змін специфікацій"
+              parent="mrp.menu_mrp_reporting" action="action_bom_change_log"
+              sequence="90"/>
+</odoo>
