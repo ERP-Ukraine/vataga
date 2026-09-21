@@ -6,74 +6,122 @@ then final persisted business values are compared, including computed analytics.
 from copy import deepcopy
 
 from odoo import api, fields, models
-from odoo.tools.misc import formatLang
+from odoo.tools import html2plaintext
+from odoo.tools.misc import formatLang, format_datetime
 
 
 SKIP = 'account_vataga_skip_invoice_autologs'
 EMPTY = 'Порожньо'
-HEADER_FIELDS = {
-    'partner_id': 'Постачальника / Покупця',
-    'invoice_date': 'Дату рахунку',
-    'date': 'Дату обліку',
-    'name': 'Номер',
-    'ref': 'Референс',
-    'currency_id': 'Валюту',
-    'journal_id': 'Журнал',
-    'invoice_payment_term_id': 'Умови оплати',
+COMMON_TECHNICAL_FIELDS = {
+    'id', 'display_name', 'create_date', 'create_uid', 'write_date', 'write_uid',
+    '__last_update', 'message_ids', 'message_follower_ids', 'message_partner_ids',
+    'activity_ids', 'activity_state', 'activity_user_id', 'activity_type_id',
+    'activity_date_deadline', 'access_url', 'access_token', 'access_warning',
 }
-LINE_FIELDS = {
-    'product_id': 'Товар',
-    'name': 'Опис',
-    'quantity': 'Кількість',
-    'product_uom_id': 'Одиницю виміру',
-    'price_unit': 'Ціну',
-    'discount': 'Знижку',
-    'analytic_distribution': 'Аналітику',
-    'account_id': 'Рахунок',
-    'tax_ids': 'Податки',
+MOVE_TECHNICAL_FIELDS = {
+    'line_ids', 'invoice_line_ids', 'state', 'move_type', 'posted_before',
+    'payment_id', 'statement_line_id', 'tax_cash_basis_rec_id',
+    'always_tax_exigible', 'secure_sequence_number', 'sequence_prefix',
+    'sequence_number', 'inalterable_hash', 'payment_state',
+    'amount_untaxed', 'amount_tax', 'amount_total', 'amount_residual',
+    'amount_untaxed_signed', 'amount_tax_signed', 'amount_total_signed',
+    'amount_residual_signed', 'amount_total_in_currency_signed',
+}
+LINE_TECHNICAL_FIELDS = {
+    'move_id', 'sequence', 'display_type', 'parent_state', 'company_id',
+    'company_currency_id', 'currency_rate', 'balance', 'debit', 'credit',
+    'amount_currency', 'amount_residual', 'amount_residual_currency',
+    'price_subtotal', 'price_total', 'tax_tag_ids', 'tax_repartition_line_id',
+    'tax_tag_invert', 'tax_base_amount', 'group_tax_id', 'matching_number',
+    'date_maturity', 'discount_date', 'discount_amount_currency', 'discount_balance',
 }
 
 
-def snapshot(record, names):
-    """Keep raw values for equality and frozen display values for the message."""
-    record = record.with_context(**{SKIP: True})
-    result = {}
-    for name in names:
-        value = record[name]
-        field = record._fields[name]
-        if field.type in ('many2one', 'many2many'):
-            raw = tuple(sorted(value.ids))
-            display = ', '.join(value.mapped('display_name')) or EMPTY
-        elif name == 'analytic_distribution':
-            # Combined keys represent sets; their order is not a business edit.
-            raw = {
-                tuple(sorted(int(part) for part in key.split(','))): percent
-                for key, percent in (value or {}).items()
-            }
-            entries = []
-            for ids, percent in sorted(raw.items()):
-                accounts = record.env['account.analytic.account'].browse(ids).exists()
-                label = ' / '.join(accounts.mapped('display_name')) or EMPTY
-                entries.append('%s — %g%%' % (label, percent))
-            display = '; '.join(entries) or EMPTY
-        elif name == 'price_unit':
-            raw = value
-            display = formatLang(record.env, value, currency_obj=record.move_id.currency_id)
-        elif name == 'discount':
-            raw, display = value, '%g%%' % value
-        elif field.type == 'float':
-            raw, display = value, '%g' % value
-        elif field.type == 'date':
-            raw, display = value, fields.Date.to_string(value) if value else EMPTY
-        else:
-            raw, display = deepcopy(value), str(value) if value else EMPTY
-        result[name] = (raw, display)
+def business_fields(record, names=None):
+    """Stored editable fields, minus accounting/mail internals and payloads.
+
+Computed fields with readonly=False (price, account, taxes, etc.) are editable
+business fields too. Never infer editability just from the presence of compute.
+One2many records need a dedicated handler; invoice lines have one below.
+"""
+    excluded = COMMON_TECHNICAL_FIELDS | (
+        MOVE_TECHNICAL_FIELDS if record._name == 'account.move' else LINE_TECHNICAL_FIELDS
+    )
+    readable = set(record.check_field_access_rights('read'))
+    result = []
+    for name in record._fields if names is None else names:
+        field = record._fields.get(name)
+        if (not field or name in excluded or name not in readable
+                or name.startswith(('message_', 'activity_', 'access_'))
+                or not field.store or field.readonly):
+            continue
+        # Binary/JSON widgets contain service payloads, not scalar user values.
+        # Analytic distribution is the structured business exception with a formatter.
+        if field.type in ('one2many', 'binary', 'json') and name != 'analytic_distribution':
+            continue
+        result.append(name)
     return result
 
 
-def changes(before, after, labels):
+def field_label(record, name):
+    field = record._fields[name]
+    return field._description_string(record.env) or name
+
+
+def format_value(record, name):
+    """Return normalized comparison data and a human-readable value separately."""
+    value = record[name]
+    field = record._fields[name]
+    if field.type == 'many2one':
+        return value.id or False, value.display_name or EMPTY
+    if field.type in ('many2many', 'reference'):
+        raw = tuple(sorted(value.ids)) if field.type == 'many2many' else (
+            (value._name, value.id) if value else False
+        )
+        return raw, ', '.join(value.sorted('id').mapped('display_name')) if value else EMPTY
+    if name == 'analytic_distribution':
+        raw = {
+            tuple(sorted(int(part) for part in key.split(','))): percent
+            for key, percent in (value or {}).items()
+        }
+        entries = []
+        for ids, percent in sorted(raw.items()):
+            accounts = record.env['account.analytic.account'].browse(ids).exists()
+            label = ' / '.join(accounts.mapped('display_name')) or EMPTY
+            entries.append('%s — %g%%' % (label, percent))
+        return raw, '; '.join(entries) or EMPTY
+    if field.type == 'selection':
+        return value, dict(field._description_selection(record.env)).get(value, EMPTY)
+    if field.type == 'boolean':
+        return bool(value), 'Так' if value else 'Ні'
+    if field.type == 'date':
+        return value, fields.Date.to_string(value) if value else EMPTY
+    if field.type == 'datetime':
+        return value, format_datetime(record.env, value) if value else EMPTY
+    if field.type == 'monetary' or name == 'price_unit':
+        move = record if record._name == 'account.move' else record.move_id
+        return value, formatLang(record.env, value, currency_obj=move.currency_id)
+    if name == 'discount':
+        return value, '%g%%' % value
+    if field.type == 'float':
+        digits = field.get_digits(record.env)
+        return value, formatLang(record.env, value, digits=digits[1] if digits else 6)
+    if field.type == 'integer':
+        return value, str(value)
+    if field.type == 'html':
+        return value or False, html2plaintext(value) if value else EMPTY
+    return deepcopy(value) or False, str(value) if value else EMPTY
+
+
+def snapshot(record, names=None):
+    """Keep raw values for equality and frozen display values for the message."""
+    record = record.with_context(**{SKIP: True})
+    return {name: format_value(record, name) for name in business_fields(record, names)}
+
+
+def changes(record, before, after):
     return [
-        '%s: "%s" → "%s"' % (labels[name], before[name][1], after[name][1])
+        '%s: "%s" → "%s"' % (field_label(record, name), before[name][1], after[name][1])
         for name in before if before[name][0] != after[name][0]
     ]
 
@@ -103,26 +151,25 @@ class AccountMove(models.Model):
 
     def _invoice_autolog_line_snapshot(self):
         return {
-            line.id: (line._invoice_autolog_label(), line._invoice_autolog_amount(),
-                      snapshot(line, LINE_FIELDS))
+            line.id: line._invoice_autolog_snapshot()
             for line in self.with_context(**{SKIP: True})._invoice_autolog_lines()
         }
 
     def _invoice_autolog_diff_lines(self, before):
         self.ensure_one()
         after = self._invoice_autolog_line_snapshot()
-        for line_id, (label, amount, values) in before.items():
+        for line_id, (label, summary, values) in before.items():
             if line_id not in after:
-                self._invoice_autolog_post('Видалено рядок: %s, сума: %s' % (label, amount))
+                self._invoice_autolog_post('Видалено рядок: ' + summary)
             else:
-                edits = changes(values, after[line_id][2], LINE_FIELDS)
+                edits = changes(self.env['account.move.line'], values, after[line_id][2])
                 if edits:
                     self._invoice_autolog_post(
-                        'В рядку %s змінено %s' % (label, '; '.join(edits))
+                        'В рядку %s змінено: %s' % (label, '; '.join(edits))
                     )
-        for line_id, (label, amount, values) in after.items():
+        for line_id, (label, summary, values) in after.items():
             if line_id not in before:
-                self._invoice_autolog_post('Додано рядок: %s, сума: %s' % (label, amount))
+                self._invoice_autolog_post('Додано рядок: ' + summary)
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -135,21 +182,23 @@ class AccountMove(models.Model):
         return moves
 
     def write(self, vals):
-        business_fields = set(HEADER_FIELDS) | self.ANALYTIC_HEADER_FIELDS | {
+        if self.env.context.get(SKIP):
+            return super().write(vals)
+        names = business_fields(self, vals)
+        triggers = set(names) | {
             'invoice_line_ids', 'line_ids',
         }
-        if self.env.context.get(SKIP) or not business_fields.intersection(vals):
+        if not triggers.intersection(vals):
             return super().write(vals)
         invoices = self.filtered(lambda m: m.is_invoice(include_receipts=True)
-                                 and explicit_edit(m, vals, business_fields))
+                                 and explicit_edit(m, vals, triggers))
         if not invoices:
             return super().write(vals)
-        names = [name for name in HEADER_FIELDS if name in vals]
         before = {m.id: (snapshot(m, names), m._invoice_autolog_line_snapshot()) for m in invoices}
         result = super(AccountMove, self.with_context(**{SKIP: True})).write(vals)
         for move in invoices:
             header, lines = before[move.id]
-            edits = changes(header, snapshot(move, names), HEADER_FIELDS)
+            edits = changes(move, header, snapshot(move, names))
             if edits:
                 move._invoice_autolog_post('Змінено ' + '; '.join(edits))
             move._invoice_autolog_diff_lines(lines)
@@ -174,6 +223,23 @@ class AccountMoveLine(models.Model):
     def _invoice_autolog_amount(self):
         return formatLang(self.env, self.price_subtotal, currency_obj=self.move_id.currency_id)
 
+    def _invoice_autolog_snapshot(self):
+        line = self.with_context(**{SKIP: True})
+        values = snapshot(line)
+        # This only controls presentation order/required zero values, not eligibility.
+        primary = ('product_id', 'name', 'quantity', 'product_uom_id', 'price_unit')
+        names = [name for name in primary if name in values]
+        names += [name for name in values if name not in names]
+        required = {'quantity', 'product_uom_id', 'price_unit'} if line.display_type == 'product' else set()
+        if not line.product_id:
+            required.add('name')
+        details = [
+            '%s: %s' % (field_label(line, name), values[name][1])
+            for name in names if values[name][0] or name in required
+        ]
+        details.append('%s: %s' % (field_label(line, 'price_subtotal'), line._invoice_autolog_amount()))
+        return line._invoice_autolog_label(), '; '.join(details), values
+
     @api.model_create_multi
     def create(self, vals_list):
         if self.env.context.get(SKIP):
@@ -181,25 +247,26 @@ class AccountMoveLine(models.Model):
         lines = super(AccountMoveLine, self.with_context(**{SKIP: True})).create(vals_list)
         lines = lines.with_env(self.env)
         for line in lines._invoice_autolog_eligible():
-            line.move_id._invoice_autolog_post('Додано рядок: %s, сума: %s' % (
-                line._invoice_autolog_label(), line._invoice_autolog_amount(),
-            ))
+            line.move_id._invoice_autolog_post('Додано рядок: ' + line._invoice_autolog_snapshot()[1])
         return lines
 
     def write(self, vals):
-        if self.env.context.get(SKIP) or not set(LINE_FIELDS).intersection(vals):
+        if self.env.context.get(SKIP):
+            return super().write(vals)
+        names = business_fields(self, vals)
+        if not names:
             return super().write(vals)
         lines = self._invoice_autolog_eligible().filtered(
-            lambda line: explicit_edit(line, vals, LINE_FIELDS)
+            lambda line: explicit_edit(line, vals, names)
         )
         if not lines:
             return super().write(vals)
-        before = {line.id: snapshot(line, LINE_FIELDS) for line in lines}
+        before = {line.id: snapshot(line) for line in lines}
         result = super(AccountMoveLine, self.with_context(**{SKIP: True})).write(vals)
         for line in lines._invoice_autolog_eligible():
-            edits = changes(before[line.id], snapshot(line, LINE_FIELDS), LINE_FIELDS)
+            edits = changes(line, before[line.id], snapshot(line))
             if edits:
-                line.move_id._invoice_autolog_post('В рядку %s змінено %s' % (
+                line.move_id._invoice_autolog_post('В рядку %s змінено: %s' % (
                     line._invoice_autolog_label(), '; '.join(edits),
                 ))
         return result
@@ -207,9 +274,8 @@ class AccountMoveLine(models.Model):
     def unlink(self):
         if self.env.context.get(SKIP):
             return super().unlink()
-        messages = [(line.move_id, 'Видалено рядок: %s, сума: %s' % (
-            line._invoice_autolog_label(), line._invoice_autolog_amount(),
-        )) for line in self._invoice_autolog_eligible()]
+        messages = [(line.move_id, 'Видалено рядок: ' + line._invoice_autolog_snapshot()[1])
+                    for line in self._invoice_autolog_eligible()]
         result = super(AccountMoveLine, self.with_context(**{SKIP: True})).unlink()
         for move, body in messages:
             if move.exists():

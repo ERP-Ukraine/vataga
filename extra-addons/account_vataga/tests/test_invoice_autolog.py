@@ -2,12 +2,13 @@ from html import unescape
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from odoo import Command
+from odoo import Command, fields
 from odoo.tests import tagged
 from odoo.tools.misc import formatLang
 
 from .common import InvoiceHeaderAnalyticsCommon
 from ..controllers import mail_thread
+from ..models.account_invoice_autolog import business_fields, format_value, snapshot, changes
 
 
 @tagged('post_install', '-at_install')
@@ -15,6 +16,7 @@ class TestInvoiceAutolog(InvoiceHeaderAnalyticsCommon):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        cls.env = cls.env(context=dict(cls.env.context, lang='en_US'))
         cls.subtype = cls.env.ref('account_vataga.mt_invoice_autolog')
 
     def _logs(self, invoice):
@@ -37,7 +39,114 @@ class TestInvoiceAutolog(InvoiceHeaderAnalyticsCommon):
         self.assertEqual(self._logs(invoice), before, 'Same values must not create logs')
         return body
 
-    def test_header_allowlist(self):
+    def test_fields_outside_previous_lists_and_grouped_header(self):
+        invoice = self._create_header_invoice(headers={})
+        # Neither field was part of the previous HEADER_FIELDS. No autolog
+        # configuration is needed to discover either a relation or a text field.
+        salesperson = self.env['res.users'].create({
+            'name': 'Autolog salesperson', 'login': 'dynamic_autolog_salesperson',
+            'company_id': self.env.company.id,
+            'company_ids': [Command.set(self.env.company.ids)],
+            'groups_id': [Command.set(self.env.ref('base.group_user').ids)],
+        })
+        before = self._logs(invoice)
+        vals = {'invoice_user_id': salesperson.id, 'invoice_source_email': 'supplier@example.test'}
+        body = self._edit(invoice, vals, invoice._fields['invoice_source_email'].string)
+        self.assertEqual(len(self._logs(invoice) - before), 1)
+        self.assertIn(invoice._fields['invoice_user_id'].string, body)
+        self.assertIn(salesperson.display_name, body)
+        self.assertIn('supplier@example.test', body)
+
+    def test_boolean_selection_date_formatting(self):
+        invoice = self._create_header_invoice(headers={})
+        before = self._logs(invoice)
+        vals = {'to_check': True, 'auto_post': 'at_date', 'invoice_date': '2026-09-20'}
+        body = self._edit(invoice, vals, invoice._fields['to_check'].string)
+        self.assertEqual(len(self._logs(invoice) - before), 1)
+        self.assertIn('"Ні" → "Так"', body)
+        self.assertIn('2026-09-20', body)
+        self.assertIn(dict(invoice._fields['auto_post']._description_selection(self.env))['at_date'], body)
+        self.assertNotIn('"at_date"', body)
+        self._edit(invoice, {'to_check': False}, '"Так" → "Ні"')
+        raw, display = format_value(invoice, 'create_date')
+        self.assertEqual(raw, invoice.create_date)
+        self.assertTrue(display)
+
+    def test_technical_fields_and_metadata(self):
+        invoice = self._create_header_invoice(headers={})
+        line = invoice.invoice_line_ids
+        for record, excluded in (
+            (invoice, ['write_date', 'write_uid', 'message_ids', 'activity_ids',
+                       'access_token', 'amount_total', 'amount_residual', 'payment_state',
+                       'invoice_line_ids', 'line_ids', 'display_name', 'needed_terms']),
+            (line, ['move_id', 'sequence', 'balance', 'debit', 'credit', 'price_subtotal',
+                    'price_total', 'tax_tag_ids', 'currency_rate', 'parent_state']),
+        ):
+            self.assertFalse(set(business_fields(record)) & set(excluded))
+        # Editable computed fields must survive the generic metadata filter.
+        self.assertIn('price_unit', business_fields(line))
+        self.assertIn('tax_ids', business_fields(line))
+        self.assertIn('analytic_distribution', business_fields(line))
+        before = self._logs(invoice)
+        invoice.write({'write_date': fields.Datetime.now(), 'posted_before': True})
+        line.write({'sequence': 123})
+        invoice._compute_amount()
+        line._compute_totals()
+        self.env.flush_all()
+        self.assertEqual(self._logs(invoice), before)
+
+    def test_detailed_command_create_and_delete(self):
+        invoice = self._create_header_invoice(headers={})
+        distribution = {str(self.replacement_project.id): 100}
+        tax = self.company_data['default_tax_sale']
+        before = self._logs(invoice)
+        invoice.write({'invoice_line_ids': [Command.create(self._invoice_line_vals(
+            name='Detailed invoice line', quantity=5, price_unit=100, discount=10,
+            analytic_distribution=distribution, tax_ids=[Command.set(tax.ids)],
+        ))]})
+        messages = self._logs(invoice) - before
+        self.assertEqual(len(messages), 1)
+        body = unescape(str(messages.body))
+        line = invoice.invoice_line_ids.filtered(lambda record: record.name == 'Detailed invoice line')
+        self.assertEqual(line.price_subtotal, 450)
+        self.assertIn('Додано рядок:', body)
+        for name in ('product_id', 'name', 'quantity', 'product_uom_id', 'price_unit',
+                     'discount', 'analytic_distribution', 'account_id', 'tax_ids', 'price_subtotal'):
+            self.assertIn(line._fields[name].string, body)
+        for value in (line.product_id.display_name, line.product_uom_id.display_name,
+                      'Detailed invoice line', '10%', self.replacement_project.display_name,
+                      '100%', tax.display_name,
+                      formatLang(self.env, 450, currency_obj=invoice.currency_id)):
+            self.assertIn(value, body)
+        self.assertNotIn('Command.', body)
+        self.assertNotIn('[(0,', body)
+        before = self._logs(invoice)
+        invoice.write({'invoice_line_ids': [Command.delete(line.id)]})
+        deleted = self._logs(invoice) - before
+        self.assertEqual(len(deleted), 1)
+        self.assertEqual(unescape(str(deleted.body)), body.replace('Додано рядок:', 'Видалено рядок:', 1))
+
+    def test_multiple_line_edits_and_raw_identity(self):
+        invoice = self._create_header_invoice(headers={})
+        line = invoice.invoice_line_ids
+        before = self._logs(invoice)
+        self._edit(line, {'quantity': 7, 'name': 'Edited', 'price_unit': 123, 'blocked': True}, 'Edited')
+        messages = self._logs(invoice) - before
+        self.assertEqual(len(messages), 1)
+        body = unescape(str(messages.body))
+        for name in ('quantity', 'name', 'price_unit', 'blocked'):
+            self.assertIn(line._fields[name].string, body)
+        # Equal display names do not imply equal relation values.
+        first = self.env['account.analytic.account'].browse(self.headers['project_account_id'])
+        second = first.copy({'name': first.name})
+        invoice.write({'project_account_id': first.id})
+        before_values = snapshot(invoice, ['project_account_id'])
+        invoice.write({'project_account_id': second.id})
+        after_values = snapshot(invoice, ['project_account_id'])
+        self.assertNotEqual(before_values['project_account_id'][0], after_values['project_account_id'][0])
+        self.assertEqual(len(changes(invoice, before_values, after_values)), 1)
+
+    def test_header_fields(self):
         invoice = self._create_header_invoice(headers={})
         journal = self.env['account.journal'].create({
             'name': 'Autolog sales', 'code': 'ALOG', 'type': 'sale',
@@ -59,9 +168,9 @@ class TestInvoiceAutolog(InvoiceHeaderAnalyticsCommon):
             ('name', 'AUTOLOG/2026/0001', 'Номер'),
         ):
             with self.subTest(field=name):
-                self._edit(invoice, {name: value}, label)
+                self._edit(invoice, {name: value}, invoice._fields[name].string)
 
-    def test_line_allowlist(self):
+    def test_line_fields(self):
         invoice = self._create_header_invoice(headers={})
         line = invoice.invoice_line_ids
         account = self.company_data['default_account_revenue'].copy({'name': 'Autolog revenue'})
@@ -75,7 +184,7 @@ class TestInvoiceAutolog(InvoiceHeaderAnalyticsCommon):
             ('account_id', account.id, 'Рахунок'),
         ):
             with self.subTest(field=name):
-                self._edit(line, {name: value}, label)
+                self._edit(line, {name: value}, line._fields[name].string)
         self.assertNotIn('<script>', ''.join(self._logs(invoice).mapped('body')))
 
     def test_create_delete_and_currency(self):
@@ -88,13 +197,15 @@ class TestInvoiceAutolog(InvoiceHeaderAnalyticsCommon):
         amount = formatLang(self.env, line.price_subtotal, currency_obj=invoice.currency_id)
         created = self._logs(invoice) - before
         self.assertEqual(len(created), 1)
-        self.assertIn('Додано рядок: Послуги', unescape(str(created.body)))
+        self.assertIn('Додано рядок:', unescape(str(created.body)))
+        self.assertIn('Послуги', unescape(str(created.body)))
         self.assertIn(amount, unescape(str(created.body)))
         before = self._logs(invoice)
         line.unlink()
         deleted = self._logs(invoice) - before
         self.assertEqual(len(deleted), 1)
-        self.assertIn('Видалено рядок: Послуги', unescape(str(deleted.body)))
+        self.assertIn('Видалено рядок:', unescape(str(deleted.body)))
+        self.assertIn('Послуги', unescape(str(deleted.body)))
         self.assertIn(amount, unescape(str(deleted.body)))
 
     def test_tax_names_and_no_commands(self):
@@ -102,7 +213,7 @@ class TestInvoiceAutolog(InvoiceHeaderAnalyticsCommon):
         tax = self.company_data['default_tax_sale']
         body = self._edit(invoice.invoice_line_ids, {
             'tax_ids': [Command.set(tax.ids)],
-        }, 'Податки')
+        }, invoice.invoice_line_ids._fields['tax_ids'].string)
         self.assertIn(tax.display_name, body)
         self.assertNotIn(str(Command.set(tax.ids)), body)
         self.assertNotIn('[(6,', body)
@@ -114,9 +225,10 @@ class TestInvoiceAutolog(InvoiceHeaderAnalyticsCommon):
         before = self._logs(invoice)
         invoice.write({'project_account_id': self.replacement_project.id})
         messages = self._logs(invoice) - before
-        self.assertEqual(len(messages), 1)
-        body = unescape(str(messages.body))
-        self.assertIn('Аналітику', body)
+        self.assertEqual(len(messages), 2)
+        body = unescape(' '.join(messages.mapped('body')))
+        self.assertIn(invoice._fields['project_account_id'].string, body)
+        self.assertIn(invoice.invoice_line_ids._fields['analytic_distribution'].string, body)
         self.assertIn(self.replacement_project.display_name, body)
         self.assertNotIn(str(old), body)
         for key in old:
@@ -127,7 +239,7 @@ class TestInvoiceAutolog(InvoiceHeaderAnalyticsCommon):
         self._edit(invoice, dict.fromkeys(self.headers, False), 'Порожньо')
         self._assert_invoice_distribution(invoice, {})
         distribution = {','.join(str(value) for value in self.headers.values()): 65}
-        body = self._edit(invoice.invoice_line_ids, {'analytic_distribution': distribution}, 'Аналітику')
+        body = self._edit(invoice.invoice_line_ids, {'analytic_distribution': distribution}, invoice.invoice_line_ids._fields['analytic_distribution'].string)
         self.assertIn('65%', body)
         for account in self.env['account.analytic.account'].browse(list(self.headers.values())):
             self.assertIn(account.display_name, body)
@@ -139,7 +251,7 @@ class TestInvoiceAutolog(InvoiceHeaderAnalyticsCommon):
         before = self._logs(invoice)
         invoice.action_post()
         self.assertEqual(self._logs(invoice), before)
-        self._edit(invoice, {'project_account_id': self.replacement_project.id}, 'Аналітику')
+        self._edit(invoice, {'project_account_id': self.replacement_project.id}, invoice.invoice_line_ids._fields['analytic_distribution'].string)
         self.assertTrue(invoice.invoice_line_ids.analytic_line_ids)
         self._assert_invoice_distribution(invoice, dict(
             self.headers, project_account_id=self.replacement_project.id,
@@ -153,7 +265,7 @@ class TestInvoiceAutolog(InvoiceHeaderAnalyticsCommon):
         with self.env.protecting([line._fields['name']], line):
             line.write({'name': 'Internally computed description'})
         self.assertEqual(self._logs(invoice), before)
-        self._edit(line, {'name': 'Explicit user description'}, 'Опис')
+        self._edit(line, {'name': 'Explicit user description'}, line._fields['name'].string)
 
     def test_invoice_refund_and_receipt_scope(self):
         for move_type in ('out_invoice', 'in_invoice', 'out_refund', 'in_refund',
@@ -161,7 +273,7 @@ class TestInvoiceAutolog(InvoiceHeaderAnalyticsCommon):
             with self.subTest(move_type=move_type):
                 invoice = self._create_header_invoice(headers={}, move_type=move_type)
                 self.assertEqual(len(self._logs(invoice)), 1)
-                self._edit(invoice, {'ref': 'Scope test'}, 'Референс')
+                self._edit(invoice, {'ref': 'Scope test'}, invoice._fields['ref'].string)
 
     def test_technical_lines_and_journal_entry(self):
         invoice = self._create_header_invoice(headers={})
@@ -211,7 +323,7 @@ class TestInvoiceAutolog(InvoiceHeaderAnalyticsCommon):
         before = {move.id: self._logs(move) for move in invoices}
         invoices.write({'project_account_id': self.replacement_project.id})
         for move in invoices:
-            self.assertEqual(len(self._logs(move) - before[move.id]), 1)
+            self.assertEqual(len(self._logs(move) - before[move.id]), 2)
         invoice = invoices[0]
         before = self._logs(invoice)
         invoice.write({'invoice_line_ids': [
