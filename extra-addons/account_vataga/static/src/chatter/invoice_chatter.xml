@@ -1,0 +1,17 @@
+<templates xml:space="preserve">
+    <t t-inherit="mail.Chatter" t-inherit-mode="extension">
+        <xpath expr="//div[hasclass('o-mail-Chatter-topbar')]//span[hasclass('o-mail-Chatter-topbarGrow')]" position="before">
+            <button t-if="showInvoiceAutologToggle" type="button"
+                    class="o-mail-Chatter-invoiceAutologToggle btn text-nowrap mx-1 px-2"
+                    t-att-class="{'btn-secondary': !state.hideInvoiceAutologs,
+                                  'btn-outline-secondary': state.hideInvoiceAutologs,
+                                  'my-2': !props.compactHeight}"
+                    t-att-aria-pressed="!state.hideInvoiceAutologs"
+                    title="Автологи" aria-label="Автологи"
+                    t-on-click="toggleInvoiceAutologs">
+                <i class="fa me-1" t-att-class="state.hideInvoiceAutologs ? 'fa-toggle-off' : 'fa-toggle-on'"/>
+                <span>Автологи</span>
+            </button>
+        </xpath>
+    </t>
+</templates>
