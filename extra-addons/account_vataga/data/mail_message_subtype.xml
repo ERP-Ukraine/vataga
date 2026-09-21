@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="mt_invoice_autolog" model="mail.message.subtype">
+        <field name="name">Автологи рахунку</field>
+        <field name="res_model">account.move</field>
+        <field name="internal" eval="True"/>
+        <field name="default" eval="False"/>
+    </record>
+</odoo>
