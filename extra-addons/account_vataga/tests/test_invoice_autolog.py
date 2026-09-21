@@ -25,6 +25,45 @@ class TestInvoiceAutolog(InvoiceHeaderAnalyticsCommon):
             ('subtype_id', '=', self.subtype.id),
         ])
 
+    def test_odoo17_field_access_and_form_save(self):
+        invoice = self._create_header_invoice(headers={}, invoice_line_ids=[
+            Command.create(self._invoice_line_vals(quantity=1)),
+        ])
+        line = invoice.invoice_line_ids
+        self.assertEqual(business_fields(invoice, ['ref', 'partner_id']), ['ref', 'partner_id'])
+        self.assertEqual(business_fields(line, ['quantity', 'price_unit']), ['quantity', 'price_unit'])
+        self.assertIn('ref', business_fields(invoice))
+        self.assertIn('quantity', business_fields(line))
+        self.assertEqual(business_fields(invoice, []), [])
+        self.assertEqual(business_fields(invoice, ['missing_autolog_field']), [])
+
+        before = self._logs(invoice)
+        invoice.write({'ref': 'TEST'})
+        self.assertEqual(invoice.ref, 'TEST')
+        self.assertEqual(len(self._logs(invoice) - before), 1)
+
+        before = self._logs(invoice)
+        line.write({'quantity': 2})
+        self.assertEqual(line.quantity, 2)
+        self.assertEqual(len(self._logs(invoice) - before), 1)
+
+        before = self._logs(invoice)
+        invoice.write({'invoice_line_ids': [Command.create(self._invoice_line_vals())]})
+        self.assertEqual(len(invoice.invoice_line_ids), 2)
+        messages = self._logs(invoice) - before
+        self.assertEqual(len(messages), 1)
+        self.assertIn('Додано рядок:', str(messages.body))
+
+    def test_field_discovery_skips_group_restricted_fields(self):
+        invoice = self._create_header_invoice(headers={}).with_user(self.env.ref('base.user_admin'))
+        self.assertFalse(invoice.env.su)
+        # An explicit forbidden field list raises in Odoo 17. Autolog discovery
+        # must omit it when scanning a full model or a supplied candidate list.
+        with patch.object(invoice._fields['ref'], 'groups', 'base.group_no_one'):
+            with patch.object(type(invoice), 'user_has_groups', return_value=False):
+                self.assertNotIn('ref', business_fields(invoice))
+                self.assertEqual(business_fields(invoice, ['ref', 'partner_id']), ['partner_id'])
+
     def _edit(self, record, vals, label):
         invoice = record if record._name == 'account.move' else record.move_id
         before = self._logs(invoice)

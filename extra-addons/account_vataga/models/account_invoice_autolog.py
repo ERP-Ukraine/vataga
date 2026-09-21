@@ -47,9 +47,13 @@ One2many records need a dedicated handler; invoice lines have one below.
     excluded = COMMON_TECHNICAL_FIELDS | (
         MOVE_TECHNICAL_FIELDS if record._name == 'account.move' else LINE_TECHNICAL_FIELDS
     )
-    readable = set(record.check_field_access_rights('read'))
+    field_names = list(record._fields if names is None else names)
+    # Odoo 17 filters with None, but validates (and may reject) explicit lists.
+    accessible = set(record.check_field_access_rights('read', None))
+    field_names = [name for name in field_names if name in record._fields and name in accessible]
+    readable = set(record.check_field_access_rights('read', field_names))
     result = []
-    for name in record._fields if names is None else names:
+    for name in field_names:
         field = record._fields.get(name)
         if (not field or name in excluded or name not in readable
                 or name.startswith(('message_', 'activity_', 'access_'))
