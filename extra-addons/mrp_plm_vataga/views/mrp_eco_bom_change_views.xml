@@ -13,6 +13,7 @@
                        widget="many2one" options="{'no_create': True}"/>
                 <field name="product_id" string="Номенклатура"
                        widget="many2one" options="{'no_create': True}"/>
+                <field name="change_type" string="Тип зміни"/>
                 <field name="old_product_qty" string="Кількість було"/>
                 <field name="new_product_qty" string="Кількість стало"/>
                 <field name="eco_id" string="Заявка на зміну специфікації"

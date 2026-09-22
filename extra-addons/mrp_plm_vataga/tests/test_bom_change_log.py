@@ -62,9 +62,19 @@ class TestBomChangeLog(TransactionCase):
                 row = self._report(change)
                 self.assertEqual(row.vataga_bom_id, self.eco.bom_id)
                 self.assertEqual(row.product_id, self.component)
+                self.assertEqual(row.change_type, kind)
                 self.assertEqual((row.old_product_qty, row.new_product_qty), (old, new))
                 self.assertEqual(row.old_uom_id, self.component.uom_id)
                 self.assertEqual(row.new_uom_id, self.component.uom_id)
+
+    def test_zero_quantity_removal_visible(self):
+        change = self._change(
+            change_type='remove', old_product_qty=0, new_product_qty=0,
+        )
+        row = self._report(change)
+        self.assertEqual(row, change)
+        self.assertEqual(row.change_type, 'remove')
+        self.assertEqual((row.old_product_qty, row.new_product_qty), (0, 0))
 
     def test_unfinished_eco_visible(self):
         for state in ('progress', 'rebase'):
@@ -106,10 +116,15 @@ class TestBomChangeLog(TransactionCase):
             self.env.ref('mrp_plm_vataga.view_bom_change_log_search'),
         )
         self.assertEqual(
-            [field.get('name') for field in arch.findall('field')][:6],
-            ['write_date', 'vataga_bom_id', 'product_id',
+            [field.get('name') for field in arch.findall('field')][:7],
+            ['write_date', 'vataga_bom_id', 'product_id', 'change_type',
              'old_product_qty', 'new_product_qty', 'eco_id'],
         )
+        change_type = arch.find("field[@name='change_type']")
+        self.assertIsNotNone(change_type)
+        self.assertNotEqual(change_type.get('optional'), 'hide')
+        self.assertFalse(change_type.get('invisible'))
+        self.assertFalse(change_type.get('column_invisible'))
         for name in ('vataga_bom_id', 'product_id', 'eco_id'):
             self.assertEqual(arch.find("field[@name='%s']" % name).get('widget'), 'many2one')
         search = etree.fromstring(self.action.search_view_id.arch_db.encode())
