@@ -1,6 +1,6 @@
 # Manufacturing PLM for Vataga
 
-Version: **17.0.1.0.0**. Requires Odoo 17 `mrp` and Enterprise `mrp_plm`.
+Version: **17.0.1.1.0**. Requires Odoo 17 `mrp` and Enterprise `mrp_plm`.
 
 Menu: **Виробництво → Звітність → Журнал змін специфікацій**.
 
@@ -25,7 +25,10 @@ is needed to calculate the report.
 the date of applying the ECO**. Product, old/new quantities, and optional hidden
 old/new UoMs are standard fields displayed unchanged, with their standard
 precision. Add/remove/update semantics and component matching belong to PLM;
-this module neither converts UoMs nor calculates a BoM diff. There are no
+this module neither converts UoMs nor calculates a BoM diff. The visible standard `change_type` column explains the change, including
+removals with quantities 0 → 0. Local `i18n/uk_UA.po` entries translate the
+standard Add/Remove/Update labels to Додано/Видалено/Змінено. The deployed
+Ukrainian translation must be checked after the module upgrade. There are no
 workflow hooks, synchronization, cron jobs, or copies of change records.
 
 ## Access
@@ -51,7 +54,7 @@ locally and has not been independently executed here. The reporting parent
 `mrp_vataga/wizard/component_availability_views.xml` and is part of the standard
 [Odoo 17 Manufacturing menus](https://github.com/odoo/odoo/blob/17.0/addons/mrp/views/mrp_views_menus.xml).
 
-The seven Odoo tests cover report inclusion/exclusion, related BoM and grouping,
+The eight Odoo tests cover report inclusion/exclusion, related BoM and grouping,
 unchanged standard values for add/remove/update, unfinished ECOs, updates and
 deletions without duplication, read-only views, and absence of extra access
 grants or a journal table. They create standard change records as report

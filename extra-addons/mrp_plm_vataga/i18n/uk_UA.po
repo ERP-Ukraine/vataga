@@ -1,0 +1,25 @@
+# Translation of Odoo Server.
+# Ukrainian labels for the standard PLM change type selection.
+msgid ""
+msgstr ""
+"Project-Id-Version: Odoo Server 17.0\n"
+"Language: uk_UA\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<12 || n%100>14) ? 1 : 2);\n"
+
+#. module: mrp_plm_vataga
+#: model:ir.model.fields.selection,name:mrp_plm.selection__mrp_eco_bom_change__change_type__add
+msgid "Add"
+msgstr "Додано"
+
+#. module: mrp_plm_vataga
+#: model:ir.model.fields.selection,name:mrp_plm.selection__mrp_eco_bom_change__change_type__remove
+msgid "Remove"
+msgstr "Видалено"
+
+#. module: mrp_plm_vataga
+#: model:ir.model.fields.selection,name:mrp_plm.selection__mrp_eco_bom_change__change_type__update
+msgid "Update"
+msgstr "Змінено"
