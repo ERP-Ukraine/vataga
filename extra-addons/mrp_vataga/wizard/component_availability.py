@@ -22,6 +22,15 @@ class MrpComponentAvailability(models.TransientModel):
     )
     checked = fields.Boolean(readonly=True)
 
+    @api.depends('product_id.display_name')
+    @api.depends_context('lang')
+    def _compute_display_name(self):
+        title = _('Наявність комплектуючих')
+        for wizard in self:
+            wizard.display_name = (
+                f'{title} — {wizard.product_id.display_name}' if wizard.product_id else title
+            )
+
     def _bom_matches_product(self):
         self.ensure_one()
         return bool(
