@@ -193,19 +193,17 @@ class AccountMove(models.Model):
             for line in self.with_context(**{SKIP: True})._invoice_autolog_lines()
         }
 
-    def _invoice_autolog_diff_lines(self, before, changed_header=(), commands=()):
+    def _invoice_autolog_diff_lines(self, before, changed_header=()):
         self.ensure_one()
         after = self._invoice_autolog_line_snapshot()
-        explicit = {}
-        for command in commands:
-            if command[0] == 1:  # Command.update: preserve explicit edits even to mirrors.
-                explicit.setdefault(command[1], set()).update(command[2])
         for line_id, (label, summary, values) in before.items():
             if line_id not in after:
                 self._invoice_autolog_post('Видалено рядок: ' + summary)
             else:
                 line = self.env['account.move.line'].browse(line_id)
-                derived = line._invoice_autolog_header_mirrors(changed_header) - explicit.get(line_id, set())
+                # The web client also sends synchronized mirrors in Command.update.
+                # Compare final values, not mere presence in the command payload.
+                derived = line._invoice_autolog_header_mirrors(changed_header)
                 compared = {name: value for name, value in values.items() if name not in derived}
                 edits = changes(line, compared, after[line_id][2])
                 if edits:
@@ -250,10 +248,7 @@ class AccountMove(models.Model):
             edits = changes(move, header, after)
             if edits:
                 move._invoice_autolog_post('Змінено ' + '; '.join(edits))
-            move._invoice_autolog_diff_lines(
-                lines, changed_header,
-                list(vals.get('invoice_line_ids') or ()) + list(vals.get('line_ids') or ()),
-            )
+            move._invoice_autolog_diff_lines(lines, changed_header)
             move._invoice_autolog_discard_native(changed_header)
         return result
 
