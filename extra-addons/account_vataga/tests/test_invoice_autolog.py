@@ -9,6 +9,7 @@ from odoo.tools.misc import formatLang
 from .common import InvoiceHeaderAnalyticsCommon
 from ..controllers import mail_thread
 from ..models.account_invoice_autolog import business_fields, format_value, snapshot, changes
+from ..models.account_invoice_autolog import NATIVE_ACCOUNTING_NOISE_FIELDS, tracking_context
 
 
 @tagged('post_install', '-at_install')
@@ -42,6 +43,98 @@ class TestInvoiceAutolog(InvoiceHeaderAnalyticsCommon):
         )
         self._flush_native_tracking()
         return invoice
+
+    def _assert_no_accounting_tracking(self, invoice, before):
+        self._flush_native_tracking()
+        added = self._native_values(invoice) - before
+        self.assertFalse(set(added.field_id.mapped('name')) & NATIVE_ACCOUNTING_NOISE_FIELDS)
+
+    def test_quantity_recompute_has_no_accounting_tracking(self):
+        for with_partner in (False, True):
+            with self.subTest(with_partner=with_partner):
+                tax = self.company_data['default_tax_sale']
+                invoice = self._invoice_with_native_tracking(invoice_line_ids=[
+                    Command.create(self._invoice_line_vals(
+                        quantity=quantity, price_unit=price, tax_ids=[Command.set(tax.ids)],
+                    )) for quantity, price in ((12, 100), (25, 200))
+                ])
+                # Native line tracking runs only for moves that have been posted.
+                invoice.action_post()
+                invoice.button_draft()
+                self._flush_native_tracking()
+                self.assertTrue(invoice.posted_before)
+                technical = invoice.line_ids - invoice.invoice_line_ids
+                self.assertTrue(technical.filtered(lambda line: line.display_type == 'tax'))
+                self.assertTrue(technical.filtered(lambda line: line.display_type == 'payment_term'))
+                old_balances = {line.id: line.balance for line in technical}
+                before = self._logs(invoice)
+                native_before = self._native_values(invoice)
+                messages_before = invoice.message_ids
+                commands = [Command.update(line.id, {
+                    'quantity': quantity,
+                    **({'partner_id': self.partner_b.id} if with_partner else {}),
+                }) for line, quantity in zip(invoice.invoice_line_ids.sorted('id'), (25, 12))]
+                invoice.write({
+                    'invoice_line_ids': commands,
+                    **({'partner_id': self.partner_b.id} if with_partner else {}),
+                })
+                self._assert_no_accounting_tracking(invoice, native_before)
+                self.assertFalse((invoice.message_ids - messages_before).filtered(
+                    lambda message: 'Journal Item' in str(message.body)
+                ))
+                self.assertTrue(any(line.balance != old_balances[line.id]
+                                    for line in technical.exists()))
+                messages = self._logs(invoice) - before
+                line_messages = messages.filtered(lambda message: 'В рядку' in str(message.body))
+                self.assertEqual(len(line_messages), 2)
+                self.assertEqual(len(messages), 3 if with_partner else 2)
+                for message in line_messages:
+                    self.assertIn('Quantity:', str(message.body))
+                    self.assertNotIn('Partner:', str(message.body))
+
+    def test_direct_line_edit_suppresses_sibling_accounting_noise(self):
+        invoice = self._invoice_with_native_tracking()
+        invoice.action_post()
+        invoice.button_draft()
+        self._flush_native_tracking()
+        native_before = self._native_values(invoice)
+        custom_before = self._logs(invoice)
+        invoice.invoice_line_ids.write({'quantity': 8})
+        self._assert_no_accounting_tracking(invoice, native_before)
+        self.assertEqual(len(self._logs(invoice) - custom_before), 1)
+
+    def test_posting_preserves_status_without_accounting_noise(self):
+        invoice = self._invoice_with_native_tracking()
+        invoice.action_post()
+        invoice.button_draft()
+        self._flush_native_tracking()
+        native_before = self._native_values(invoice)
+        custom_before = self._logs(invoice)
+        invoice.action_post()
+        self._assert_no_accounting_tracking(invoice, native_before)
+        self.assertIn('state', (self._native_values(invoice) - native_before).field_id.mapped('name'))
+        self.assertEqual(self._logs(invoice), custom_before)
+
+    def test_accounting_tracking_scope_on_invoice_and_entry(self):
+        invoice = self._invoice_with_native_tracking()
+        entry = self.env['account.move'].create({'move_type': 'entry', 'line_ids': [
+            Command.create({'account_id': self.company_data['default_account_revenue'].id,
+                            'name': 'Independent journal item'}),
+        ]})
+        other_invoice = self._invoice_with_native_tracking()
+        for line in (invoice.invoice_line_ids | invoice.line_ids.filtered(
+                lambda record: record.display_type == 'payment_term') | entry.line_ids
+                | other_invoice.invoice_line_ids):
+            tracked = line.fields_get(['balance'], attributes=['string', 'type', 'currency_field'])
+            initial = {'balance': line.balance + 1}
+            # Direct hook calls test a real tracked field outside the custom scope.
+            self.assertTrue(line._mail_track(tracked, initial)[1])
+            scoped = line.with_context(**tracking_context(invoice, lines=invoice.invoice_line_ids))
+            values = scoped._mail_track(tracked, initial)[1]
+            if line.move_id == invoice:
+                self.assertFalse(values)
+            else:
+                self.assertTrue(values)
 
     def test_partner_tracking_and_header_propagation(self):
         invoice = self._invoice_with_native_tracking(invoice_line_ids=[
