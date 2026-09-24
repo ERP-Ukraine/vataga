@@ -15,6 +15,13 @@ NATIVE_FIELDS = 'account_vataga_skip_native_tracking_fields'
 NATIVE_LINE_FIELDS = 'account_vataga_skip_native_line_tracking_fields'
 NATIVE_MOVE_IDS = 'account_vataga_native_tracking_move_ids'
 NATIVE_LINE_IDS = 'account_vataga_native_tracking_line_ids'
+# Odoo 17 tracks balance, tax tags and maturity dates on journal items.
+# The other monetary components are derived too, even if an addon enables tracking.
+# This is native accounting noise, not a list of custom business fields.
+NATIVE_ACCOUNTING_NOISE_FIELDS = frozenset({
+    'balance', 'debit', 'credit', 'amount_currency',
+    'amount_residual', 'amount_residual_currency', 'tax_tag_ids', 'date_maturity',
+})
 EMPTY = 'Порожньо'
 COMMON_TECHNICAL_FIELDS = {
     'id', 'display_name', 'create_date', 'create_uid', 'write_date', 'write_uid',
@@ -254,7 +261,11 @@ class AccountMove(models.Model):
 
     def _post(self, soft=True):
         # Posting assigns sequences/dates and recomputes accounting lines internally.
-        result = super(AccountMove, self.with_context(**{SKIP: True}))._post(soft=soft)
+        invoices = self.filtered(lambda move: move.is_invoice(include_receipts=True))
+        # Only line accounting noise is muted; no header/state suppression is added.
+        result = super(AccountMove, self.with_context(**{
+            SKIP: True, NATIVE_MOVE_IDS: tuple(invoices.ids),
+        }))._post(soft=soft)
         return result.with_env(self.env)
 
 
@@ -267,9 +278,13 @@ class AccountMoveLine(models.Model):
         line = initial_values if isinstance(initial_values, models.BaseModel) else self
         move_ids = self.env.context.get(NATIVE_MOVE_IDS, ())
         line_ids = self.env.context.get(NATIVE_LINE_IDS)
-        if (line and line._invoice_autolog_eligible() and line.move_id.id in move_ids
-                and (line_ids is None or line.id in line_ids)):
-            skipped = self.env.context.get(NATIVE_LINE_FIELDS, ())
+        if (line and line.move_id.id in move_ids
+                and line.move_id.is_invoice(include_receipts=True)):
+            # Balance/tax/term recomputations affect every journal item of the
+            # invoice, including siblings outside a direct line.write recordset.
+            skipped = set(NATIVE_ACCOUNTING_NOISE_FIELDS)
+            if line._invoice_autolog_eligible() and (line_ids is None or line.id in line_ids):
+                skipped.update(self.env.context.get(NATIVE_LINE_FIELDS, ()))
             tracked_fields = {name: field for name, field in tracked_fields.items() if name not in skipped}
         return super()._mail_track(tracked_fields, initial_values)
 
