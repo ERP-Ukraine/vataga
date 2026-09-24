@@ -25,6 +25,150 @@ class TestInvoiceAutolog(InvoiceHeaderAnalyticsCommon):
             ('subtype_id', '=', self.subtype.id),
         ])
 
+    def _flush_native_tracking(self):
+        self.env.flush_all()
+        self.env.cr.precommit.run()
+
+    def _native_values(self, invoice):
+        return self.env['mail.tracking.value'].search([
+            ('mail_message_id.model', '=', 'account.move'),
+            ('mail_message_id.res_id', '=', invoice.id),
+        ])
+
+    def _invoice_with_native_tracking(self, **kwargs):
+        # Accounting test fixtures can disable tracking: explicitly exercise it.
+        invoice = self._create_header_invoice(headers={}, **kwargs).with_context(
+            tracking_disable=False, mail_notrack=False,
+        )
+        self._flush_native_tracking()
+        return invoice
+
+    def test_partner_tracking_and_header_propagation(self):
+        invoice = self._invoice_with_native_tracking(invoice_line_ids=[
+            Command.create(self._invoice_line_vals()) for _ in range(3)
+        ])
+        before = self._logs(invoice)
+        native_before = self._native_values(invoice)
+        invoice.write({'partner_id': self.partner_b.id})
+        self._flush_native_tracking()
+        messages = self._logs(invoice) - before
+        self.assertEqual(len(messages), 1)
+        self.assertIn('Змінено ', str(messages.body))
+        self.assertNotIn('В рядку', str(messages.body))
+        self.assertEqual(invoice.invoice_line_ids.partner_id, self.partner_b.commercial_partner_id)
+        self.assertNotIn('partner_id', (self._native_values(invoice) - native_before).field_id.mapped('name'))
+
+    def test_two_header_fields_no_native_duplicates(self):
+        invoice = self._invoice_with_native_tracking()
+        bank = self.env['res.partner.bank'].create({
+            'acc_number': 'AUTOLOG-RECIPIENT-BANK', 'partner_id': invoice.company_id.partner_id.id,
+        })
+        before = self._logs(invoice)
+        native_before = self._native_values(invoice)
+        # Cover precommit values already prepared by a preceding read/compute.
+        invoice._track_prepare(iter(['partner_id', 'partner_bank_id']))
+        invoice.write({'partner_id': self.partner_b.id, 'partner_bank_id': bank.id})
+        self._flush_native_tracking()
+        messages = self._logs(invoice) - before
+        self.assertEqual(len(messages), 1)
+        self.assertIn(invoice._fields['partner_id'].string, str(messages.body))
+        self.assertIn(invoice._fields['partner_bank_id'].string, str(messages.body))
+        tracked = (self._native_values(invoice) - native_before).field_id.mapped('name')
+        self.assertFalse({'partner_id', 'partner_bank_id'} & set(tracked))
+
+    def test_native_status_survives_custom_write_and_posting(self):
+        invoice = self._invoice_with_native_tracking()
+        before = self._logs(invoice)
+        native_before = self._native_values(invoice)
+        invoice.write({'ref': 'Custom change before posting'})
+        invoice.action_post()
+        self._flush_native_tracking()
+        self.assertEqual(invoice.state, 'posted')
+        self.assertEqual(len(self._logs(invoice) - before), 1)
+        tracked = (self._native_values(invoice) - native_before).field_id.mapped('name')
+        self.assertIn('state', tracked)
+        self.assertNotIn('ref', tracked)
+
+    def test_posted_line_label_has_only_custom_tracking(self):
+        invoice = self._invoice_with_native_tracking()
+        invoice.action_post()
+        self._flush_native_tracking()
+        for through_invoice in (False, True):
+            with self.subTest(through_invoice=through_invoice):
+                before = self._logs(invoice)
+                native_before = self._native_values(invoice)
+                vals = {'name': 'New invoice line label %s' % through_invoice}
+                if through_invoice:
+                    invoice.write({'invoice_line_ids': [Command.update(invoice.invoice_line_ids.id, vals)]})
+                else:
+                    invoice.invoice_line_ids.write(vals)
+                self._flush_native_tracking()
+                messages = self._logs(invoice) - before
+                self.assertEqual(len(messages), 1)
+                self.assertIn('В рядку', str(messages.body))
+                self.assertNotIn('name', (self._native_values(invoice) - native_before).field_id.mapped('name'))
+
+    def test_real_line_edits_survive_header_change(self):
+        invoice = self._invoice_with_native_tracking()
+        before = self._logs(invoice)
+        invoice.write({
+            'partner_id': self.partner_b.id,
+            'invoice_line_ids': [Command.update(invoice.invoice_line_ids.id, {
+                'quantity': 7, 'price_unit': 123,
+                'analytic_distribution': {str(self.replacement_project.id): 100},
+            })],
+        })
+        self._flush_native_tracking()
+        messages = self._logs(invoice) - before
+        self.assertEqual(len(messages), 2)
+        line_message = messages.filtered(lambda message: 'В рядку' in str(message.body))
+        self.assertEqual(len(line_message), 1)
+        for name in ('quantity', 'price_unit', 'analytic_distribution'):
+            self.assertIn(invoice.invoice_line_ids._fields[name].string, str(line_message.body))
+        self.assertNotIn('Partner:', str(line_message.body))
+
+    def test_explicit_line_partner_edit_is_not_hidden(self):
+        invoice = self._invoice_with_native_tracking()
+        before = self._logs(invoice)
+        invoice.write({
+            'partner_id': self.partner_b.id,
+            'invoice_line_ids': [Command.update(invoice.invoice_line_ids.id, {
+                'partner_id': self.partner_b.commercial_partner_id.id,
+            })],
+        })
+        messages = self._logs(invoice) - before
+        self.assertEqual(len(messages), 2)
+        self.assertTrue(messages.filtered(lambda message: 'В рядку' in str(message.body)))
+
+    def test_currency_and_related_header_mirrors(self):
+        invoice = self._invoice_with_native_tracking()
+        line = invoice.invoice_line_ids
+        mirrors = line._invoice_autolog_header_mirrors({'partner_id', 'currency_id', 'date', 'invoice_date', 'ref'})
+        self.assertTrue({'partner_id', 'currency_id'} <= mirrors)
+        for name in ('date', 'invoice_date', 'ref'):
+            # Odoo 17 declares these as readonly related fields: already excluded.
+            self.assertTrue(name not in business_fields(line) or name in mirrors)
+        self.assertNotIn('analytic_distribution', line._invoice_autolog_header_mirrors(self.headers))
+        currency = self.env['res.currency'].with_context(active_test=False).search([
+            ('id', '!=', invoice.currency_id.id),
+        ], limit=1)
+        currency.active = True
+        before = self._logs(invoice)
+        invoice.write({'currency_id': currency.id})
+        self.assertEqual(len(self._logs(invoice) - before), 1)
+
+    def test_journal_entry_native_tracking_is_untouched(self):
+        invoice = self._invoice_with_native_tracking()
+        entry = self.env['account.move'].create({'move_type': 'entry'}).with_context(
+            tracking_disable=False, mail_notrack=False,
+        )
+        self._flush_native_tracking()
+        native_before = self._native_values(entry)
+        (invoice | entry).write({'ref': 'Mixed batch'})
+        self._flush_native_tracking()
+        self.assertIn('ref', (self._native_values(entry) - native_before).field_id.mapped('name'))
+        self.assertFalse(self._logs(entry))
+
     def test_odoo17_field_access_and_form_save(self):
         invoice = self._create_header_invoice(headers={}, invoice_line_ids=[
             Command.create(self._invoice_line_vals(quantity=1)),
