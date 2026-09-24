@@ -114,6 +114,7 @@ class TestInvoiceAutolog(InvoiceHeaderAnalyticsCommon):
         invoice.write({
             'partner_id': self.partner_b.id,
             'invoice_line_ids': [Command.update(invoice.invoice_line_ids.id, {
+                'partner_id': self.partner_b.commercial_partner_id.id,
                 'quantity': 7, 'price_unit': 123,
                 'analytic_distribution': {str(self.replacement_project.id): 100},
             })],
@@ -127,18 +128,63 @@ class TestInvoiceAutolog(InvoiceHeaderAnalyticsCommon):
             self.assertIn(invoice.invoice_line_ids._fields[name].string, str(line_message.body))
         self.assertNotIn('Partner:', str(line_message.body))
 
-    def test_explicit_line_partner_edit_is_not_hidden(self):
-        invoice = self._invoice_with_native_tracking()
+    def test_web_payload_partner_only_creates_header_message(self):
+        invoice = self._invoice_with_native_tracking(invoice_line_ids=[
+            Command.create(self._invoice_line_vals()) for _ in range(3)
+        ])
         before = self._logs(invoice)
         invoice.write({
             'partner_id': self.partner_b.id,
-            'invoice_line_ids': [Command.update(invoice.invoice_line_ids.id, {
+            'invoice_line_ids': [Command.update(line.id, {
                 'partner_id': self.partner_b.commercial_partner_id.id,
-            })],
+            }) for line in invoice.invoice_line_ids],
         })
+        self._flush_native_tracking()
         messages = self._logs(invoice) - before
-        self.assertEqual(len(messages), 2)
-        self.assertTrue(messages.filtered(lambda message: 'В рядку' in str(message.body)))
+        self.assertEqual(len(messages), 1)
+        self.assertIn(invoice._fields['partner_id'].string, str(messages.body))
+        self.assertNotIn('В рядку', str(messages.body))
+
+    def test_web_payload_partner_and_two_line_quantities(self):
+        invoice = self._invoice_with_native_tracking(invoice_line_ids=[
+            Command.create(self._invoice_line_vals(quantity=23)),
+            Command.create(self._invoice_line_vals(quantity=15)),
+        ])
+        first, second = invoice.invoice_line_ids.sorted('id')
+        before = self._logs(invoice)
+        invoice.write({
+            'partner_id': self.partner_b.id,
+            'invoice_line_ids': [
+                Command.update(first.id, {
+                    'partner_id': self.partner_b.commercial_partner_id.id, 'quantity': 12,
+                }),
+                Command.update(second.id, {
+                    'partner_id': self.partner_b.commercial_partner_id.id, 'quantity': 25,
+                }),
+            ],
+        })
+        self._flush_native_tracking()
+        messages = self._logs(invoice) - before
+        line_messages = messages.filtered(lambda message: 'В рядку' in str(message.body))
+        self.assertEqual(len(messages), 3)
+        self.assertEqual(len(line_messages), 2)
+        self.assertIn(invoice._fields['partner_id'].string, str((messages - line_messages).body))
+        for message in line_messages:
+            self.assertIn(first._fields['quantity'].string, str(message.body))
+            self.assertNotIn(first._fields['partner_id'].string + ':', str(message.body))
+        self.assertEqual(first.quantity, 12)
+        self.assertEqual(second.quantity, 25)
+
+    def test_line_partner_without_header_change_remains_logged(self):
+        invoice = self._invoice_with_native_tracking()
+        before = self._logs(invoice)
+        invoice.write({'invoice_line_ids': [Command.update(invoice.invoice_line_ids.id, {
+            'partner_id': self.partner_b.commercial_partner_id.id,
+        })]})
+        messages = self._logs(invoice) - before
+        self.assertEqual(len(messages), 1)
+        self.assertIn('В рядку', str(messages.body))
+        self.assertIn(invoice.invoice_line_ids._fields['partner_id'].string, str(messages.body))
 
     def test_currency_and_related_header_mirrors(self):
         invoice = self._invoice_with_native_tracking()
@@ -154,8 +200,15 @@ class TestInvoiceAutolog(InvoiceHeaderAnalyticsCommon):
         ], limit=1)
         currency.active = True
         before = self._logs(invoice)
-        invoice.write({'currency_id': currency.id})
-        self.assertEqual(len(self._logs(invoice) - before), 1)
+        invoice.write({
+            'currency_id': currency.id,
+            'invoice_line_ids': [Command.update(line.id, {'currency_id': currency.id})],
+        })
+        self._flush_native_tracking()
+        messages = self._logs(invoice) - before
+        self.assertEqual(len(messages), 1)
+        self.assertIn(invoice._fields['currency_id'].string, str(messages.body))
+        self.assertNotIn('В рядку', str(messages.body))
 
     def test_journal_entry_native_tracking_is_untouched(self):
         invoice = self._invoice_with_native_tracking()
