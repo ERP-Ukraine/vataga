@@ -11,6 +11,10 @@ from odoo.tools.misc import formatLang, format_datetime
 
 
 SKIP = 'account_vataga_skip_invoice_autologs'
+NATIVE_FIELDS = 'account_vataga_skip_native_tracking_fields'
+NATIVE_LINE_FIELDS = 'account_vataga_skip_native_line_tracking_fields'
+NATIVE_MOVE_IDS = 'account_vataga_native_tracking_move_ids'
+NATIVE_LINE_IDS = 'account_vataga_native_tracking_line_ids'
 EMPTY = 'Порожньо'
 COMMON_TECHNICAL_FIELDS = {
     'id', 'display_name', 'create_date', 'create_uid', 'write_date', 'write_uid',
@@ -137,8 +141,38 @@ def explicit_edit(record, vals, names):
                for name in names)
 
 
+def tracking_context(moves, names=(), lines=None):
+    """Scope native suppression to records whose custom audit owns this operation."""
+    return {
+        SKIP: True,
+        NATIVE_FIELDS: tuple(names),
+        NATIVE_LINE_FIELDS: tuple(business_fields(moves.env['account.move.line'])),
+        NATIVE_MOVE_IDS: tuple(moves.ids),
+        NATIVE_LINE_IDS: tuple(lines.ids) if lines is not None else None,
+    }
+
+
 class AccountMove(models.Model):
     _inherit = 'account.move'
+
+    def _track_prepare(self, fields_iter):
+        names = tuple(fields_iter)  # mail.thread also passes generators.
+        skipped = set(self.env.context.get(NATIVE_FIELDS, ()))
+        covered_ids = self.env.context.get(NATIVE_MOVE_IDS, ())
+        if not skipped or not covered_ids:
+            return super()._track_prepare(names)
+        for move in self:
+            fields_to_track = [name for name in names if name not in skipped] if move.id in covered_ids else names
+            super(AccountMove, move)._track_prepare(fields_to_track)
+
+    def _invoice_autolog_discard_native(self, changed_names):
+        # A read/compute may have prepared these values before the scoped write.
+        # Finalize consumes this map at precommit; retain state and every other field.
+        pending = self.env.cr.precommit.data.get('mail.tracking.account.move', {})
+        values = pending.get(self.id)
+        if values:
+            for name in changed_names:
+                values.pop(name, None)
 
     def _invoice_autolog_post(self, body):
         self.ensure_one()
@@ -159,14 +193,21 @@ class AccountMove(models.Model):
             for line in self.with_context(**{SKIP: True})._invoice_autolog_lines()
         }
 
-    def _invoice_autolog_diff_lines(self, before):
+    def _invoice_autolog_diff_lines(self, before, changed_header=(), commands=()):
         self.ensure_one()
         after = self._invoice_autolog_line_snapshot()
+        explicit = {}
+        for command in commands:
+            if command[0] == 1:  # Command.update: preserve explicit edits even to mirrors.
+                explicit.setdefault(command[1], set()).update(command[2])
         for line_id, (label, summary, values) in before.items():
             if line_id not in after:
                 self._invoice_autolog_post('Видалено рядок: ' + summary)
             else:
-                edits = changes(self.env['account.move.line'], values, after[line_id][2])
+                line = self.env['account.move.line'].browse(line_id)
+                derived = line._invoice_autolog_header_mirrors(changed_header) - explicit.get(line_id, set())
+                compared = {name: value for name, value in values.items() if name not in derived}
+                edits = changes(line, compared, after[line_id][2])
                 if edits:
                     self._invoice_autolog_post(
                         'В рядку %s змінено: %s' % (label, '; '.join(edits))
@@ -198,14 +239,22 @@ class AccountMove(models.Model):
                                  and explicit_edit(m, vals, triggers))
         if not invoices:
             return super().write(vals)
-        before = {m.id: (snapshot(m, names), m._invoice_autolog_line_snapshot()) for m in invoices}
-        result = super(AccountMove, self.with_context(**{SKIP: True})).write(vals)
+        context = tracking_context(invoices, names)
+        before = {m.id: (snapshot(m, names), m._invoice_autolog_line_snapshot())
+                  for m in invoices.with_context(**context)}
+        result = super(AccountMove, self.with_context(**context)).write(vals)
         for move in invoices:
             header, lines = before[move.id]
-            edits = changes(move, header, snapshot(move, names))
+            after = snapshot(move.with_context(**context), names)
+            changed_header = {name for name in header if header[name][0] != after[name][0]}
+            edits = changes(move, header, after)
             if edits:
                 move._invoice_autolog_post('Змінено ' + '; '.join(edits))
-            move._invoice_autolog_diff_lines(lines)
+            move._invoice_autolog_diff_lines(
+                lines, changed_header,
+                list(vals.get('invoice_line_ids') or ()) + list(vals.get('line_ids') or ()),
+            )
+            move._invoice_autolog_discard_native(changed_header)
         return result
 
     def _post(self, soft=True):
@@ -216,6 +265,36 @@ class AccountMove(models.Model):
 
 class AccountMoveLine(models.Model):
     _inherit = 'account.move.line'
+
+    def _mail_track(self, tracked_fields, initial_values):
+        # account.move.line uses immediate _mail_track, not mail.thread precommit.
+        # On unlink Odoo calls it on an empty line with the deleted record as initial_values.
+        line = initial_values if isinstance(initial_values, models.BaseModel) else self
+        move_ids = self.env.context.get(NATIVE_MOVE_IDS, ())
+        line_ids = self.env.context.get(NATIVE_LINE_IDS)
+        if (line and line._invoice_autolog_eligible() and line.move_id.id in move_ids
+                and (line_ids is None or line.id in line_ids)):
+            skipped = self.env.context.get(NATIVE_LINE_FIELDS, ())
+            tracked_fields = {name: field for name, field in tracked_fields.items() if name not in skipped}
+        return super()._mail_track(tracked_fields, initial_values)
+
+    def _invoice_autolog_header_mirrors(self, changed_header):
+        """Only literal header mirrors, never product/tax/account/analytic computations."""
+        mirrors = set()
+        if not changed_header:
+            return mirrors
+        for name in business_fields(self):
+            field = self._fields[name]
+            related = field.related.split('.') if isinstance(field.related, str) else field.related
+            if related and len(related) == 2 and related[0] == 'move_id' and related[1] in changed_header:
+                if self[name] == self.move_id[related[1]]:
+                    mirrors.add(name)
+        # Odoo 17 computes these two mirrors rather than declaring related fields.
+        if 'partner_id' in changed_header and self.partner_id == self.move_id.partner_id.commercial_partner_id:
+            mirrors.add('partner_id')
+        if 'currency_id' in changed_header and self.currency_id == self.move_id.currency_id:
+            mirrors.add('currency_id')
+        return mirrors
 
     def _invoice_autolog_eligible(self):
         return self.filtered(lambda line: line.move_id.is_invoice(include_receipts=True)
@@ -248,7 +327,11 @@ class AccountMoveLine(models.Model):
     def create(self, vals_list):
         if self.env.context.get(SKIP):
             return super().create(vals_list)
-        lines = super(AccountMoveLine, self.with_context(**{SKIP: True})).create(vals_list)
+        moves = self.env['account.move'].browse({
+            vals.get('move_id') or self.env.context.get('default_move_id')
+            for vals in vals_list
+        } - {None, False})
+        lines = super(AccountMoveLine, self.with_context(**tracking_context(moves))).create(vals_list)
         lines = lines.with_env(self.env)
         for line in lines._invoice_autolog_eligible():
             line.move_id._invoice_autolog_post('Додано рядок: ' + line._invoice_autolog_snapshot()[1])
@@ -266,7 +349,7 @@ class AccountMoveLine(models.Model):
         if not lines:
             return super().write(vals)
         before = {line.id: snapshot(line) for line in lines}
-        result = super(AccountMoveLine, self.with_context(**{SKIP: True})).write(vals)
+        result = super(AccountMoveLine, self.with_context(**tracking_context(lines.move_id, lines=lines))).write(vals)
         for line in lines._invoice_autolog_eligible():
             edits = changes(line, before[line.id], snapshot(line))
             if edits:
@@ -280,7 +363,8 @@ class AccountMoveLine(models.Model):
             return super().unlink()
         messages = [(line.move_id, 'Видалено рядок: ' + line._invoice_autolog_snapshot()[1])
                     for line in self._invoice_autolog_eligible()]
-        result = super(AccountMoveLine, self.with_context(**{SKIP: True})).unlink()
+        lines = self._invoice_autolog_eligible()
+        result = super(AccountMoveLine, self.with_context(**tracking_context(lines.move_id, lines=lines))).unlink()
         for move, body in messages:
             if move.exists():
                 move._invoice_autolog_post(body)
