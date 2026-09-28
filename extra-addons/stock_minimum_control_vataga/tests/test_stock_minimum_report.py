@@ -1,4 +1,6 @@
 from unittest.mock import patch
+from io import BytesIO
+from zipfile import ZipFile
 
 from lxml import etree
 
@@ -75,6 +77,53 @@ class TestStockMinimumReport(TransactionCase):
     def test_defaults(self):
         self.assertFalse(self.warehouse.minimum_stock_control)
         self.assertEqual(self.other.product_tmpl_id.minimum_stock_qty, 0.0)
+
+    def test_search_domain_and_filtered_totals(self):
+        self.warehouse.minimum_stock_control = True
+        category_b = self.env['product.category'].create({'name': 'Minimum category B'})
+        self.other.write({'minimum_stock_qty': 200, 'categ_id': category_b.id})
+        both_ids = (self.product | self.other).ids
+        all_data = self.report.get_report(domain=[('id', 'in', both_ids)])
+        key = 'w%s' % self.warehouse.id
+        self.assertEqual(all_data['totals'][key][0], 18)
+        for domain in (
+            [('categ_id', '=', self.category.id)],
+            ['|', ('name', 'ilike', 'MIN-A'), ('default_code', 'ilike', 'MIN-A')],
+            ['|', ('name', 'ilike', self.product.name), ('default_code', 'ilike', self.product.name)],
+        ):
+            data = self.report.get_report(domain=domain, expanded_categories=self.category.ids)
+            self.assertEqual(list(data['products']), self.product.ids)
+            self.assertEqual([c['id'] for c in data['categories']], self.category.ids)
+            self.assertEqual(data['totals'][key][0], 13)
+            self.assertEqual(data['categories'][0]['values'][key][0], 13)
+        data = self.report.get_report(domain=[('categ_id', '=', category_b.id)])
+        self.assertEqual(data['totals'][key][0], 5)
+        self.other.minimum_stock_qty = 0
+        for domain in ([('id', '=', self.other.id)], ['|', ('minimum_stock_qty', '=', 0), ('id', 'in', both_ids)]):
+            data = self.report.get_report(domain=domain, expanded_categories=category_b.ids)
+            self.assertNotIn(self.other.id, data['products'])
+            self.assertNotIn(category_b.id, [c['id'] for c in data['categories']])
+
+    def test_export_xlsx_filters_measures_and_access(self):
+        self.warehouse.minimum_stock_control = True
+        self.product.name = '=FORMULA()'
+        content = self.report._export_xlsx({
+            'domain': [('id', '=', self.product.id)], 'measures': ['qty_available'],
+            'total_expanded': True, 'expanded_categories': self.category.ids,
+            'expanded_warehouses': self.warehouse.ids,
+        })
+        with ZipFile(BytesIO(content)) as archive:
+            strings = archive.read('xl/sharedStrings.xml').decode()
+            sheet = etree.fromstring(archive.read('xl/worksheets/sheet1.xml'))
+            self.assertIn('=FORMULA()', strings)
+            self.assertIn('В наявності', strings)
+            self.assertNotIn('Прогнозовано', strings)
+            self.assertNotIn('Доступно', strings)
+            self.assertFalse(sheet.xpath('//*[local-name()="f"]'))
+            self.assertEqual(len(sheet.xpath('//*[local-name()="row"]')), 4)
+        outsider = new_test_user(self.env, login='minimum_export_no_stock', groups='base.group_user')
+        with self.assertRaises(AccessError):
+            self.report.with_user(outsider)._export_xlsx({})
 
     def test_minimum_validation(self):
         for value in (0, 10, 10.5):
@@ -268,6 +317,13 @@ class TestStockMinimumReport(TransactionCase):
         # Having access to both companies must not force both into the active report.
         one = self.report.get_report()
         self.assertEqual([w['id'] for w in one['warehouses']], self.warehouse.ids)
+        foreign_product = self.env['product.product'].create({
+            'name': 'Foreign minimum', 'detailed_type': 'product',
+            'minimum_stock_qty': 10, 'company_id': company.id,
+        })
+        filtered = self.report.get_report(domain=[('id', '=', foreign_product.id)])
+        self.assertEqual(filtered['count'], 0)
+        self.assertEqual([w['id'] for w in filtered['warehouses']], self.warehouse.ids)
 
     def test_report_access_is_read_only(self):
         for operation in ('write', 'create', 'unlink'):

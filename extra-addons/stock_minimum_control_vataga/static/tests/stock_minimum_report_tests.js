@@ -3,6 +3,9 @@
 import { stockMinimumClass } from "@stock_minimum_control_vataga/stock_minimum_colors";
 import { StockMinimumReport } from "@stock_minimum_control_vataga/stock_minimum_report";
 import { makeTestEnv } from "@web/../tests/helpers/mock_env";
+import { registry } from "@web/core/registry";
+import { uiService } from "@web/core/ui/ui_service";
+import { hotkeyService } from "@web/core/hotkeys/hotkey_service";
 import { click, getFixture, mount, nextTick } from "@web/../tests/helpers/utils";
 
 QUnit.module("stock_minimum_control_vataga");
@@ -32,10 +35,13 @@ QUnit.test("only product on-hand cells are colored", (assert) => {
     }
 });
 
-async function makeReportEnv() {
+async function makeReportEnv(onReport = () => {}) {
+    registry.category("services").add("ui", uiService);
+    registry.category("services").add("hotkey", hotkeyService);
     return makeTestEnv({
         mockRPC(route, args) {
             if (args.method === "get_report") {
+                onReport(args.kwargs);
                 const expanded = args.kwargs.expanded_warehouses.includes(1);
                 const values = expanded ? { l2: [4, 4, 4], l3: [8, 8, 8] } : { w1: [12, 12, 12] };
                 return {
@@ -70,6 +76,60 @@ QUnit.test("rows expand and locations replace warehouse without duplicate totals
     await click(target, "thead button");
     assert.containsN(target, "tbody tr:last-child .o_pivot_cell_value", 3);
     assert.containsOnce(target, "td.o_stock_minimum_control_green");
+});
+
+QUnit.test("standard measures dropdown controls columns, colors and saved widths", async (assert) => {
+    const env = await makeReportEnv();
+    const target = getFixture();
+    const report = await mount(StockMinimumReport, target, { env });
+    await click(target, ".o_pivot_buttons .dropdown-toggle");
+    assert.deepEqual([...target.querySelectorAll('.dropdown-item')].map((el) => el.textContent.trim()),
+        ["В наявності", "Доступно", "Прогнозовано"]);
+    assert.containsN(target, '.dropdown-item.selected', 3);
+    await drag(target, 'w1:free_qty', 50);
+    report.onMeasureSelected({ measure: 'free_qty' });
+    await nextTick();
+    assert.containsNone(target, '[data-column-key="w1:free_qty"]');
+    assert.strictEqual(target.querySelector('thead th[colspan]').colSpan, 2);
+    assert.containsN(target, 'col', 4);
+    report.onMeasureSelected({ measure: 'free_qty' });
+    await nextTick();
+    assert.strictEqual(report.columnWidth('w1:free_qty'), 170);
+    await report.expandAll();
+    report.onMeasureSelected({ measure: 'qty_available' });
+    await nextTick();
+    assert.containsNone(target, 'td.o_stock_minimum_control_red');
+    assert.containsN(target, 'tbody tr:last-child .o_pivot_cell_value', 4);
+    report.onMeasureSelected({ measure: 'qty_available' });
+    await nextTick();
+    assert.containsN(target, 'td.o_stock_minimum_control_red', 2);
+    for (const measure of Object.keys(report.measures)) report.onMeasureSelected({ measure });
+    await nextTick();
+    assert.containsN(target, 'col', 2, 'minimum remains with no measures');
+    assert.containsNone(target, '.o_pivot_cell_value');
+    assert.containsNone(target, 'th[colspan="0"]');
+});
+
+QUnit.test("search domain and expand all use one batched reload and preserve layout", async (assert) => {
+    const calls = [];
+    const env = await makeReportEnv((kwargs) => calls.push(kwargs));
+    const target = getFixture();
+    const domain = [['categ_id', '=', 5]];
+    const report = await mount(StockMinimumReport, target, { env, props: { domain } });
+    assert.deepEqual(calls[0].domain, domain);
+    await drag(target, 'product', 50);
+    calls.length = 0;
+    await report.expandAll();
+    assert.strictEqual(calls.length, 1);
+    assert.deepEqual(calls[0].expanded_categories, [5]);
+    assert.deepEqual(calls[0].expanded_warehouses, [1]);
+    assert.strictEqual(report.state.totalExpanded, true);
+    report.domain = [['default_code', 'ilike', 'A']];
+    await report.load();
+    await nextTick();
+    assert.deepEqual(calls[1].domain, report.domain);
+    assert.strictEqual(report.columnWidth('product'), 330);
+    assert.strictEqual(getComputedStyle(target.querySelector('.o_smc_minimum')).left, '330px');
 });
 
 async function drag(target, key, delta) {

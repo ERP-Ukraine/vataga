@@ -1,6 +1,6 @@
 # Контроль мінімальних залишків — Odoo 17
 
-Version: `17.0.1.0.4`. Dependency: `stock` (which already depends on `web` and `product`).
+Version: `17.0.1.0.5`. Dependency: `stock` (which already depends on `web` and `product`).
 Install the addon and open **Склад → Звітність → Контроль залишків**.
 
 The minimum settings block is a full-width section after Traceability and
@@ -41,7 +41,54 @@ The table area follows `web.PivotRenderer` / `web.PivotHeader`: standard
 `table-hover table-sm table-bordered table-borderless`, `bg-view` / `bg-100`,
 measure/header hover classes, `o_value` numeric cells and 5 + 30px-per-level row
 indentation. Compact native buttons retain keyboard access while inheriting
-pivot typography/padding. The control panel is unchanged.
+pivot typography/padding.
+
+### Standard search and report actions
+
+The existing `ir.actions.client` is retained. Its wrapper uses Odoo 17
+`WithSearch` / `SearchModel`, a server search view on `product.product`, `Layout`,
+`SearchBar`, the responsive search toggler and `CogMenu`. No search controls or
+Favorites storage are reimplemented. Search fields are product name/code (OR)
+and category; standard custom Filters and Favorites are available. Group By is
+hidden because category → variant is a fixed hierarchy. Favorites are scoped to
+this action; default Favorites are loaded before the first report RPC.
+
+`get_report(domain=...)` ANDs the SearchModel domain with mandatory storable
+product, positive minimum and active-company restrictions. Record rules still
+apply. The old optional `search` argument remains compatible and is also ANDed.
+Domain changes reset pagination and recalculate totals; stale overlapping RPC
+responses cannot replace newer results. Quantity computations are unchanged.
+
+`web.ReportViewMeasures` supplies the actual standard Dropdown/DropdownItem UI.
+Only on-hand, free and forecast measures are selectable; all start enabled.
+Disabling a measure removes its leaf columns and updates colgroup, group colspans
+and total width. Stable measure keys retain widths when re-enabled. Product and
+minimum remain visible even when every measure is disabled; color stays attached
+only to on-hand, never to a measure's current visible index.
+
+Expand all updates total/category/warehouse expansion state together and makes
+one report RPC. It retains category pagination (80 products per category).
+Refresh is a secondary icon. XLSX uses standard `download`, an authenticated
+CSRF-protected controller and Odoo's `xlsxwriter`. The server recomputes the same
+domain/scopes with the user's rights and selected companies. Export matches the
+current expanded hierarchy and current page of each category, not every hidden
+product; category/overall totals still include every matching product. Minimum
+aggregate cells remain blank, numeric cells are numeric, and product names are
+written as literal text. Select the wanted measures/pages before downloading.
+
+Flip Axis is intentionally absent: transposition would require moving the
+product-specific fixed minimum into a different axis and redesigning the report.
+There is no decorative spreadsheet insertion button. The repository Dockerfile
+references `erpukraine/odoo-ee-erpu:17.0-latest`; that image's Enterprise source is
+not checked in, and the local Docker engine is unavailable. The exact production
+insertion provider/API therefore cannot be verified. Available Community source
+`spreadsheet/static/src/pivot/pivot_data_source.js` instantiates
+`SpreadsheetPivotModel`, which extends standard `PivotModel` and its read_group
+contract. This RPC report does not implement that contract: context-dependent
+warehouse quantities and exact locations replace one another, and minimum is
+outside the measure axis. A correct live spreadsheet integration needs a dedicated
+data-source/model adapter plus the actual Enterprise insertion flow. Guessing an
+addon dependency or passing this RPC to the normal pivot source would be incorrect.
 
 Column resizing follows Demand's `.o_resize` pointer-drag affordance, with local
 `o_resizing` / `o_column_resizing` feedback. Only product, minimum and leaf measures
@@ -179,8 +226,8 @@ QUnit: `/web/tests?mod=stock_minimum_control_vataga&filter=stock_minimum_control
 Validated on 2026-09-28 in an isolated upstream Odoo 17 / Python 3.12 /
 PostgreSQL 18 database:
 
-- Fresh installation and upgrade succeeded; 17 backend test methods passed
-  again with `17.0.1.0.4`, including filtering, compiled
+- Fresh installation and upgrade succeeded; 19 backend test methods passed
+  with `17.0.1.0.5`, including domain filtering/totals, XLSX/access, compiled
   section order in both forms and delegated variant edits.
 - Browser verification of the view fix: Inventory → Products template form and
   the stock Product Variants action both show the full-width block after
@@ -188,8 +235,16 @@ PostgreSQL 18 database:
   `-0.5` raises the Ukrainian
   validation error. Backend form tests also verify shared sibling-variant minima
   and their use in the existing report.
-- Headless Edge / Odoo QUnit: all 5 tests / 61 assertions passed against the real
-  Odoo asset bundles, including resize and existing color/hierarchy coverage.
+- Headless Edge / Odoo QUnit: all 7 tests / 81 assertions passed against the real
+  Odoo asset bundles, including measures, domain forwarding, batched expand all,
+  resize and existing color/hierarchy coverage.
+- Version `17.0.1.0.5` browser acceptance: category autocomplete/facet, name/code
+  search, filtered totals, saved default Favorite after reopening, measure toggle
+  and colors, real downloaded XLSX contents, facet removal, resize/sticky/scroll.
+  Side-by-side standard PivotController with the original Demand renderer on a
+  test product model and the real report: both SearchBars measured 422.109px ×
+  35px at the same vertical offset in equal-width panes. This validates frontend
+  components, not the unavailable full production Demand/Enterprise application.
 - Version `17.0.1.0.4` browser acceptance: three collapsed warehouses, expanded
   warehouse with several locations, long product/location names, actual pointer
   drag, horizontal scrolling, dynamic sticky adjacency and width persistence on
