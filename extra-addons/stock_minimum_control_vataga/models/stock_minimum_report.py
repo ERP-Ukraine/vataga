@@ -37,6 +37,7 @@ class StockMinimumReport(models.AbstractModel):
         ], order='complete_name, id') if warehouses else self.env['stock.location']
         domain = [
             ('detailed_type', '=', 'product'),
+            ('minimum_stock_qty', '>', 0),
             ('company_id', 'in', [False] + company_ids),
         ]
         if search:

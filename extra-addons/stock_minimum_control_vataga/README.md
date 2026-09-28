@@ -1,6 +1,6 @@
 # Контроль мінімальних залишків — Odoo 17
 
-Version: `17.0.1.0.2`. Dependency: `stock` (which already depends on `web` and `product`).
+Version: `17.0.1.0.3`. Dependency: `stock` (which already depends on `web` and `product`).
 Install the addon and open **Склад → Звітність → Контроль залишків**.
 
 The minimum settings block is a full-width section after Traceability and
@@ -44,7 +44,8 @@ image is not locally running):
 - `addons/stock/views/product_views.xml`: `stock.action_product_stock_view`,
   `stock.product_product_stock_tree` show `qty_available`, `free_qty`,
   `virtual_available`. The standard action selects storable product variants;
-  this report uses the same product type, including zero minima and zero stock.
+  this report uses the same product type and additionally requires
+  `minimum_stock_qty > 0`. Zero stock remains eligible for configured products.
 - `addons/stock/models/product.py`: `_compute_quantities` delegates to
   `_compute_quantities_dict`, which groups quants, reservations and pending moves
   and applies each product's UoM rounding. This addon calls that batch method;
@@ -56,6 +57,13 @@ image is not locally running):
   `product.product_template_form_view`, containing page `inventory`).
 
 ## Quantities, scope and performance
+
+Only products with a positive template minimum participate. The delegated-field
+ORM domain `('minimum_stock_qty', '>', 0)` is applied in `get_report()` before
+grouping, counts, pagination and quantity computation. Zero means control is not
+configured: those products and categories containing only those products are
+absent, including from name/code search and all totals. All storable variants of
+a configured template participate; setting its minimum to zero excludes them all.
 
 Collapsed warehouse: standard `warehouse=<id>` quantity context. Expanded
 warehouse: only internal locations in its view-location hierarchy, each with
@@ -108,7 +116,8 @@ All new UI source strings are Ukrainian; no existing translations are modified.
    MH on-hand `120` green, GL2 `6` red. B: `10.5` yellow. Only on-hand cells are
    colored; minimum/free/forecast and aggregate cells are not.
 4. Check A with on-hand `99.9 / 100 / 105 / 110 / 110.1`: red/yellow/yellow/yellow/
-   green. With minimum `0`, negative/zero/positive stock is red/yellow/green.
+   green. Set minimum to `0`: the product disappears from rows, search and totals.
+   Color classification itself is unchanged.
 5. Put `90` directly in MH/Stock and `30` in MH/Stock/Components. Expand MH:
    exact columns show `90` and `30`, not `120` and `30`; collapsing shows `120`.
    Verify pending receipts/deliveries and reservations against **Запаси** with
@@ -126,7 +135,8 @@ All new UI source strings are Ukrainian; no existing translations are modified.
 Backend: `tests/test_stock_minimum_report.py` covers defaults, non-negative
 fractional minima on create/write, enabled warehouses, field-equivalent warehouse
 and strict-location quantities, reservations/forecast/internal transfers,
-location usages, categories, zero minima, variants, company isolation including
+location usages, categories, exclusion of zero minima before stock computation,
+filtered search/counts/pagination, variants, company isolation including
 forged company context, report ACLs, pagination, batching and inherited views.
 
 Frontend: `static/tests/stock_minimum_report_tests.js` covers inclusive color
@@ -146,9 +156,9 @@ QUnit: `/web/tests?mod=stock_minimum_control_vataga&filter=stock_minimum_control
 Validated on 2026-09-28 in an isolated upstream Odoo 17 / Python 3.12 /
 PostgreSQL 18 database:
 
-- Fresh installation and upgrade succeeded; 15 backend test methods passed
-  after the `17.0.1.0.2` layout fix, including compiled section order in both forms
-  and delegated variant edits.
+- Fresh installation and upgrade succeeded; 17 backend test methods passed
+  after the `17.0.1.0.3` product-domain change, including filtering, compiled
+  section order in both forms and delegated variant edits.
 - Browser verification of the view fix: Inventory → Products template form and
   the stock Product Variants action both show the full-width block after
   Traceability and before Packaging. Values `100` and `10.5` survive save/reopen;
@@ -161,7 +171,8 @@ PostgreSQL 18 database:
   keeps the minimum column fixed.
 - Python compilation, XML parsing, manifest/dependency/asset-path validation,
   Node JS syntax checks, libsass compilation and Odoo asset bundles passed.
-- Synthetic benchmark (2,002 products, 12 warehouses, 80 visible product rows):
+- Initial-version synthetic benchmark (2,002 products before minimum filtering,
+  12 warehouses, 80 visible product rows):
   collapsed, 139 SQL queries / 0.374 s; all 61 internal locations expanded,
   552 SQL queries / 1.050 s. Local timings are illustrative, not a production
   SLA; benchmark data was rolled back. Query growth follows batches/scopes,
