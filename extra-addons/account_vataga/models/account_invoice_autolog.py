@@ -23,6 +23,13 @@ NATIVE_ACCOUNTING_NOISE_FIELDS = frozenset({
     'amount_residual', 'amount_residual_currency', 'tax_tag_ids', 'date_maturity',
 })
 EMPTY = 'Порожньо'
+# Approval server actions already post human-readable history via message_post().
+# Exclude only these move flags from custom autolog, not from native tracking.
+MOVE_CUSTOM_AUTOLOG_EXCLUDED_FIELDS = frozenset({
+    'x_studio_boolean_field_507_1ikhk7qd9',
+    'x_studio_boolean_field_8c0_1il153r8h',
+    'x_studio_taras_ok',
+})
 COMMON_TECHNICAL_FIELDS = {
     'id', 'display_name', 'create_date', 'create_uid', 'write_date', 'write_uid',
     '__last_update', 'message_ids', 'message_follower_ids', 'message_partner_ids',
@@ -58,6 +65,8 @@ One2many records need a dedicated handler; invoice lines have one below.
     excluded = COMMON_TECHNICAL_FIELDS | (
         MOVE_TECHNICAL_FIELDS if record._name == 'account.move' else LINE_TECHNICAL_FIELDS
     )
+    if record._name == 'account.move':
+        excluded |= MOVE_CUSTOM_AUTOLOG_EXCLUDED_FIELDS
     field_names = list(record._fields if names is None else names)
     # Odoo 17 filters with None, but validates (and may reject) explicit lists.
     accessible = set(record.check_field_access_rights('read', None))

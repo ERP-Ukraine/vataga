@@ -1,5 +1,6 @@
 from html import unescape
 from types import SimpleNamespace
+from unittest import TestCase
 from unittest.mock import patch
 
 from odoo import Command, fields
@@ -10,6 +11,30 @@ from .common import InvoiceHeaderAnalyticsCommon
 from ..controllers import mail_thread
 from ..models.account_invoice_autolog import business_fields, format_value, snapshot, changes
 from ..models.account_invoice_autolog import NATIVE_ACCOUNTING_NOISE_FIELDS, tracking_context
+
+
+class TestApprovalBusinessFields(TestCase):
+    def test_approval_exclusion_is_move_only_and_not_all_booleans(self):
+        approval_fields = [
+            'x_studio_boolean_field_507_1ikhk7qd9',
+            'x_studio_boolean_field_8c0_1il153r8h',
+            'x_studio_taras_ok',
+        ]
+        ordinary_fields = ['to_check', 'x_studio_other_business_boolean']
+        names = approval_fields + ordinary_fields
+        record = SimpleNamespace(
+            _name='account.move',
+            _fields={name: SimpleNamespace(store=True, readonly=False, type='boolean')
+                     for name in names},
+            check_field_access_rights=lambda operation, requested: (
+                names if requested is None else requested
+            ),
+        )
+        self.assertEqual(business_fields(record), ordinary_fields)
+        self.assertEqual(business_fields(record, names), ordinary_fields)
+        self.assertEqual(business_fields(record, approval_fields), [])
+        record._name = 'account.move.line'
+        self.assertEqual(business_fields(record, names), names)
 
 
 @tagged('post_install', '-at_install')
@@ -25,6 +50,36 @@ class TestInvoiceAutolog(InvoiceHeaderAnalyticsCommon):
             ('model', '=', 'account.move'), ('res_id', '=', invoice.id),
             ('subtype_id', '=', self.subtype.id),
         ])
+
+    def _assert_approval_flag_has_no_custom_autolog(self, name, approval_message):
+        if name not in self.env['account.move']._fields:
+            self.skipTest('Studio approval field is not installed: %s' % name)
+        invoice = self._create_header_invoice(headers={})
+        invoice.write({name: False})
+        before = self._logs(invoice)
+        invoice.write({name: True})
+        self.assertTrue(invoice[name])
+        self.assertEqual(self._logs(invoice), before)
+        # Reproduce the server action's message_post without modifying its code.
+        message = invoice.message_post(body=approval_message)
+        self.assertEqual(unescape(str(message.body)), approval_message)
+        self.assertIn(message, invoice.message_ids)
+        self.assertEqual(self._logs(invoice), before)
+
+    def test_moderator_approval_flag_has_no_custom_autolog(self):
+        self._assert_approval_flag_has_no_custom_autolog(
+            'x_studio_boolean_field_507_1ikhk7qd9', 'Погоджено модератором',
+        )
+
+    def test_accounting_approval_flag_has_no_custom_autolog(self):
+        self._assert_approval_flag_has_no_custom_autolog(
+            'x_studio_boolean_field_8c0_1il153r8h', 'Погоджено бухгалтерією',
+        )
+
+    def test_final_approval_flag_has_no_custom_autolog(self):
+        self._assert_approval_flag_has_no_custom_autolog(
+            'x_studio_taras_ok', 'Погоджено (фінально)',
+        )
 
     def _flush_native_tracking(self):
         self.env.flush_all()
@@ -389,6 +444,7 @@ class TestInvoiceAutolog(InvoiceHeaderAnalyticsCommon):
 
     def test_boolean_selection_date_formatting(self):
         invoice = self._create_header_invoice(headers={})
+        self.assertIn('to_check', business_fields(invoice))
         before = self._logs(invoice)
         vals = {'to_check': True, 'auto_post': 'at_date', 'invoice_date': '2026-09-20'}
         body = self._edit(invoice, vals, invoice._fields['to_check'].string)
