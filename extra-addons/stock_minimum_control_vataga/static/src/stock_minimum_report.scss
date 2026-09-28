@@ -1,24 +1,46 @@
 .o_stock_minimum_control {
     .o_pivot_table {
-        width: max-content;
-        min-width: 100%;
+        table-layout: fixed;
+        th, td {
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
     }
     .o_smc_label {
         position: sticky;
         left: 0;
-        min-width: 22rem;
-        width: 22rem;
-        max-width: 22rem;
         white-space: normal;
-        background-color: var(--o-view-background-color, #fff);
+        overflow-wrap: anywhere;
         z-index: 1;
     }
     .o_smc_minimum {
         position: sticky;
-        left: 22rem;
-        min-width: 10rem;
-        background-color: var(--o-view-background-color, #fff);
+        left: var(--smc-product-width);
         z-index: 1;
+    }
+    .o_smc_toggle {
+        border: 0;
+        padding: 0;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        text-align: inherit;
+        white-space: inherit;
+    }
+    .o_smc_row_total { padding-left: 5px; }
+    .o_smc_row_category { padding-left: 35px; }
+    .o_smc_row_product { padding-left: 65px; }
+    .o_smc_group_header { overflow-wrap: anywhere; }
+    .o_resize {
+        cursor: col-resize;
+        touch-action: none;
+        width: 5px;
+        &:focus-visible { opacity: 1 !important; }
+    }
+    .o_resizing {
+        cursor: col-resize;
+        user-select: none;
+        .o_column_resizing { box-shadow: inset -1px 0 var(--primary, #71639e); }
     }
     thead {
         position: sticky;
