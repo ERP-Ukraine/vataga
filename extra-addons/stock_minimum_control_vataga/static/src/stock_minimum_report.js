@@ -1,6 +1,6 @@
 /** @odoo-module **/
 
-import { Component, onWillStart, useState } from "@odoo/owl";
+import { Component, onWillStart, onWillUnmount, useRef, useState } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { formatFloat } from "@web/views/fields/formatters";
@@ -11,11 +11,88 @@ export class StockMinimumReport extends Component {
 
     setup() {
         this.orm = useService("orm");
+        this.tableRef = useRef("table");
+        this.layout = useState({ widths: {}, resizing: null });
         this.state = useState({
             data: null, busy: false, error: false, totalExpanded: false,
             warehouses: [], categories: [], pages: {}, search: "", searchInput: "",
         });
         onWillStart(() => this.load());
+        onWillUnmount(() => this.stopResize?.());
+    }
+
+    columnWidth(key) {
+        return this.layout.widths[key] ?? (key === "product" ? 280 : key === "minimum" ? 160 : 120);
+    }
+
+    minimumWidth(key) {
+        return key === "product" ? 140 : key === "minimum" ? 100 : 72;
+    }
+
+    measureKey(column, measure) {
+        return `${column.key}:${["qty_available", "free_qty", "virtual_available"][measure]}`;
+    }
+
+    get leafKeys() {
+        return ["product", "minimum", ...this.columns.flatMap((column) =>
+            [0, 1, 2].map((measure) => this.measureKey(column, measure)))];
+    }
+
+    get tableStyle() {
+        return `--smc-product-width: ${this.columnWidth("product")}px; ` +
+            `--smc-minimum-width: ${this.columnWidth("minimum")}px; ` +
+            `width: ${this.leafKeys.reduce((sum, key) => sum + this.columnWidth(key), 0)}px;`;
+    }
+
+    resizeClass(key) {
+        return this.layout.resizing === key ? "o_column_resizing" : "";
+    }
+
+    rowHeaderClass(row) {
+        const expanded = row.kind === "total" ? this.state.totalExpanded : this.state.categories.includes(row.id);
+        return `${this.resizeClass("product")} o_smc_row_${row.kind} ` +
+            (row.kind === "product" ? "" : `o_pivot_header_cell_${expanded ? "opened" : "closed"}`);
+    }
+
+    onStartResize(ev, key) {
+        if (ev.button !== 0) {
+            return;
+        }
+        this.stopResize?.();
+        const startX = ev.clientX;
+        const width = this.columnWidth(key);
+        const pointerId = ev.pointerId;
+        this.layout.resizing = key;
+        const move = (event) => {
+            if (event.pointerId === pointerId) {
+                event.preventDefault();
+                this.layout.widths[key] = Math.max(this.minimumWidth(key), Math.round(width + event.clientX - startX));
+            }
+        };
+        const stop = (event) => {
+            if (event?.pointerId !== undefined && event.pointerId !== pointerId) {
+                return;
+            }
+            window.removeEventListener("pointermove", move);
+            for (const type of ["pointerup", "pointercancel", "blur", "keydown"]) {
+                window.removeEventListener(type, stop);
+            }
+            this.layout.resizing = null;
+            this.stopResize = null;
+        };
+        this.stopResize = stop;
+        window.addEventListener("pointermove", move);
+        for (const type of ["pointerup", "pointercancel", "blur", "keydown"]) {
+            window.addEventListener(type, stop);
+        }
+    }
+
+    onResizeKey(ev, key) {
+        if (["ArrowLeft", "ArrowRight"].includes(ev.key)) {
+            ev.preventDefault();
+            const delta = (ev.key === "ArrowRight" ? 1 : -1) * (ev.shiftKey ? 20 : 10);
+            this.layout.widths[key] = Math.max(this.minimumWidth(key), this.columnWidth(key) + delta);
+        }
     }
 
     async load() {

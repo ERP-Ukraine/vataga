@@ -1,6 +1,6 @@
 # Контроль мінімальних залишків — Odoo 17
 
-Version: `17.0.1.0.3`. Dependency: `stock` (which already depends on `web` and `product`).
+Version: `17.0.1.0.4`. Dependency: `stock` (which already depends on `web` and `product`).
 Install the addon and open **Склад → Звітність → Контроль залишків**.
 
 The minimum settings block is a full-width section after Traceability and
@@ -36,6 +36,27 @@ column outside the measure axis, empty aggregate minima, and warehouse values
 replaced by exact-location values. A normal additive pivot containing both
 warehouse facts and location facts would double-count. No dependency on the
 purchase/demand addons and no global renderer patch are required.
+
+The table area follows `web.PivotRenderer` / `web.PivotHeader`: standard
+`table-hover table-sm table-bordered table-borderless`, `bg-view` / `bg-100`,
+measure/header hover classes, `o_value` numeric cells and 5 + 30px-per-level row
+indentation. Compact native buttons retain keyboard access while inheriting
+pivot typography/padding. The control panel is unchanged.
+
+Column resizing follows Demand's `.o_resize` pointer-drag affordance, with local
+`o_resizing` / `o_column_resizing` feedback. Only product, minimum and leaf measures
+have handles; colspan warehouse/location headers do not. A fixed-layout table
+and one `<col>` per leaf avoid resizing unrelated columns. Pointer move updates
+the selected width and total table width; pointer up/cancel, window blur, keydown
+and component unmount remove drag listeners. Handles also support arrow keys.
+
+Component-local reactive widths are keyed by `product`, `minimum`,
+`w<ID>:qty_available`, `l<ID>:free_qty`, etc. They survive category/warehouse
+expansion, collapse and data refresh, but intentionally reset on full page reload.
+Defaults are 280 / 160 / 120px for product / minimum / measures; lower bounds are
+140 / 100 / 72px. New locations receive default widths. Product and group labels
+can wrap. The minimum sticky column uses `left: var(--smc-product-width)`, updated
+from the same state that sizes the product column; no fixed sticky offset remains.
 
 Odoo 17 source checked against upstream commit
 `7f8eadd121af45e243fb0e943815f29f7e3ab94a` (the repository's configured enterprise
@@ -141,7 +162,9 @@ forged company context, report ACLs, pagination, batching and inherited views.
 
 Frontend: `static/tests/stock_minimum_report_tests.js` covers inclusive color
 thresholds, fractions/zero, measure-specific coloring and mounted OWL expansion /
-collapse with replacement of warehouse columns by locations.
+collapse with replacement of warehouse columns by locations, leaf resize handles,
+drag and lower bounds, sticky adjacency, retained widths after rerender/refresh,
+new location defaults, pointer cancellation and keyboard resizing.
 
 Run on a disposable Odoo 17 database:
 
@@ -157,7 +180,7 @@ Validated on 2026-09-28 in an isolated upstream Odoo 17 / Python 3.12 /
 PostgreSQL 18 database:
 
 - Fresh installation and upgrade succeeded; 17 backend test methods passed
-  after the `17.0.1.0.3` product-domain change, including filtering, compiled
+  again with `17.0.1.0.4`, including filtering, compiled
   section order in both forms and delegated variant edits.
 - Browser verification of the view fix: Inventory → Products template form and
   the stock Product Variants action both show the full-width block after
@@ -165,7 +188,15 @@ PostgreSQL 18 database:
   `-0.5` raises the Ukrainian
   validation error. Backend form tests also verify shared sibling-variant minima
   and their use in the existing report.
-- Headless Edge / Odoo QUnit: 3 tests, 29 assertions passed, no browser errors.
+- Headless Edge / Odoo QUnit: all 5 tests / 61 assertions passed against the real
+  Odoo asset bundles, including resize and existing color/hierarchy coverage.
+- Version `17.0.1.0.4` browser acceptance: three collapsed warehouses, expanded
+  warehouse with several locations, long product/location names, actual pointer
+  drag, horizontal scrolling, dynamic sticky adjacency and width persistence on
+  refresh/collapse. Side-by-side comparison uses the unmodified Demand renderer
+  JS and inherited XML, with its compiled SCSS and deterministic fixture data:
+  full Demand backend dependencies are unavailable locally. Both table areas
+  measured 14px font, 8px/4.8px padding and 38px ordinary rows in this environment.
 - Actual RPC/browser acceptance: 120 green, 6 red, 10.5 yellow; exact CSS colors;
   90 + 30 location split without warehouse duplication; horizontal scrolling
   keeps the minimum column fixed.

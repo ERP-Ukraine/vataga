@@ -3,7 +3,7 @@
 import { stockMinimumClass } from "@stock_minimum_control_vataga/stock_minimum_colors";
 import { StockMinimumReport } from "@stock_minimum_control_vataga/stock_minimum_report";
 import { makeTestEnv } from "@web/../tests/helpers/mock_env";
-import { click, getFixture, mount } from "@web/../tests/helpers/utils";
+import { click, getFixture, mount, nextTick } from "@web/../tests/helpers/utils";
 
 QUnit.module("stock_minimum_control_vataga");
 
@@ -32,8 +32,8 @@ QUnit.test("only product on-hand cells are colored", (assert) => {
     }
 });
 
-QUnit.test("rows expand and locations replace warehouse without duplicate totals", async (assert) => {
-    const env = await makeTestEnv({
+async function makeReportEnv() {
+    return makeTestEnv({
         mockRPC(route, args) {
             if (args.method === "get_report") {
                 const expanded = args.kwargs.expanded_warehouses.includes(1);
@@ -49,6 +49,10 @@ QUnit.test("rows expand and locations replace warehouse without duplicate totals
             }
         },
     });
+}
+
+QUnit.test("rows expand and locations replace warehouse without duplicate totals", async (assert) => {
+    const env = await makeReportEnv();
     const target = getFixture();
     await mount(StockMinimumReport, target, { env });
     assert.containsN(target, "tbody tr", 1);
@@ -66,4 +70,87 @@ QUnit.test("rows expand and locations replace warehouse without duplicate totals
     await click(target, "thead button");
     assert.containsN(target, "tbody tr:last-child .o_pivot_cell_value", 3);
     assert.containsOnce(target, "td.o_stock_minimum_control_green");
+});
+
+async function drag(target, key, delta) {
+    const handle = target.querySelector(`th[data-column-key="${key}"] .o_resize`);
+    handle.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 1, clientX: 100 }));
+    window.dispatchEvent(new PointerEvent("pointermove", { pointerId: 1, clientX: 100 + delta }));
+    await nextTick();
+    window.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1 }));
+    await nextTick();
+}
+
+QUnit.test("leaf resize, minimum bounds, sticky offsets and persistence across reload/expansion", async (assert) => {
+    const env = await makeReportEnv();
+    const target = getFixture();
+    const report = await mount(StockMinimumReport, target, { env });
+    const width = (key) => target.querySelector(`th[data-column-key="${key}"]`).getBoundingClientRect().width;
+    assert.containsN(target, "thead .o_resize", 5);
+    assert.containsNone(target, "th[colspan] .o_resize", "group headers have no resize handles");
+    const original = width("product");
+    const neighbor = width("minimum");
+    const table = target.querySelector("table");
+    const tableWidth = table.getBoundingClientRect().width;
+    await drag(target, "product", 80);
+    assert.ok(Math.abs(width("product") - original - 80) < 1);
+    assert.ok(Math.abs(width("minimum") - neighbor) < 1, "neighbor width is unchanged");
+    assert.ok(Math.abs(table.getBoundingClientRect().width - tableWidth - 80) < 1);
+    const minimum = target.querySelector("th.o_smc_minimum");
+    assert.strictEqual(getComputedStyle(minimum).left, `${report.columnWidth("product")}px`);
+    const labelRect = target.querySelector("th.o_smc_label").getBoundingClientRect();
+    assert.ok(Math.abs(minimum.getBoundingClientRect().left - labelRect.right) < 1, "sticky columns touch without overlap/gap");
+    assert.notOk(table.classList.contains("o_resizing"));
+    assert.containsNone(target, ".o_column_resizing");
+    await drag(target, "minimum", -1000);
+    assert.strictEqual(report.columnWidth("minimum"), report.minimumWidth("minimum"));
+    await drag(target, "minimum", 30);
+    await drag(target, "w1:qty_available", 45);
+    await drag(target, "w1:free_qty", -1000);
+    assert.strictEqual(report.columnWidth("w1:free_qty"), report.minimumWidth("w1:free_qty"));
+    await click(target, "tbody button");
+    await click(target, "tbody tr:nth-child(2) button");
+    assert.ok(Math.abs(width("product") - original - 80) < 1);
+    assert.strictEqual(width("minimum"), 130);
+    assert.strictEqual(width("w1:qty_available"), 165);
+    assert.containsOnce(target, "td.o_stock_minimum_control_green");
+    await click(target, "thead button");
+    assert.containsN(target, "thead .o_resize", 8);
+    assert.strictEqual(width("l2:qty_available"), 120, "new locations start with default width");
+    assert.ok(Math.abs(width("product") - original - 80) < 1);
+    await drag(target, "l2:qty_available", 55);
+    assert.strictEqual(width("l2:qty_available"), 175);
+    await click(target, "thead button");
+    assert.strictEqual(width("w1:qty_available"), 165, "collapsed warehouse restores its width");
+    await report.load();
+    await nextTick();
+    assert.strictEqual(width("minimum"), 130, "refresh preserves widths");
+    await click(target, "tbody tr:nth-child(2) button");
+    await click(target, "tbody tr:nth-child(2) button");
+    assert.strictEqual(width("w1:qty_available"), 165, "category collapse and re-expansion preserve widths");
+    await click(target, "thead button");
+    assert.strictEqual(width("l2:qty_available"), 175, "location width survives collapse and refresh");
+    assert.containsN(target, "td.o_stock_minimum_control_red", 2);
+    await drag(target, "product", -1000);
+    assert.strictEqual(width("product"), report.minimumWidth("product"));
+    assert.strictEqual(getComputedStyle(minimum).left, "140px");
+});
+
+QUnit.test("cancelled drag releases listeners and resize handle supports keyboard", async (assert) => {
+    const target = getFixture();
+    const report = await mount(StockMinimumReport, target, { env: await makeReportEnv() });
+    const handle = target.querySelector('th[data-column-key="product"] .o_resize');
+    handle.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 8, clientX: 100 }));
+    window.dispatchEvent(new PointerEvent("pointermove", { pointerId: 7, clientX: 200 }));
+    assert.strictEqual(report.columnWidth("product"), 280, "unrelated pointer ignored");
+    window.dispatchEvent(new PointerEvent("pointermove", { pointerId: 8, clientX: 130 }));
+    assert.strictEqual(report.columnWidth("product"), 310);
+    window.dispatchEvent(new PointerEvent("pointercancel", { pointerId: 8 }));
+    window.dispatchEvent(new PointerEvent("pointermove", { pointerId: 8, clientX: 200 }));
+    assert.strictEqual(report.columnWidth("product"), 310, "cancel removes move listener");
+    assert.strictEqual(report.layout.resizing, null);
+    handle.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "ArrowLeft" }));
+    await nextTick();
+    assert.strictEqual(report.columnWidth("product"), 300);
+    assert.containsNone(target, ".o_resizing, .o_column_resizing");
 });
