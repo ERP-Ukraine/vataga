@@ -254,15 +254,24 @@ class TestStockMinimumReport(TransactionCase):
     def test_inherited_views_and_menu(self):
         warehouse_view = self.env['stock.warehouse'].get_view(self.env.ref('stock.view_warehouse').id, 'form')
         self.assertIn('minimum_stock_control', warehouse_view['arch'])
+        self.stock_user.write({'groups_id': [
+            Command.link(self.env.ref('stock.group_production_lot').id),
+            Command.link(self.env.ref('product.group_stock_packaging').id),
+        ]})
         for model, view in (
             ('product.template', 'product.product_template_only_form_view'),
             ('product.product', 'product.product_normal_form_view'),
         ):
-            product_view = self.env[model].get_view(self.env.ref(view).id, 'form')
+            product_view = self.env[model].with_user(self.stock_user).get_view(self.env.ref(view).id, 'form')
             arch = etree.fromstring(product_view['arch'])
             fields = arch.xpath("//page[@name='inventory']/group[@name='minimum_stock_control']/field[@name='minimum_stock_qty']")
             self.assertEqual(len(fields), 1)
-            first_group = arch.xpath("//page[@name='inventory']/group[1]")[0]
-            self.assertEqual(first_group.get('name'), 'minimum_stock_control')
+            control = fields[0].getparent()
+            self.assertEqual(control.get('colspan'), '4')
+            self.assertEqual(control.getparent().tag, 'page')
+            self.assertEqual(control.getnext().get('name'), 'packaging')
+            preceding = control.getprevious()
+            self.assertEqual(preceding.get('name'), 'inventory')
+            self.assertEqual(len(preceding.xpath(".//group[@name='traceability']")), 1)
         menu = self.env.ref('stock_minimum_control_vataga.menu_stock_minimum_control')
         self.assertEqual(menu.parent_id, self.env.ref('stock.menu_warehouse_report'))
