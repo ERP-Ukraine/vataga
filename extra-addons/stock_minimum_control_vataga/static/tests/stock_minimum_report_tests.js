@@ -312,3 +312,64 @@ QUnit.test("location values resist global marker centering before and after resi
     assert.strictEqual(report.columnWidth("l3:virtual_available"), 80);
     assert.strictEqual(report.columnWidth("l4:free_qty"), 180);
 });
+
+QUnit.test("one bounded table scroll owner, sticky borders, resize and measures", async (assert) => {
+    const target = getFixture();
+    const view = document.createElement("div");
+    view.className = "o_action o_smc_view o_action_delegate_scroll";
+    view.style.cssText = "height: 420px; width: 760px";
+    view.innerHTML = '<div class="o_control_panel" style="height:60px;flex-shrink:0"></div><div class="o_content o_smc_content"></div>';
+    target.append(view);
+    const report = await mount(StockMinimumReport, view.lastElementChild, { env: await makeReportEnv() });
+    const columns = Array.from({ length: 12 }, (_, i) => ({ key: `l${i + 2}`, name: `Location ${i}` }));
+    const values = Object.fromEntries(columns.map((column) => [column.key, [0, 0, 0]]));
+    report.state.data.warehouses[0].columns = columns;
+    report.state.data.warehouses[0].expanded = true;
+    report.state.data.totals = values;
+    const ids = Array.from({ length: 25 }, (_, i) => i + 100);
+    Object.assign(report.state.data.categories[0], { count: 25, product_ids: ids, values });
+    report.state.data.products = Object.fromEntries(ids.map((id) => [id, {
+        id, name: `Product ${id}`, minimum: 10, uom: "Units", values,
+    }]));
+    report.state.totalExpanded = true;
+    report.state.categories = [5];
+    await nextTick();
+    const scroll = target.querySelector(".o_smc_table_scroll");
+    const table = scroll.querySelector("table");
+    assert.strictEqual(getComputedStyle(scroll).overflowX, "auto");
+    assert.strictEqual(getComputedStyle(scroll).overflowY, "auto");
+    for (const el of [view.lastElementChild, scroll.parentElement, scroll]) {
+        assert.strictEqual(getComputedStyle(el).minHeight, "0px");
+    }
+    assert.ok(scroll.scrollWidth > scroll.clientWidth);
+    assert.ok(scroll.scrollHeight > scroll.clientHeight);
+    assert.ok(scroll.getBoundingClientRect().bottom <= view.getBoundingClientRect().bottom);
+    assert.strictEqual(getComputedStyle(view.lastElementChild).overflow, "hidden");
+    assert.strictEqual(getComputedStyle(table).borderCollapse, "separate");
+    const width = scroll.scrollWidth;
+    await drag(target, "l2:qty_available", 100);
+    assert.ok(Math.abs(scroll.scrollWidth - width - 100) <= 1);
+    report.onMeasureSelected({ measure: "free_qty" });
+    await nextTick();
+    assert.ok(scroll.scrollWidth < width);
+    report.onMeasureSelected({ measure: "free_qty" });
+    await nextTick();
+    assert.ok(Math.abs(scroll.scrollWidth - width - 100) <= 1);
+    scroll.scrollTop = scroll.scrollHeight;
+    scroll.scrollLeft = scroll.scrollWidth;
+    await nextTick();
+    assert.ok(scroll.scrollTop > 0 && scroll.scrollLeft > 0);
+    const bounds = scroll.getBoundingClientRect();
+    const last = table.querySelector("tbody tr:last-child").getBoundingClientRect();
+    assert.ok(last.bottom <= bounds.top + scroll.clientHeight + 1, "last bottom border is inside client area");
+    assert.ok(last.top >= table.querySelector("thead").getBoundingClientRect().bottom, "last row fully visible");
+    const product = table.querySelector("thead .o_smc_label").getBoundingClientRect();
+    const minimum = table.querySelector("thead .o_smc_minimum").getBoundingClientRect();
+    assert.ok(Math.abs(product.left - bounds.left) < 1);
+    assert.ok(Math.abs(minimum.left - product.right) < 1);
+    assert.ok(Math.abs(product.top - bounds.top) < 1, "header stays at scroll viewport top");
+    const header = table.querySelector("thead .o_pivot_measure_row");
+    assert.strictEqual(getComputedStyle(header).borderRightWidth, "1px");
+    assert.strictEqual(getComputedStyle(header).borderLeftWidth, "0px");
+    assert.strictEqual(getComputedStyle(header).borderBottomWidth, "1px");
+});

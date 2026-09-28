@@ -6,7 +6,8 @@
         </WithSearch>
     </t>
     <t t-name="stock_minimum_control_vataga.Panel">
-        <Layout display="props.display" className="'h-100'">
+        <div class="o_action o_smc_view o_action_delegate_scroll">
+        <Layout display="props.display" className="'o_smc_content'">
             <t t-set-slot="control-panel-additional-actions"><CogMenu/></t>
             <t t-set-slot="layout-actions"><SearchBar t-if="searchBarToggler.state.showSearchBar"/></t>
             <t t-set-slot="control-panel-navigation-additional">
@@ -14,9 +15,10 @@
             </t>
             <StockMinimumReport domain="props.domain"/>
         </Layout>
+        </div>
     </t>
     <t t-name="stock_minimum_control_vataga.Report">
-        <div class="o_stock_minimum_control d-flex flex-column h-100 overflow-hidden">
+        <div class="o_stock_minimum_control d-flex flex-column flex-grow-1 overflow-hidden">
             <div class="o_pivot_buttons d-flex gap-1 mt-2 mx-3 mb-3">
                 <div class="btn-group" role="toolbar" aria-label="Міри">
                     <t t-call="web.ReportViewMeasures">
@@ -38,7 +40,7 @@
                     Немає доступних складів із увімкненим контролем мінімальних залишків.
                 </div>
                 <div t-elif="!state.data.count" class="alert alert-info m-3">Товари не знайдено.</div>
-                <div t-else="" class="o_pivot mx-3 flex-grow-1 overflow-auto" t-att-aria-busy="state.busy">
+                <div t-else="" class="o_pivot o_smc_table_scroll mx-3" t-att-aria-busy="state.busy">
                     <table class="table-hover table table-sm table-bordered table-borderless o_pivot_table mb-0"
                            t-ref="table" t-att-style="tableStyle" t-att-class="{o_resizing: layout.resizing}">
                         <colgroup>
@@ -56,7 +58,7 @@
                                 </th>
                                 <th t-foreach="state.data.warehouses" t-as="warehouse" t-key="warehouse.id" t-if="activeIndexes.length"
                                     t-att-colspan="warehouse.columns.length * activeIndexes.length" t-att-rowspan="warehouse.expanded ? 1 : 2"
-                                    class="bg-view border-top fw-normal user-select-none o_smc_group_header"
+                                    class="bg-view fw-normal user-select-none o_smc_group_header"
                                     t-att-class="warehouse.expanded ? 'o_pivot_header_cell_opened' : 'o_pivot_header_cell_closed'">
                                     <button class="o_smc_toggle" t-on-click="() => this.toggleWarehouse(warehouse.id)"
                                             t-att-disabled="state.busy || !warehouse.can_expand" t-att-aria-expanded="warehouse.expanded">
@@ -68,7 +70,7 @@
                             <tr>
                                 <t t-foreach="state.data.warehouses" t-as="warehouse" t-key="warehouse.id">
                                     <t t-if="warehouse.expanded and activeIndexes.length">
-                                        <th t-foreach="warehouse.columns" t-as="column" t-key="column.key" t-att-colspan="activeIndexes.length" class="bg-view border-top fw-normal o_smc_group_header" t-att-title="column.name">
+                                        <th t-foreach="warehouse.columns" t-as="column" t-key="column.key" t-att-colspan="activeIndexes.length" class="bg-view fw-normal o_smc_group_header" t-att-title="column.name">
                                             <t t-esc="column.name"/>
                                         </th>
                                     </t>
