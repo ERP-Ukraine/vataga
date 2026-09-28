@@ -1,6 +1,15 @@
 /** @odoo-module **/
 
-import { Component, onWillStart, onWillUnmount, useRef, useState } from "@odoo/owl";
+import { Component, onWillStart, onWillUnmount, onWillUpdateProps, useRef, useState, useSubEnv } from "@odoo/owl";
+import { WithSearch } from "@web/search/with_search/with_search";
+import { Layout } from "@web/search/layout";
+import { SearchBar } from "@web/search/search_bar/search_bar";
+import { useSearchBarToggler } from "@web/search/search_bar/search_bar_toggler";
+import { CogMenu } from "@web/search/cog_menu/cog_menu";
+import { Dropdown } from "@web/core/dropdown/dropdown";
+import { DropdownItem } from "@web/core/dropdown/dropdown_item";
+import { download } from "@web/core/network/download";
+import { getDefaultConfig } from "@web/views/view";
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { formatFloat } from "@web/views/fields/formatters";
@@ -8,16 +17,33 @@ import { stockMinimumClass } from "./stock_minimum_colors";
 
 export class StockMinimumReport extends Component {
     static template = "stock_minimum_control_vataga.Report";
+    static components = { Dropdown, DropdownItem };
 
     setup() {
         this.orm = useService("orm");
+        this.user = useService("user");
         this.tableRef = useRef("table");
         this.layout = useState({ widths: {}, resizing: null });
+        this.measures = {
+            qty_available: { name: "qty_available", string: "В наявності" },
+            free_qty: { name: "free_qty", string: "Доступно" },
+            virtual_available: { name: "virtual_available", string: "Прогнозовано" },
+        };
+        this.selection = useState({ measures: Object.keys(this.measures) });
+        this.domain = this.props.domain || [];
+        this.requestId = 0;
         this.state = useState({
             data: null, busy: false, error: false, totalExpanded: false,
-            warehouses: [], categories: [], pages: {}, search: "", searchInput: "",
+            warehouses: [], categories: [], pages: {},
         });
         onWillStart(() => this.load());
+        onWillUpdateProps(async (props) => {
+            if (JSON.stringify(props.domain || []) !== JSON.stringify(this.domain)) {
+                this.domain = props.domain || [];
+                this.state.pages = {};
+                await this.load();
+            }
+        });
         onWillUnmount(() => this.stopResize?.());
     }
 
@@ -35,7 +61,35 @@ export class StockMinimumReport extends Component {
 
     get leafKeys() {
         return ["product", "minimum", ...this.columns.flatMap((column) =>
-            [0, 1, 2].map((measure) => this.measureKey(column, measure)))];
+            this.activeIndexes.map((measure) => this.measureKey(column, measure)))];
+    }
+
+    get activeIndexes() {
+        return Object.keys(this.measures).flatMap((key, index) => this.selection.measures.includes(key) ? [index] : []);
+    }
+
+    onMeasureSelected({ measure }) {
+        this.toggle(this.selection.measures, measure);
+    }
+
+    reportOptions() {
+        return { expanded_warehouses: [...this.state.warehouses],
+            expanded_categories: [...this.state.categories], pages: { ...this.state.pages }, domain: this.domain };
+    }
+
+    async expandAll() {
+        this.state.totalExpanded = true;
+        this.state.categories = this.state.data.categories.map((category) => category.id);
+        this.state.warehouses = this.state.data.warehouses.filter((warehouse) => warehouse.can_expand).map((warehouse) => warehouse.id);
+        await this.load();
+    }
+
+    async downloadXlsx() {
+        await download({ url: "/stock_minimum_control/export_xlsx", data: {
+            allowed_company_ids: JSON.stringify(this.user.context.allowed_company_ids),
+            options: JSON.stringify({ ...this.reportOptions(), measures: this.selection.measures,
+                total_expanded: this.state.totalExpanded }),
+        } });
     }
 
     get tableStyle() {
@@ -96,22 +150,16 @@ export class StockMinimumReport extends Component {
     }
 
     async load() {
-        if (this.state.busy) {
-            return;
-        }
+        const requestId = ++this.requestId;
         this.state.busy = true;
         this.state.error = false;
         try {
-            this.state.data = await this.orm.call("stock.minimum.control.report", "get_report", [], {
-                expanded_warehouses: [...this.state.warehouses],
-                expanded_categories: [...this.state.categories],
-                pages: { ...this.state.pages },
-                search: this.state.search,
-            });
+            const data = await this.orm.call("stock.minimum.control.report", "get_report", [], this.reportOptions());
+            if (requestId === this.requestId) this.state.data = data;
         } catch {
-            this.state.error = true;
+            if (requestId === this.requestId) this.state.error = true;
         } finally {
-            this.state.busy = false;
+            if (requestId === this.requestId) this.state.busy = false;
         }
     }
 
@@ -136,12 +184,6 @@ export class StockMinimumReport extends Component {
 
     async changePage(category, delta) {
         this.state.pages[category.id] = category.page + delta;
-        await this.load();
-    }
-
-    async onSearch() {
-        this.state.search = this.state.searchInput.trim();
-        this.state.pages = {};
         await this.load();
     }
 
@@ -181,4 +223,23 @@ export class StockMinimumReport extends Component {
     }
 }
 
-registry.category("actions").add("stock_minimum_control_vataga.report", StockMinimumReport);
+export class StockMinimumPanel extends Component {
+    static template = "stock_minimum_control_vataga.Panel";
+    static components = { Layout, SearchBar, CogMenu, StockMinimumReport };
+    setup() {
+        this.searchBarToggler = useSearchBarToggler();
+    }
+}
+
+export class StockMinimumAction extends Component {
+    static template = "stock_minimum_control_vataga.Action";
+    static components = { WithSearch, StockMinimumPanel };
+    setup() {
+        useSubEnv({ config: { ...getDefaultConfig(), ...this.env.config,
+            actionId: this.props.action.id, actionType: "ir.actions.client", resModel: "product.product" } });
+        this.searchProps = { resModel: "product.product", searchViewId: this.props.action.params.search_view_id,
+            context: this.props.action.context, loadIrFilters: true, searchMenuTypes: ["filter", "favorite"],
+            hideCustomGroupBy: true, display: { controlPanel: {} } };
+    }
+}
+registry.category("actions").add("stock_minimum_control_vataga.report", StockMinimumAction);

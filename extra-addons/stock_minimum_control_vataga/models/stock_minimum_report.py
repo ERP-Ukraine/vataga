@@ -1,7 +1,10 @@
 from collections import defaultdict
+from io import BytesIO
 
 from odoo import api, models
 from odoo.exceptions import AccessError
+from odoo.osv import expression
+from odoo.tools.misc import xlsxwriter
 
 
 MEASURES = ('qty_available', 'free_qty', 'virtual_available')
@@ -17,7 +20,7 @@ class StockMinimumReport(models.AbstractModel):
 
     @api.model
     def get_report(self, expanded_warehouses=None, expanded_categories=None,
-                   pages=None, search=''):
+                   pages=None, search='', domain=None):
         self.check_access_rights('read')
         if not self.env.user.has_group('stock.group_stock_user'):
             raise AccessError('Недостатньо прав для перегляду складського звіту.')
@@ -35,14 +38,15 @@ class StockMinimumReport(models.AbstractModel):
             ('usage', '=', 'internal'),
             ('company_id', 'in', [False] + company_ids),
         ], order='complete_name, id') if warehouses else self.env['stock.location']
-        domain = [
+        base_domain = [
             ('detailed_type', '=', 'product'),
             ('minimum_stock_qty', '>', 0),
             ('company_id', 'in', [False] + company_ids),
         ]
         if search:
-            domain += ['|', ('name', 'ilike', str(search)[:200]),
+            base_domain += ['|', ('name', 'ilike', str(search)[:200]),
                        ('default_code', 'ilike', str(search)[:200])]
+        domain = expression.AND([base_domain, domain or []])
         products = self.env['product.product'].search(domain, order='default_code, name, id')
         by_category = defaultdict(list)
         for product in products:
@@ -114,6 +118,46 @@ class StockMinimumReport(models.AbstractModel):
             'count': len(products), 'page_size': PAGE_SIZE,
             'digits': self.env['decimal.precision'].precision_get('Product Unit of Measure'),
         }
+
+    def _export_xlsx(self, options):
+        """Export the visible hierarchy and current category pages, using fresh ORM data."""
+        data = self.get_report(**{key: options[key] for key in (
+            'domain', 'expanded_warehouses', 'expanded_categories', 'pages',
+        ) if key in options})
+        measures = [index for index, name in enumerate(MEASURES)
+                    if name in options.get('measures', MEASURES)]
+        labels = ('В наявності', 'Доступно', 'Прогнозовано')
+        columns = [(warehouse, column) for warehouse in data['warehouses']
+                   for column in warehouse['columns']]
+        output = BytesIO()
+        with xlsxwriter.Workbook(output, {'in_memory': True, 'strings_to_formulas': False,
+                                         'strings_to_urls': False}) as book:
+            sheet = book.add_worksheet('Контроль залишків')
+            header = book.add_format({'bold': True, 'text_wrap': True})
+            number = book.add_format({'num_format': '0.' + '0' * data['digits']})
+            headings = ['Товар', 'Мінімальна кількість']
+            for warehouse, column in columns:
+                scope = warehouse['name'] + (' / ' + column['name'] if warehouse['expanded'] else '')
+                headings.extend(scope + ' / ' + labels[index] for index in measures)
+            sheet.write_row(0, 0, headings, header)
+            rows = [('Разом', None, data['totals'])]
+            if options.get('total_expanded'):
+                for category in data['categories']:
+                    rows.append((category['name'], None, category['values']))
+                    if category['id'] in options.get('expanded_categories', []):
+                        for product_id in category['product_ids']:
+                            product = data['products'][product_id]
+                            rows.append((product['name'], product['minimum'], product['values']))
+            for row_number, (name, minimum, values) in enumerate(rows, 1):
+                sheet.write_string(row_number, 0, name)
+                if minimum is not None:
+                    sheet.write_number(row_number, 1, minimum, number)
+                numbers = [values[column['key']][index] for _, column in columns for index in measures]
+                sheet.write_row(row_number, 2, numbers, number)
+            sheet.set_column(0, 0, 48)
+            sheet.set_column(1, len(headings) - 1, 22)
+            sheet.freeze_panes(1, 2)
+        return output.getvalue()
 
     def _quantities(self, products, warehouse, location=None):
         # Clean context: stale date/lot/location filters from another action must

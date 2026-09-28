@@ -1,16 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
 <templates xml:space="preserve">
+    <t t-name="stock_minimum_control_vataga.Action">
+        <WithSearch t-props="searchProps" t-slot-scope="search">
+            <StockMinimumPanel domain="search.domain" display="search.display"/>
+        </WithSearch>
+    </t>
+    <t t-name="stock_minimum_control_vataga.Panel">
+        <Layout display="props.display" className="'h-100'">
+            <t t-set-slot="control-panel-additional-actions"><CogMenu/></t>
+            <t t-set-slot="layout-actions"><SearchBar t-if="searchBarToggler.state.showSearchBar"/></t>
+            <t t-set-slot="control-panel-navigation-additional">
+                <t t-component="searchBarToggler.component" t-props="searchBarToggler.props"/>
+            </t>
+            <StockMinimumReport domain="props.domain"/>
+        </Layout>
+    </t>
     <t t-name="stock_minimum_control_vataga.Report">
         <div class="o_stock_minimum_control d-flex flex-column h-100 overflow-hidden">
-            <div class="o_control_panel d-flex flex-wrap gap-2 p-3">
-                <h2 class="me-3 mb-0">Контроль залишків</h2>
-                <form class="d-flex gap-2" t-on-submit.prevent="onSearch">
-                    <input class="form-control" type="search" placeholder="Назва або код товару"
-                           aria-label="Пошук товарів" t-model="state.searchInput" t-att-disabled="state.busy"/>
-                    <button type="submit" class="btn btn-primary" t-att-disabled="state.busy">Знайти</button>
-                </form>
-                <button class="btn btn-secondary" t-on-click="load" t-att-disabled="state.busy">Оновити</button>
-                <span t-if="state.busy" class="align-self-center" role="status">Завантаження…</span>
+            <div class="o_pivot_buttons d-flex gap-1 mt-2 mx-3 mb-3">
+                <div class="btn-group" role="toolbar" aria-label="Міри">
+                    <t t-call="web.ReportViewMeasures">
+                        <t t-set="measures" t-value="this.measures"/>
+                        <t t-set="activeMeasures" t-value="selection.measures"/>
+                    </t>
+                </div>
+                <div class="btn-group" role="toolbar" aria-label="Дії звіту">
+                    <button class="btn btn-secondary fa fa-arrows o_pivot_expand_button" t-on-click="expandAll" data-tooltip="Розгорнути все" aria-label="Розгорнути все" t-att-disabled="state.busy || !state.data"/>
+                    <button class="btn btn-secondary fa fa-download o_pivot_download" t-on-click="downloadXlsx" data-tooltip="Завантажити XLSX" aria-label="Завантажити XLSX" t-att-disabled="state.busy || !state.data"/>
+                    <button class="btn btn-secondary fa fa-refresh" t-on-click="load" data-tooltip="Оновити" aria-label="Оновити" t-att-disabled="state.busy"/>
+                </div>
             </div>
             <div t-if="state.error" class="alert alert-danger m-3" role="alert">
                 Не вдалося завантажити звіт. Перевірте доступ та натисніть «Оновити».
@@ -36,8 +54,8 @@
                                     Мінімальна кількість
                                     <t t-call="stock_minimum_control_vataga.ResizeHandle"><t t-set="resizeKey" t-value="'minimum'"/></t>
                                 </th>
-                                <th t-foreach="state.data.warehouses" t-as="warehouse" t-key="warehouse.id"
-                                    t-att-colspan="warehouse.columns.length * 3" t-att-rowspan="warehouse.expanded ? 1 : 2"
+                                <th t-foreach="state.data.warehouses" t-as="warehouse" t-key="warehouse.id" t-if="activeIndexes.length"
+                                    t-att-colspan="warehouse.columns.length * activeIndexes.length" t-att-rowspan="warehouse.expanded ? 1 : 2"
                                     class="bg-view border-top fw-normal user-select-none o_smc_group_header"
                                     t-att-class="warehouse.expanded ? 'o_pivot_header_cell_opened' : 'o_pivot_header_cell_closed'">
                                     <button class="o_smc_toggle" t-on-click="() => this.toggleWarehouse(warehouse.id)"
@@ -49,8 +67,8 @@
                             </tr>
                             <tr>
                                 <t t-foreach="state.data.warehouses" t-as="warehouse" t-key="warehouse.id">
-                                    <t t-if="warehouse.expanded">
-                                        <th t-foreach="warehouse.columns" t-as="column" t-key="column.key" colspan="3" class="bg-view border-top fw-normal o_smc_group_header" t-att-title="column.name">
+                                    <t t-if="warehouse.expanded and activeIndexes.length">
+                                        <th t-foreach="warehouse.columns" t-as="column" t-key="column.key" t-att-colspan="activeIndexes.length" class="bg-view border-top fw-normal o_smc_group_header" t-att-title="column.name">
                                             <t t-esc="column.name"/>
                                         </th>
                                     </t>
@@ -58,11 +76,11 @@
                             </tr>
                             <tr>
                                 <t t-foreach="columns" t-as="column" t-key="column.key">
-                                    <th t-foreach="['В наявності', 'Доступно', 'Прогнозовано']" t-as="label" t-key="label_index"
+                                    <th t-foreach="activeIndexes" t-as="measure" t-key="measure"
                                         class="bg-view text-muted text-center fw-normal o_pivot_measure_row position-relative opacity-trigger-hover"
-                                        t-att-data-column-key="measureKey(column, label_index)" t-att-title="label" t-att-class="resizeClass(measureKey(column, label_index))">
-                                        <t t-esc="label"/>
-                                        <t t-call="stock_minimum_control_vataga.ResizeHandle"><t t-set="resizeKey" t-value="measureKey(column, label_index)"/></t>
+                                        t-att-data-column-key="measureKey(column, measure)" t-att-title="Object.values(measures)[measure].string" t-att-class="resizeClass(measureKey(column, measure))">
+                                        <t t-esc="Object.values(measures)[measure].string"/>
+                                        <t t-call="stock_minimum_control_vataga.ResizeHandle"><t t-set="resizeKey" t-value="measureKey(column, measure)"/></t>
                                     </th>
                                 </t>
                             </tr>
@@ -80,7 +98,7 @@
                                                 t-on-click="() => this.changePage(row, 1)" aria-label="Наступна сторінка">›</button>
                                     </td>
                                     <td class="o_smc_minimum bg-100"/>
-                                    <td t-att-colspan="columns.length * 3"/>
+                                    <td t-if="activeIndexes.length" t-att-colspan="columns.length * activeIndexes.length"/>
                                 </t>
                                 <t t-else="">
                                     <th class="o_smc_label bg-view user-select-none" scope="row" t-att-class="rowHeaderClass(row)">
@@ -100,7 +118,7 @@
                                     </th>
                                     <td class="o_smc_minimum bg-100 text-end" t-att-class="resizeClass('minimum')"><t t-if="row.kind === 'product'" t-esc="format(row.minimum)"/></td>
                                     <t t-foreach="columns" t-as="column" t-key="column.key">
-                                        <td t-foreach="[0, 1, 2]" t-as="measure" t-key="measure"
+                                        <td t-foreach="activeIndexes" t-as="measure" t-key="measure"
                                             class="o_pivot_cell_value bg-100 text-end text-nowrap" t-att-class="cellClass(row, column, measure) + ' ' + resizeClass(measureKey(column, measure))">
                                             <div class="o_value" t-esc="format(row.values[column.key][measure])"/>
                                         </td>
