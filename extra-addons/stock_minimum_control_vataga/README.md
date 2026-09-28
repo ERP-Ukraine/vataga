@@ -1,6 +1,6 @@
 # Контроль мінімальних залишків — Odoo 17
 
-Version: `17.0.1.0.7`. Dependency: `stock` (which already depends on `web` and `product`).
+Version: `17.0.1.0.8`. Dependency: `stock` (which already depends on `web` and `product`).
 Install the addon and open **Склад → Звітність → Контроль залишків**.
 
 The minimum settings block is a full-width section after Traceability and
@@ -72,6 +72,34 @@ centered containers. With the fix all 1,020 numeric measure cells had block,
 full-content-width, right-aligned values; right gaps were consistently 5.297px
 (standard padding plus collapsed border) before and after resizing. Minimum
 padding matched the measures, and all three conditional colors remained correct.
+
+Version `17.0.1.0.8` gives Layout a single `.o_action.o_smc_view` flex root.
+Previously Layout rendered the control panel and `h-100` content as siblings
+directly in the action manager: their combined scroll height was 1,114px within
+a 1,054px viewport, overflowing by the panel's 60px. Browser focus/scrollIntoView
+could scroll this clipped parent and hide the control panel. The problem was not
+just an assumed intrinsic minimum on the table wrapper.
+
+The action, `.o_smc_content` and report root now shrink with explicit minimum
+sizes and hidden overflow. `.o_smc_table_scroll` is the only table scroll owner
+for both axes; its native bottom scrollbar stays within the available area,
+with 8px clearance below. No viewport-height constant or duplicate scrollbar is
+used. JS column-width sums are unchanged and the table has no max-width limit.
+The table uses separate borders with zero spacing, single right/bottom cell
+edges and only the required outer top/left edges. This avoids collapsed-border
+painting artifacts on the sticky thead without 2px shared edges. Body sticky
+columns, thead and header/left intersections retain ordered z-index levels.
+
+Validation: 19 backend tests and 10 QUnit tests / 150 assertions passed. Browser
+acceptance used 27 products in three categories and 18 internal locations in one
+expanded warehouse, with native scrollbars enabled in Edge. Scroll width/client
+width were 7,640/1,653px; scroll height/client height were 2,448/914px. At maximum
+vertical scroll the last row ended at y=1,077, directly above the 15px native
+horizontal scrollbar; the container ended at y=1,092 within a 1,100px viewport.
+Maximum horizontal scroll reached the final column, with both left columns
+still fixed. Resize increased table/scroll width to 7,800px; toggling free_qty
+removed and restored its widths. Top/middle/bottom screenshots confirmed clear
+sticky borders and opaque intersections. Ancestors had no scrollable overflow.
 
 ### Standard search and report actions
 

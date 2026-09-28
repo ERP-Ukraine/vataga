@@ -1,6 +1,48 @@
+.o_smc_view.o_action.o_action_delegate_scroll {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+
+    > .o_content.o_smc_content {
+        display: flex;
+        flex: 1 1 0;
+        height: auto;
+        min-height: 0;
+        min-width: 0;
+        overflow: hidden;
+    }
+}
+
 .o_stock_minimum_control {
+    min-height: 0;
+    min-width: 0;
+    .o_pivot_buttons { flex-shrink: 0; }
+    .o_smc_table_scroll {
+        flex: 1 1 0;
+        min-height: 0;
+        min-width: 0;
+        overflow: auto;
+        margin-bottom: 8px;
+    }
     .o_pivot_table {
         table-layout: fixed;
+        max-width: none;
+        border-collapse: separate;
+        border-spacing: 0;
+        // Separate borders travel with sticky cells. Paint each shared edge once.
+        > thead, > tbody, > thead > tr, > tbody > tr { border: 0; }
+        > thead > tr > th, > tbody > tr > th, > tbody > tr > td {
+            border: 0;
+            border-right: 1px solid var(--table-border-color, #dee2e6);
+            border-bottom: 1px solid var(--table-border-color, #dee2e6);
+            &:first-child { border-left: 1px solid var(--table-border-color, #dee2e6); }
+        }
+        > thead > tr:first-child > th { border-top: 1px solid var(--table-border-color, #dee2e6); }
+        // Lower header rows follow the two rowspan cells; no additional left edge.
+        > thead > tr:not(:first-child) > th:first-child { border-left: 0; }
         th, td {
             overflow: hidden;
             text-overflow: ellipsis;
@@ -65,6 +107,7 @@
         top: 0;
         z-index: 2;
         background-color: var(--o-view-background-color, #fff);
+        .o_smc_label, .o_smc_minimum { z-index: 3; }
     }
     .o_stock_minimum_control_red { background-color: #CDB5BC !important; }
     .o_stock_minimum_control_yellow { background-color: #E4DAA8 !important; }
