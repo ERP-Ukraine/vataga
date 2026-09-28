@@ -134,16 +134,72 @@ class TestStockMinimumReport(TransactionCase):
         shown = self.env['stock.location'].browse([int(key[1:]) for key in keys])
         self.assertTrue(all(loc.usage == 'internal' for loc in shown))
 
-    def test_category_totals_and_zero_minimum(self):
+    def test_category_totals_exclude_zero_minimum(self):
         result = self._report()
         category = next(c for c in result['categories'] if c['id'] == self.category.id)
-        self.assertEqual(set(category['product_ids']), {self.product.id, self.other.id})
+        self.assertEqual(category['product_ids'], self.product.ids)
         self.assertNotIn('minimum', category)
-        self.assertEqual(result['products'][self.other.id]['minimum'], 0)
+        self.assertNotIn(self.other.id, result['products'])
         self.assertIn('[MIN-A]', result['products'][self.product.id]['name'])
         key = 'w' + str(self.warehouse.id)
-        self.assertEqual(category['values'][key], [18, 18, 18])
+        self.assertEqual(category['values'][key], [13, 13, 13])
         self.assertEqual(result['totals'][key], category['values'][key])
+
+    def test_only_positive_minimum_products_categories_and_quantities(self):
+        configured = self.env['product.product'].create({
+            'name': 'Minimum product C', 'detailed_type': 'product',
+            'minimum_stock_qty': 10.5, 'categ_id': self.category.id,
+        })
+        self.env['stock.quant']._update_available_quantity(configured, self.child, 8)
+        empty_category = self.env['product.category'].create({'name': 'Unconfigured category'})
+        excluded = self.env['product.product'].create({
+            'name': 'Minimum product unconfigured', 'detailed_type': 'product',
+            'categ_id': empty_category.id,
+        })
+        self.env['stock.quant']._update_available_quantity(excluded, self.child, 200)
+        moves = self.env['stock.move'].create([{
+            'name': 'Excluded pending move', 'product_id': self.other.id,
+            'product_uom': self.other.uom_id.id, 'product_uom_qty': quantity,
+            'location_id': source.id, 'location_dest_id': destination.id,
+            'company_id': self.company.id,
+        } for source, destination, quantity in (
+            (self.child, self.env.ref('stock.stock_location_customers'), 2),
+            (self.env.ref('stock.stock_location_suppliers'), self.child, 20),
+        )])
+        moves._action_confirm()._action_assign()
+        computed_ids = set()
+        original = type(self.report)._quantities
+
+        def capture(report, products, warehouse, location=None):
+            computed_ids.update(products.ids)
+            return original(report, products, warehouse, location)
+
+        with patch.object(type(self.report), '_quantities', capture):
+            result = self._report()
+        self.assertEqual(set(result['products']), {self.product.id, configured.id})
+        self.assertEqual(computed_ids, {self.product.id, configured.id})
+        self.assertEqual(result['count'], 2)
+        self.assertEqual([c['id'] for c in result['categories']], self.category.ids)
+        category = result['categories'][0]
+        self.assertEqual(category['count'], 2)
+        self.assertEqual(set(category['product_ids']), {self.product.id, configured.id})
+        key = 'w' + str(self.warehouse.id)
+        self.assertEqual(category['values'][key], [21, 21, 21])
+        self.assertEqual(result['totals'][key], [21, 21, 21])
+
+    def test_search_cannot_include_zero_minimum(self):
+        self.warehouse.minimum_stock_control = True
+        self.other.default_code = 'MIN-ZERO-SEARCH'
+        for search in (self.other.name, self.other.default_code):
+            result = self.report.get_report(search=search, expanded_categories=self.category.ids)
+            self.assertEqual(result['count'], 0)
+            self.assertFalse(result['products'])
+            self.assertFalse(result['categories'])
+            self.assertEqual(result['totals']['w' + str(self.warehouse.id)], [0, 0, 0])
+        for search in (self.product.name, self.product.default_code):
+            result = self.report.get_report(search=search, expanded_categories=self.category.ids)
+            self.assertEqual(set(result['products']), {self.product.id})
+            self.assertEqual(result['count'], 1)
 
     def test_variants_share_template_minimum_keep_own_stock(self):
         attribute = self.env['product.attribute'].create({
@@ -172,6 +228,12 @@ class TestStockMinimumReport(TransactionCase):
         result = self._report()
         for variant in variants:
             self.assertEqual(result['products'][variant.id]['minimum'], 12.5)
+        template.minimum_stock_qty = 0
+        result = self._report()
+        self.assertFalse(set(variants.ids) & set(result['products']))
+        self.assertEqual(result['categories'][0]['product_ids'], self.product.ids)
+        self.assertEqual(result['count'], 1)
+        self.assertEqual(result['totals']['w' + str(self.warehouse.id)], [13, 13, 13])
 
     def test_minimum_editable_in_variant_and_template_forms(self):
         self.assertEqual(self.other.minimum_stock_qty, 0)
@@ -215,21 +277,30 @@ class TestStockMinimumReport(TransactionCase):
             self.report.with_user(outsider).get_report()
 
     def test_pagination_preserves_full_totals(self):
-        self.env['product.product'].create([{
+        configured = self.env['product.product'].create([{
             'name': 'Minimum product page %03d' % index, 'detailed_type': 'product',
+            'categ_id': self.category.id, 'minimum_stock_qty': 10.5,
+        } for index in range(PAGE_SIZE)])
+        self.env['product.product'].create([{
+            'name': 'Minimum product zero page %03d' % index, 'detailed_type': 'product',
             'categ_id': self.category.id,
         } for index in range(PAGE_SIZE)])
         first = self._report()
         second = self._report(pages={str(self.category.id): 1})
         self.assertEqual(len(first['products']), PAGE_SIZE)
-        self.assertEqual(len(second['products']), 2)
+        self.assertEqual(len(second['products']), 1)
         self.assertFalse(set(first['products']) & set(second['products']))
+        self.assertEqual(set(first['products']) | set(second['products']), set((configured | self.product).ids))
+        for result in (first, second):
+            self.assertEqual(result['count'], PAGE_SIZE + 1)
+            self.assertEqual(result['categories'][0]['count'], PAGE_SIZE + 1)
+            self.assertEqual(result['totals']['w' + str(self.warehouse.id)], [13, 13, 13])
         self.assertEqual(first['totals'], second['totals'])
 
     def test_quantities_are_batched_per_scope(self):
         self.env['product.product'].create([{
             'name': 'Minimum product batch %s' % index, 'detailed_type': 'product',
-            'categ_id': self.category.id,
+            'categ_id': self.category.id, 'minimum_stock_qty': 1,
         } for index in range(20)])
         batches = []
         original = type(self.report)._quantities
@@ -240,7 +311,7 @@ class TestStockMinimumReport(TransactionCase):
 
         with patch.object(type(self.report), '_quantities', capture):
             self._report()
-        self.assertEqual(batches, [22])
+        self.assertEqual(batches, [21])
 
     def test_stale_quantity_context_is_ignored(self):
         self.warehouse.minimum_stock_control = True
