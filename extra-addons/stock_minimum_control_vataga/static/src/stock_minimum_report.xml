@@ -120,7 +120,7 @@
                                     <t t-foreach="columns" t-as="column" t-key="column.key">
                                         <td t-foreach="activeIndexes" t-as="measure" t-key="measure"
                                             class="align-top o_pivot_cell_value bg-100 text-end text-nowrap" t-att-class="cellClass(row, column, measure) + ' ' + resizeClass(measureKey(column, measure))">
-                                            <div class="o_value" t-esc="format(row.values[column.key][measure])"/>
+                                            <div class="o_value w-100 text-end" t-esc="format(row.values[column.key][measure])"/>
                                         </td>
                                     </t>
                                 </t>

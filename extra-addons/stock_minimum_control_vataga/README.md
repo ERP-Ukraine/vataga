@@ -1,6 +1,6 @@
 # Контроль мінімальних залишків — Odoo 17
 
-Version: `17.0.1.0.6`. Dependency: `stock` (which already depends on `web` and `product`).
+Version: `17.0.1.0.7`. Dependency: `stock` (which already depends on `web` and `product`).
 Install the addon and open **Склад → Звітність → Контроль залишків**.
 
 The minimum settings block is a full-width section after Traceability and
@@ -53,6 +53,25 @@ Version `17.0.1.0.6`: 19 backend tests and 8 QUnit tests / 109 assertions passed
 Browser checks confirmed identical numeric text tops (0px difference) on total,
 category and product rows, including a name wrapping from five to eight lines
 after product/minimum/measure resizing. Colors and right alignment are preserved.
+
+Version `17.0.1.0.7` identifies and overrides a cross-addon style conflict:
+`product_alternatives_vataga/static/src/scss/analog_marker.scss` globally targets
+`.o_pivot table tbody tr > td:nth-child(5n + 6)`, forcing centered/middle cells and
+centered flex `.o_value` containers. Scoped numeric-cell rules in this report
+have higher specificity; `.o_value` is explicitly block/full-width/right-aligned
+with zero margin/padding. The standard Pivot cell padding and existing `align-top`
+remain. No other addon's styles are changed and no dependency is added.
+
+Validation: 19 backend tests and 9 QUnit tests / 128 assertions passed. QUnit
+injects the conflicting marker CSS after report assets and checks three locations,
+all measures, numeric content widths and equal right gaps before/after resize.
+Browser acceptance used the original compiled marker CSS, 15 products, 12 added
+internal locations, Ukrainian number formatting with four decimal places, zeros
+and quantities 100 / 6,950 / 18,350. Removing the new scoped rules reproduced 204
+centered containers. With the fix all 1,020 numeric measure cells had block,
+full-content-width, right-aligned values; right gaps were consistently 5.297px
+(standard padding plus collapsed border) before and after resizing. Minimum
+padding matched the measures, and all three conditional colors remained correct.
 
 ### Standard search and report actions
 
