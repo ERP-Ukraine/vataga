@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="action_stock_minimum_control" model="ir.actions.client">
+        <field name="name">Контроль залишків</field>
+        <field name="tag">stock_minimum_control_vataga.report</field>
+    </record>
+    <menuitem id="menu_stock_minimum_control" name="Контроль залишків"
+              parent="stock.menu_warehouse_report" sequence="6"
+              action="action_stock_minimum_control" groups="stock.group_stock_user"/>
+</odoo>

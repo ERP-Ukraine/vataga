@@ -1,0 +1,32 @@
+.o_stock_minimum_control {
+    .o_pivot_table {
+        width: max-content;
+        min-width: 100%;
+    }
+    .o_smc_label {
+        position: sticky;
+        left: 0;
+        min-width: 22rem;
+        width: 22rem;
+        max-width: 22rem;
+        white-space: normal;
+        background-color: var(--o-view-background-color, #fff);
+        z-index: 1;
+    }
+    .o_smc_minimum {
+        position: sticky;
+        left: 22rem;
+        min-width: 10rem;
+        background-color: var(--o-view-background-color, #fff);
+        z-index: 1;
+    }
+    thead {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background-color: var(--o-view-background-color, #fff);
+    }
+    .o_stock_minimum_control_red { background-color: #CDB5BC !important; }
+    .o_stock_minimum_control_yellow { background-color: #E4DAA8 !important; }
+    .o_stock_minimum_control_green { background-color: #6B975F !important; }
+}
