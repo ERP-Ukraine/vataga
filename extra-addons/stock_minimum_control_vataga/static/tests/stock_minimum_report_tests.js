@@ -255,3 +255,60 @@ QUnit.test("multiline rows keep numbers top/right aligned after resizing", async
     assert.strictEqual(report.columnWidth("w1:qty_available"), 160);
     assert.containsNone(target, "thead .align-top", "header alignment is unchanged");
 });
+
+QUnit.test("location values resist global marker centering before and after resize", async (assert) => {
+    const target = getFixture();
+    const report = await mount(StockMinimumReport, target, { env: await makeReportEnv() });
+    // Reproduce product_alternatives_vataga's global analog_marker.scss, loaded
+    // after our assets, without adding a dependency on that unrelated addon.
+    const style = document.createElement("style");
+    style.textContent = `.o_pivot table tbody tr > td:nth-child(5n + 6) {
+        text-align: center !important; vertical-align: middle !important;
+    }
+    .o_pivot table tbody tr > td:nth-child(5n + 6) > .o_value {
+        align-items: center; display: flex; justify-content: center;
+        min-height: 100%; width: 100%; text-align: center !important;
+    }`;
+    target.append(style);
+    const values = { l2: [0, 0, 0], l3: [0, 0, 0], l4: [0, 0, 0] };
+    Object.assign(report.state.data.warehouses[0], { expanded: true,
+        columns: [2, 3, 4].map((id) => ({ key: `l${id}`, name: `Location ${id}` })) });
+    report.state.data.totals = values;
+    report.state.data.categories[0].values = values;
+    report.state.data.products[11].values = values;
+    report.state.totalExpanded = true;
+    report.state.categories = [5];
+    await nextTick();
+    const check = () => {
+        const cells = [...target.querySelectorAll("tbody .o_pivot_cell_value")];
+        assert.strictEqual(cells.length, 27, "three measures for three locations in each row");
+        assert.ok(cells.every((cell) => getComputedStyle(cell).textAlign === "right"));
+        assert.ok(cells.every((cell) => getComputedStyle(cell).verticalAlign === "top"));
+        const gaps = cells.map((cell) => {
+            const value = cell.querySelector(".o_value");
+            const css = getComputedStyle(cell);
+            // Collapsed table borders contribute half their width to each cell.
+            const borderScale = getComputedStyle(cell.closest("table")).borderCollapse === "collapse" ? 0.5 : 1;
+            const width = cell.getBoundingClientRect().width - parseFloat(css.paddingLeft) -
+                parseFloat(css.paddingRight) - borderScale * (parseFloat(css.borderLeftWidth) + parseFloat(css.borderRightWidth));
+            return { gap: cell.getBoundingClientRect().right - value.getBoundingClientRect().right,
+                widthError: Math.abs(value.getBoundingClientRect().width - width),
+                right: getComputedStyle(value).textAlign === "right",
+                block: getComputedStyle(value).display === "block" };
+        });
+        assert.ok(gaps.every((value) => value.right && value.block && value.widthError < 1));
+        assert.ok(Math.max(...gaps.map((v) => v.gap)) - Math.min(...gaps.map((v) => v.gap)) < 1);
+        const minimum = target.querySelector("tbody tr:last-child .o_smc_minimum");
+        assert.strictEqual(getComputedStyle(minimum).paddingRight, getComputedStyle(cells[0]).paddingRight);
+        assert.strictEqual(getComputedStyle(minimum).textAlign, "right");
+        assert.containsN(target, "td.o_stock_minimum_control_red", 3);
+    };
+    check();
+    await drag(target, "l2:qty_available", 120);
+    await drag(target, "l3:virtual_available", -40);
+    await drag(target, "l4:free_qty", 60);
+    check();
+    assert.strictEqual(report.columnWidth("l2:qty_available"), 240);
+    assert.strictEqual(report.columnWidth("l3:virtual_available"), 80);
+    assert.strictEqual(report.columnWidth("l4:free_qty"), 180);
+});
