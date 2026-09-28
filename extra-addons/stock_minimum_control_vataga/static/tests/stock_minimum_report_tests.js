@@ -214,3 +214,44 @@ QUnit.test("cancelled drag releases listeners and resize handle supports keyboar
     assert.strictEqual(report.columnWidth("product"), 300);
     assert.containsNone(target, ".o_resizing, .o_column_resizing");
 });
+
+QUnit.test("multiline rows keep numbers top/right aligned after resizing", async (assert) => {
+    const target = getFixture();
+    const report = await mount(StockMinimumReport, target, { env: await makeReportEnv() });
+    await click(target, "tbody button");
+    await click(target, "tbody tr:nth-child(2) button");
+    report.state.data.products[11].name = "[LONG] Комплектуючий виріб із дуже довгою назвою для перевірки перенесення тексту на три або більше рядків";
+    // Explicit cell alignment must win over inherited table/theme alignment.
+    target.querySelector("table").style.verticalAlign = "baseline";
+    await nextTick();
+    const checkAlignment = () => {
+        for (const row of target.querySelectorAll("tbody tr")) {
+            const cells = [...row.querySelectorAll(".o_smc_minimum, .o_pivot_cell_value")];
+            assert.ok(cells.every((cell) => getComputedStyle(cell).verticalAlign === "top"));
+            assert.ok(cells.every((cell) => getComputedStyle(cell).textAlign === "right"));
+            assert.strictEqual(getComputedStyle(row.querySelector(".o_smc_label")).verticalAlign, "top");
+        }
+        const product = target.querySelector("tbody tr:last-child");
+        const label = product.querySelector(".o_smc_label span");
+        assert.ok(label.getBoundingClientRect().height >= parseFloat(getComputedStyle(label).lineHeight) * 3,
+            "product label wraps onto at least three lines");
+        const tops = [...product.querySelectorAll("td")].map((cell) => {
+            const range = document.createRange();
+            range.selectNodeContents(cell.querySelector(".o_value") || cell);
+            return range.getBoundingClientRect().top;
+        });
+        assert.ok(Math.max(...tops) - Math.min(...tops) < 1, "all four numeric text tops coincide");
+        assert.containsOnce(target, "td.o_stock_minimum_control_green");
+    };
+    checkAlignment();
+    await drag(target, "product", -80);
+    await drag(target, "minimum", 30);
+    await drag(target, "w1:qty_available", 40);
+    await drag(target, "w1:free_qty", 20);
+    await drag(target, "w1:virtual_available", -20);
+    checkAlignment();
+    assert.strictEqual(report.columnWidth("product"), 200);
+    assert.strictEqual(report.columnWidth("minimum"), 190);
+    assert.strictEqual(report.columnWidth("w1:qty_available"), 160);
+    assert.containsNone(target, "thead .align-top", "header alignment is unchanged");
+});

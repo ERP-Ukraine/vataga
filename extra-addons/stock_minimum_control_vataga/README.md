@@ -1,6 +1,6 @@
 # Контроль мінімальних залишків — Odoo 17
 
-Version: `17.0.1.0.5`. Dependency: `stock` (which already depends on `web` and `product`).
+Version: `17.0.1.0.6`. Dependency: `stock` (which already depends on `web` and `product`).
 Install the addon and open **Склад → Звітність → Контроль залишків**.
 
 The minimum settings block is a full-width section after Traceability and
@@ -42,6 +42,17 @@ The table area follows `web.PivotRenderer` / `web.PivotHeader`: standard
 measure/header hover classes, `o_value` numeric cells and 5 + 30px-per-level row
 indentation. Compact native buttons retain keyboard access while inheriting
 pivot typography/padding.
+
+Body row labels, minimum cells and measure cells explicitly use Bootstrap
+`align-top`. Numeric cells retain `text-end`, and the standard `.o_value` wrapper
+is unchanged. Header alignment is unchanged. Previously alignment depended on
+inherited table/theme styles; clean upstream Odoo already inherited `top`, so the
+reported production mismatch was not reproduced there. The regression test also
+sets parent table alignment to `baseline` and verifies explicit top alignment.
+Version `17.0.1.0.6`: 19 backend tests and 8 QUnit tests / 109 assertions passed.
+Browser checks confirmed identical numeric text tops (0px difference) on total,
+category and product rows, including a name wrapping from five to eight lines
+after product/minimum/measure resizing. Colors and right alignment are preserved.
 
 ### Standard search and report actions
 

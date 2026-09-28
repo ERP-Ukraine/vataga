@@ -88,7 +88,7 @@
                         <tbody>
                             <tr t-foreach="rows" t-as="row" t-key="row.key" t-att-class="row.kind !== 'product' ? 'fw-bold' : ''">
                                 <t t-if="row.kind === 'page'">
-                                    <td class="o_smc_label bg-view">
+                                    <td class="align-top o_smc_label bg-view">
                                         <button class="btn btn-sm btn-secondary me-2" t-att-disabled="state.busy || !row.page"
                                                 t-on-click="() => this.changePage(row, -1)" aria-label="Попередня сторінка">‹</button>
                                         <t t-esc="row.page * state.data.page_size + 1"/>–<t t-esc="Math.min((row.page + 1) * state.data.page_size, row.count)"/>
@@ -97,11 +97,11 @@
                                                 t-att-disabled="state.busy || (row.page + 1) * state.data.page_size >= row.count"
                                                 t-on-click="() => this.changePage(row, 1)" aria-label="Наступна сторінка">›</button>
                                     </td>
-                                    <td class="o_smc_minimum bg-100"/>
+                                    <td class="align-top o_smc_minimum bg-100"/>
                                     <td t-if="activeIndexes.length" t-att-colspan="columns.length * activeIndexes.length"/>
                                 </t>
                                 <t t-else="">
-                                    <th class="o_smc_label bg-view user-select-none" scope="row" t-att-class="rowHeaderClass(row)">
+                                    <th class="align-top o_smc_label bg-view user-select-none" scope="row" t-att-class="rowHeaderClass(row)">
                                         <button t-if="row.kind === 'total'" class="o_smc_toggle fw-bold"
                                                 t-on-click="() => state.totalExpanded = !state.totalExpanded" t-att-aria-expanded="state.totalExpanded">
                                             <i aria-hidden="true" t-att-class="state.totalExpanded ? 'fa fa-minus-square-o me-1' : 'fa fa-plus-square me-1'"/>Разом
@@ -116,10 +116,10 @@
                                             <t t-esc="row.name"/> <small class="text-muted">(<t t-esc="row.uom"/>)</small>
                                         </span>
                                     </th>
-                                    <td class="o_smc_minimum bg-100 text-end" t-att-class="resizeClass('minimum')"><t t-if="row.kind === 'product'" t-esc="format(row.minimum)"/></td>
+                                    <td class="align-top o_smc_minimum bg-100 text-end" t-att-class="resizeClass('minimum')"><t t-if="row.kind === 'product'" t-esc="format(row.minimum)"/></td>
                                     <t t-foreach="columns" t-as="column" t-key="column.key">
                                         <td t-foreach="activeIndexes" t-as="measure" t-key="measure"
-                                            class="o_pivot_cell_value bg-100 text-end text-nowrap" t-att-class="cellClass(row, column, measure) + ' ' + resizeClass(measureKey(column, measure))">
+                                            class="align-top o_pivot_cell_value bg-100 text-end text-nowrap" t-att-class="cellClass(row, column, measure) + ' ' + resizeClass(measureKey(column, measure))">
                                             <div class="o_value" t-esc="format(row.values[column.key][measure])"/>
                                         </td>
                                     </t>
