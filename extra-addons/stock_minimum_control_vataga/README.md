@@ -1,13 +1,16 @@
 # Контроль мінімальних залишків — Odoo 17
 
-Version: `17.0.1.0.1`. Dependency: `stock` (which already depends on `web` and `product`).
+Version: `17.0.1.0.2`. Dependency: `stock` (which already depends on `web` and `product`).
 Install the addon and open **Склад → Звітність → Контроль залишків**.
 
-The minimum settings block is at the top of the Inventory tab in both
+The minimum settings block is a full-width section after Traceability and
+immediately before Packaging in the Inventory tab in both
 `product.product_template_only_form_view` and `product.product_normal_form_view`.
 The variant form uses Odoo's delegated template field (`_inherits`); editing any
 variant updates the same minimum on its template and all sibling variants.
-After upgrading from `17.0.1.0.0`, update the addon to install the new variant view.
+Update the addon to apply the views. Both forms target the direct child
+`//page[@name='inventory']/group[@name='packaging']` with `position="before"`;
+the minimum section is not nested inside Traceability or the two-column group.
 
 ## Architecture and source investigation
 
@@ -144,10 +147,12 @@ Validated on 2026-09-28 in an isolated upstream Odoo 17 / Python 3.12 /
 PostgreSQL 18 database:
 
 - Fresh installation and upgrade succeeded; 15 backend test methods passed
-  after the `17.0.1.0.1` view fix, including both forms and delegated variant edits.
+  after the `17.0.1.0.2` layout fix, including compiled section order in both forms
+  and delegated variant edits.
 - Browser verification of the view fix: Inventory → Products template form and
-  the stock Product Variants action both show the block first in the Inventory
-  tab. Values `100` and `10.5` survive save/reopen; `-0.5` raises the Ukrainian
+  the stock Product Variants action both show the full-width block after
+  Traceability and before Packaging. Values `100` and `10.5` survive save/reopen;
+  `-0.5` raises the Ukrainian
   validation error. Backend form tests also verify shared sibling-variant minima
   and their use in the existing report.
 - Headless Edge / Odoo QUnit: 3 tests, 29 assertions passed, no browser errors.
