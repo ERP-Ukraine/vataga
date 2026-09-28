@@ -1,7 +1,13 @@
 # Контроль мінімальних залишків — Odoo 17
 
-Version: `17.0.1.0.0`. Dependency: `stock` (which already depends on `web` and `product`).
+Version: `17.0.1.0.1`. Dependency: `stock` (which already depends on `web` and `product`).
 Install the addon and open **Склад → Звітність → Контроль залишків**.
+
+The minimum settings block is at the top of the Inventory tab in both
+`product.product_template_only_form_view` and `product.product_normal_form_view`.
+The variant form uses Odoo's delegated template field (`_inherits`); editing any
+variant updates the same minimum on its template and all sibling variants.
+After upgrading from `17.0.1.0.0`, update the addon to install the new variant view.
 
 ## Architecture and source investigation
 
@@ -137,7 +143,13 @@ QUnit: `/web/tests?mod=stock_minimum_control_vataga&filter=stock_minimum_control
 Validated on 2026-09-28 in an isolated upstream Odoo 17 / Python 3.12 /
 PostgreSQL 18 database:
 
-- Fresh installation and upgrade succeeded; 14 backend test methods passed.
+- Fresh installation and upgrade succeeded; 15 backend test methods passed
+  after the `17.0.1.0.1` view fix, including both forms and delegated variant edits.
+- Browser verification of the view fix: Inventory → Products template form and
+  the stock Product Variants action both show the block first in the Inventory
+  tab. Values `100` and `10.5` survive save/reopen; `-0.5` raises the Ukrainian
+  validation error. Backend form tests also verify shared sibling-variant minima
+  and their use in the existing report.
 - Headless Edge / Odoo QUnit: 3 tests, 29 assertions passed, no browser errors.
 - Actual RPC/browser acceptance: 120 green, 6 red, 10.5 yellow; exact CSS colors;
   90 + 30 location split without warehouse duplication; horizontal scrolling

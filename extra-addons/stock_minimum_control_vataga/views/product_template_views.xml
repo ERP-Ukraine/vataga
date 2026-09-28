@@ -5,7 +5,19 @@
         <field name="model">product.template</field>
         <field name="inherit_id" ref="product.product_template_only_form_view"/>
         <field name="arch" type="xml">
-            <xpath expr="//page[@name='inventory']" position="inside">
+            <xpath expr="//page[@name='inventory']/group[@name='inventory']" position="before">
+                <group name="minimum_stock_control" string="Контроль залишків" groups="stock.group_stock_user">
+                    <field name="minimum_stock_qty"/>
+                </group>
+            </xpath>
+        </field>
+    </record>
+    <record id="product_product_minimum_control" model="ir.ui.view">
+        <field name="name">product.product.minimum.control</field>
+        <field name="model">product.product</field>
+        <field name="inherit_id" ref="product.product_normal_form_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//page[@name='inventory']/group[@name='inventory']" position="before">
                 <group name="minimum_stock_control" string="Контроль залишків" groups="stock.group_stock_user">
                     <field name="minimum_stock_qty"/>
                 </group>

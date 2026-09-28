@@ -3,7 +3,7 @@
     'summary': 'Контроль мінімальних залишків товарів по складах та локаціях',
     'description': 'Налаштування мінімальних залишків і складський звіт лише для читання.',
     'author': 'ERP Ukraine LLC',
-    'version': '17.0.1.0.0',
+    'version': '17.0.1.0.1',
     'category': 'Inventory/Inventory',
     'license': 'LGPL-3',
     'depends': ['stock'],

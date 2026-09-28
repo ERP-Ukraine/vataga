@@ -1,8 +1,10 @@
 from unittest.mock import patch
 
+from lxml import etree
+
 from odoo import Command
 from odoo.exceptions import AccessError, ValidationError
-from odoo.tests import TransactionCase, new_test_user, tagged
+from odoo.tests import Form, TransactionCase, new_test_user, tagged
 
 from ..models.stock_minimum_report import MEASURES, PAGE_SIZE
 
@@ -163,6 +165,32 @@ class TestStockMinimumReport(TransactionCase):
             row = result['products'][variant.id]
             self.assertEqual(row['minimum'], 10.5)
             self.assertEqual(row['values']['w' + str(self.warehouse.id)][0], quantity)
+        with Form(variants[0], view='product.product_normal_form_view') as form:
+            form.minimum_stock_qty = 12.5
+        self.assertEqual(template.minimum_stock_qty, 12.5)
+        self.assertEqual(variants[1].minimum_stock_qty, 12.5)
+        result = self._report()
+        for variant in variants:
+            self.assertEqual(result['products'][variant.id]['minimum'], 12.5)
+
+    def test_minimum_editable_in_variant_and_template_forms(self):
+        self.assertEqual(self.other.minimum_stock_qty, 0)
+        for record, view in (
+            (self.other, 'product.product_normal_form_view'),
+            (self.other.product_tmpl_id, 'product.product_template_only_form_view'),
+        ):
+            for value in (100, 10.5):
+                with Form(record, view=view) as form:
+                    form.minimum_stock_qty = value
+                self.env.flush_all()
+                self.env.invalidate_all()
+                self.assertEqual(Form(record, view=view).minimum_stock_qty, value)
+                self.assertEqual(self.other.product_tmpl_id.minimum_stock_qty, value)
+                result = self._report()
+                self.assertEqual(result['products'][self.other.id]['minimum'], value)
+            with self.assertRaises(ValidationError), self.cr.savepoint():
+                with Form(record, view=view) as form:
+                    form.minimum_stock_qty = -0.5
 
     def test_company_isolation_and_forged_context(self):
         company = self.env['res.company'].create({'name': 'Minimum second company'})
@@ -226,9 +254,15 @@ class TestStockMinimumReport(TransactionCase):
     def test_inherited_views_and_menu(self):
         warehouse_view = self.env['stock.warehouse'].get_view(self.env.ref('stock.view_warehouse').id, 'form')
         self.assertIn('minimum_stock_control', warehouse_view['arch'])
-        product_view = self.env['product.template'].get_view(
-            self.env.ref('product.product_template_only_form_view').id, 'form',
-        )
-        self.assertIn('minimum_stock_qty', product_view['arch'])
+        for model, view in (
+            ('product.template', 'product.product_template_only_form_view'),
+            ('product.product', 'product.product_normal_form_view'),
+        ):
+            product_view = self.env[model].get_view(self.env.ref(view).id, 'form')
+            arch = etree.fromstring(product_view['arch'])
+            fields = arch.xpath("//page[@name='inventory']/group[@name='minimum_stock_control']/field[@name='minimum_stock_qty']")
+            self.assertEqual(len(fields), 1)
+            first_group = arch.xpath("//page[@name='inventory']/group[1]")[0]
+            self.assertEqual(first_group.get('name'), 'minimum_stock_control')
         menu = self.env.ref('stock_minimum_control_vataga.menu_stock_minimum_control')
         self.assertEqual(menu.parent_id, self.env.ref('stock.menu_warehouse_report'))
