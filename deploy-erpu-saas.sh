@@ -26,7 +26,8 @@ diagnostic_request() (
     trap 'rm -f "$body"' EXIT
 
     rc=0
-    http=$(curl --fail-with-body -s -o "$body" \
+    http=$(curl --fail-with-body --location --max-redirs 5 \
+        --proto-redir '=https' -s -o "$body" \
         -w '%{http_code}' "$@" 2>/dev/null) || rc=$?
 
     case "$rc" in
@@ -139,8 +140,8 @@ if [ -n "${ERPUSAAS_DEPLOY_SECRET}" ]; then
         *)          id_shape=digits_only ;;
     esac
     printf 'trigger_response_shape=%s\n' "$id_shape" >&2
-    if [ -z "$BUILD_ID" ]; then
-        echo "Error: Failed to trigger rebuild" >&2
+    if [ "$id_shape" != digits_only ]; then
+        echo "Error: Invalid build ID; expected digits only" >&2
         exit 1
     fi
 
