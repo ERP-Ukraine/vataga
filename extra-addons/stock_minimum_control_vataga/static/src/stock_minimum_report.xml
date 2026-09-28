@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="stock_minimum_control_vataga.Report">
+        <div class="o_stock_minimum_control d-flex flex-column h-100 overflow-hidden">
+            <div class="o_control_panel d-flex flex-wrap gap-2 p-3">
+                <h2 class="me-3 mb-0">Контроль залишків</h2>
+                <form class="d-flex gap-2" t-on-submit.prevent="onSearch">
+                    <input class="form-control" type="search" placeholder="Назва або код товару"
+                           aria-label="Пошук товарів" t-model="state.searchInput" t-att-disabled="state.busy"/>
+                    <button type="submit" class="btn btn-primary" t-att-disabled="state.busy">Знайти</button>
+                </form>
+                <button class="btn btn-secondary" t-on-click="load" t-att-disabled="state.busy">Оновити</button>
+                <span t-if="state.busy" class="align-self-center" role="status">Завантаження…</span>
+            </div>
+            <div t-if="state.error" class="alert alert-danger m-3" role="alert">
+                Не вдалося завантажити звіт. Перевірте доступ та натисніть «Оновити».
+            </div>
+            <t t-if="state.data">
+                <div t-if="!state.data.warehouses.length" class="alert alert-info m-3">
+                    Немає доступних складів із увімкненим контролем мінімальних залишків.
+                </div>
+                <div t-elif="!state.data.count" class="alert alert-info m-3">Товари не знайдено.</div>
+                <div t-else="" class="o_pivot flex-grow-1 overflow-auto" t-att-aria-busy="state.busy">
+                    <table class="table table-sm table-bordered o_pivot_table mb-0">
+                        <thead>
+                            <tr>
+                                <th rowspan="3" class="o_smc_label">Товар</th>
+                                <th rowspan="3" class="o_smc_minimum">Мінімальна кількість</th>
+                                <th t-foreach="state.data.warehouses" t-as="warehouse" t-key="warehouse.id"
+                                    t-att-colspan="warehouse.columns.length * 3" t-att-rowspan="warehouse.expanded ? 1 : 2"
+                                    class="text-center text-nowrap">
+                                    <button class="btn btn-link p-0 fw-bold" t-on-click="() => this.toggleWarehouse(warehouse.id)"
+                                            t-att-disabled="state.busy || !warehouse.can_expand" t-att-aria-expanded="warehouse.expanded">
+                                        <i aria-hidden="true" t-att-class="warehouse.expanded ? 'fa fa-minus-square-o me-1' : 'fa fa-plus-square-o me-1'"/>
+                                        <t t-esc="warehouse.name"/>
+                                    </button>
+                                </th>
+                            </tr>
+                            <tr>
+                                <t t-foreach="state.data.warehouses" t-as="warehouse" t-key="warehouse.id">
+                                    <t t-if="warehouse.expanded">
+                                        <th t-foreach="warehouse.columns" t-as="column" t-key="column.key" colspan="3" class="text-center text-nowrap">
+                                            <t t-esc="column.name"/>
+                                        </th>
+                                    </t>
+                                </t>
+                            </tr>
+                            <tr>
+                                <t t-foreach="columns" t-as="column" t-key="column.key">
+                                    <th class="text-nowrap">В наявності</th>
+                                    <th class="text-nowrap">Доступно</th>
+                                    <th class="text-nowrap">Прогнозовано</th>
+                                </t>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr t-foreach="rows" t-as="row" t-key="row.key" t-att-class="row.kind !== 'product' ? 'fw-bold' : ''">
+                                <t t-if="row.kind === 'page'">
+                                    <td class="o_smc_label">
+                                        <button class="btn btn-sm btn-secondary me-2" t-att-disabled="state.busy || !row.page"
+                                                t-on-click="() => this.changePage(row, -1)" aria-label="Попередня сторінка">‹</button>
+                                        <t t-esc="row.page * state.data.page_size + 1"/>–<t t-esc="Math.min((row.page + 1) * state.data.page_size, row.count)"/>
+                                        / <t t-esc="row.count"/>
+                                        <button class="btn btn-sm btn-secondary ms-2"
+                                                t-att-disabled="state.busy || (row.page + 1) * state.data.page_size >= row.count"
+                                                t-on-click="() => this.changePage(row, 1)" aria-label="Наступна сторінка">›</button>
+                                    </td>
+                                    <td t-att-colspan="1 + columns.length * 3"/>
+                                </t>
+                                <t t-else="">
+                                    <th class="o_smc_label" scope="row">
+                                        <button t-if="row.kind === 'total'" class="btn btn-link p-0 fw-bold"
+                                                t-on-click="() => state.totalExpanded = !state.totalExpanded" t-att-aria-expanded="state.totalExpanded">
+                                            <i aria-hidden="true" t-att-class="state.totalExpanded ? 'fa fa-minus-square-o me-1' : 'fa fa-plus-square-o me-1'"/>Разом
+                                        </button>
+                                        <button t-elif="row.kind === 'category'" class="btn btn-link p-0 ps-3 text-start fw-bold"
+                                                t-on-click="() => this.toggleCategory(row.id)" t-att-disabled="state.busy"
+                                                t-att-aria-expanded="state.categories.includes(row.id)">
+                                            <i aria-hidden="true" t-att-class="state.categories.includes(row.id) ? 'fa fa-minus-square-o me-1' : 'fa fa-plus-square-o me-1'"/>
+                                            <t t-esc="row.name"/>
+                                        </button>
+                                        <span t-else="" class="ps-4 d-block fw-normal" t-att-title="row.name">
+                                            <t t-esc="row.name"/> <small class="text-muted">(<t t-esc="row.uom"/>)</small>
+                                        </span>
+                                    </th>
+                                    <td class="o_smc_minimum text-end"><t t-if="row.kind === 'product'" t-esc="format(row.minimum)"/></td>
+                                    <t t-foreach="columns" t-as="column" t-key="column.key">
+                                        <td t-foreach="[0, 1, 2]" t-as="measure" t-key="measure"
+                                            class="o_pivot_cell_value text-end text-nowrap" t-att-class="cellClass(row, column, measure)">
+                                            <t t-esc="format(row.values[column.key][measure])"/>
+                                        </td>
+                                    </t>
+                                </t>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </t>
+        </div>
+    </t>
+</templates>
