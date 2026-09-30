@@ -4,6 +4,8 @@ import json
 import logging
 import re
 
+from .diagnostics import sanitize_diagnostics
+
 import requests
 
 from odoo import _
@@ -29,6 +31,8 @@ class GeminiClient:
         self.last_request_payload = None
         self.last_raw_response = None
         self.last_raw_text = None
+        self.diagnostic_stage = 'preflight'
+        self._diagnostic_secrets = []
 
     def get_config(self):
         config = self.env['ir.config_parameter'].sudo()
@@ -52,6 +56,11 @@ class GeminiClient:
 
     def recognize(self, job):
         job.ensure_one()
+        self.diagnostic_stage = 'preflight'
+        # Load secrets before config conversion/attachment validation can fail.
+        key = self.env['ir.config_parameter'].sudo().get_param(
+            'account_gemini_digitization.gemini_api_key')
+        self._diagnostic_secrets = [key, job.attachment_id.datas]
         config = self.get_config()
         endpoint = self._build_endpoint(config)
         self.last_request_payload = self._build_minimal_request_metadata(
@@ -78,10 +87,12 @@ class GeminiClient:
 
         try:
             attachment = self._get_valid_attachment(job)
+            self.diagnostic_stage = 'attachment_decode'
             file_content = self._decode_attachment(attachment)
         except UserError:
             self._save_job_raw_response(job)
             raise
+        self.diagnostic_stage = 'request'
         prompt = self._build_prompt(job, config)
         payload = self._build_request_payload(prompt, attachment.mimetype, file_content)
         self.last_request_payload = self._build_request_metadata(
@@ -97,11 +108,13 @@ class GeminiClient:
 
         final_response = self._post_to_gemini(job, config, endpoint, payload)
         try:
+            self.diagnostic_stage = 'text_extraction'
             self.last_raw_text = self._extract_text(final_response)
             self._augment_last_raw_response({
                 'extracted_text_for_json_parse': self.last_raw_text,
             })
             self._save_job_raw_response(job)
+            self.diagnostic_stage = 'json_parse'
             return self._extract_json(self.last_raw_text)
         except UserError:
             self._save_job_raw_response(job)
@@ -154,6 +167,7 @@ class GeminiClient:
 
     def _build_request_payload(self, prompt, mimetype, file_content):
         encoded_file = base64.b64encode(file_content).decode('ascii')
+        self._diagnostic_secrets.append(encoded_file)
         return {
             'contents': [{
                 'parts': [
@@ -266,6 +280,7 @@ class GeminiClient:
         return final_response
 
     def _execute_request(self, config, endpoint, payload, attempt):
+        self.diagnostic_stage = 'request'
         try:
             response = requests.post(
                 endpoint,
@@ -273,13 +288,14 @@ class GeminiClient:
                 json=payload,
                 timeout=config['timeout'],
             )
-        except requests.Timeout:
+        except requests.Timeout as error:
             return {
                 'attempt': attempt,
                 'status_code': None,
                 'transport_error': {
                     'type': 'timeout',
-                    'message': _('Час очікування відповіді Gemini API вичерпано.'),
+                    'message': self.sanitize_diagnostics(str(error)) or
+                    _('Час очікування відповіді Gemini API вичерпано.'),
                 },
             }
         except requests.RequestException as error:
@@ -288,10 +304,11 @@ class GeminiClient:
                 'status_code': None,
                 'transport_error': {
                     'type': error.__class__.__name__,
-                    'message': str(error),
+                    'message': self.sanitize_diagnostics(str(error)),
                 },
             }
 
+        self.diagnostic_stage = 'http_response'
         response_capture = {
             'attempt': attempt,
             'status_code': response.status_code,
@@ -394,7 +411,7 @@ class GeminiClient:
         except json.JSONDecodeError as error:
             self._augment_last_raw_response({
                 'json_parse_error': {
-                    'message': str(error),
+                    'message': self.sanitize_diagnostics(str(error)),
                     'line': error.lineno,
                     'column': error.colno,
                     'position': error.pos,
@@ -684,13 +701,16 @@ Do not create purchase order lines.
             self.last_raw_response = {}
         self.last_raw_response.update(values)
 
+    def sanitize_diagnostics(self, value):
+        return sanitize_diagnostics(value, self._diagnostic_secrets)
+
     def _save_job_raw_request(self, job):
         if self.last_request_payload is not None:
-            job.write({'raw_request_json': self.last_request_payload})
+            job.write({'raw_request_json': self.sanitize_diagnostics(self.last_request_payload)})
 
     def _save_job_raw_response(self, job):
         if self.last_raw_response is not None:
-            job.write({'raw_response_json': self.last_raw_response})
+            job.write({'raw_response_json': self.sanitize_diagnostics(self.last_raw_response)})
 
     def _set_preflight_error(self, code, message, details=None):
         self.last_raw_response = {

@@ -126,9 +126,8 @@ class PurchaseOrder(models.Model):
             'currency_id': self.currency_id.id,
             'attachment_id': attachment.id,
         })
-        try:
-            result = job.run_automatic_pipeline()
-        finally:
+        result = job.run_automatic_pipeline()
+        if result.get('status') != 'error':
             job._unlink_temporary_job()
         return self._get_gemini_digitization_notification_action(
             result['message'],

@@ -1,6 +1,8 @@
 import json
 import logging
 
+from markupsafe import Markup
+
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
@@ -221,29 +223,31 @@ class AccountGeminiDigitizationJob(models.Model):
 
         client = GeminiClient(self.env)
         try:
-            self.write({
-                'state': 'processing',
-                'error_message': False,
-                'matching_message': False,
-            })
-            response = client.recognize(self)
-            self.write({
-                'raw_request_json': client.last_request_payload,
-            })
-            ResponseParser(self.env).apply_to_job(
-                self,
-                response,
-                raw_response=client.last_raw_response,
-            )
-            self._run_product_matching()
+            with self.env.cr.savepoint():
+                self.write({
+                    'state': 'processing',
+                    'error_message': False,
+                    'matching_message': False,
+                })
+                response = client.recognize(self)
+                self.write({
+                    'raw_request_json': client.sanitize_diagnostics(client.last_request_payload),
+                })
+                client.diagnostic_stage = 'response_parse'
+                ResponseParser(self.env).apply_to_job(
+                    self,
+                    response,
+                    raw_response=client.sanitize_diagnostics(client.last_raw_response),
+                )
+                client.diagnostic_stage = 'matching'
+                self._run_product_matching()
         except UserError as error:
             self._save_processing_error(error, client)
-            raise
+            raise UserError(self.error_message) from None
         except Exception as error:
-            _logger.exception('Unexpected Gemini digitization processing error.')
-            user_error = UserError(_('Помилка обробки Gemini: %s') % error)
-            self._save_processing_error(user_error, client)
-            raise user_error
+            _logger.error('Unexpected Gemini digitization processing error for job %s.', self.id)
+            self._save_processing_error(error, client)
+            raise UserError(self.error_message) from None
 
         return True
 
@@ -251,11 +255,15 @@ class AccountGeminiDigitizationJob(models.Model):
         self.ensure_one()
         self._check_linked_document_access('write')
         try:
-            self.action_process()
+            self.with_context(gemini_automatic_diagnostics=True).action_process()
         except Exception as error:
-            _logger.exception('Gemini automatic digitization pipeline failed.')
-            message = _('Не вдалося завершити оцифрування. Дані до документа не застосовано.')
-            self._post_automatic_pipeline_message(message)
+            if self.state != 'error':
+                self.with_context(gemini_automatic_diagnostics=True)._save_processing_error(
+                    error, GeminiClient(self.env))
+            diagnostic = (self.raw_response_json or {}).get('diagnostic', {})
+            message = 'Gemini OCR error\nJob: %s\nStage: %s\nError: %s' % (
+                self.id, diagnostic.get('stage', 'preflight'), self.error_message)
+            self._post_diagnostic_error(message, diagnostic)
             return {
                 'status': 'error',
                 'message': message,
@@ -611,20 +619,87 @@ class AccountGeminiDigitizationJob(models.Model):
 
     def _save_processing_error(self, error, client):
         self.ensure_one()
-        error_message = self._get_error_message(error)
-        values = {
-            'state': 'error',
-            'error_message': error_message,
+        config = self.env['ir.config_parameter'].sudo()
+        client._diagnostic_secrets.extend([
+            config.get_param('account_gemini_digitization.gemini_api_key'),
+            self.attachment_id.datas,
+        ])
+        request = client.last_request_payload or {
+            'model': config.get_param('account_gemini_digitization.gemini_model', client.DEFAULT_MODEL),
+            'mode': self.mode,
         }
-        if getattr(client, 'last_request_payload', None):
-            values['raw_request_json'] = client.last_request_payload
-        if getattr(client, 'last_raw_response', None) is not None:
-            values['raw_response_json'] = client.last_raw_response
-        elif getattr(client, 'last_raw_text', None):
-            values['raw_response_json'] = {'text': client.last_raw_text}
-        self.write(values)
-        # Keep the diagnostic state visible even though the button raises UserError.
-        self.env.cr.commit()
+        request = dict(request)
+        request.setdefault('endpoint', client._build_endpoint(request))
+        attachment = self.attachment_id
+        request.setdefault('attachment', {
+            'id': attachment.id, 'name': attachment.name,
+            'mimetype': attachment.mimetype, 'size': attachment.file_size,
+        })
+        raw = dict(client.last_raw_response or {})
+        final = raw.get('final_response') or {}
+        response = final.get('response_json') or {}
+        response = response if isinstance(response, dict) else {}
+        candidates = response.get('candidates')
+        error_message = str(error)
+        # Distinguish ORM line creation from parsing without changing ResponseParser.
+        traceback = error.__traceback__
+        while traceback:
+            frame = traceback.tb_frame
+            if (frame.f_code.co_name == 'apply_to_job'
+                    and frame.f_code.co_filename.endswith('response_parser.py')
+                    and 'line' in frame.f_locals):
+                client.diagnostic_stage = 'ocr_line_create'
+            traceback = traceback.tb_next
+        # Include the original JSON decoder reason, not only the translated wrapper.
+        if raw.get('json_parse_error'):
+            error_message += '\nJSON: %s' % raw['json_parse_error']
+        diagnostic = {
+            'job_id': self.id, 'state': 'error', 'mode': self.mode,
+            'stage': client.diagnostic_stage,
+            'exception_type': type(error).__name__, 'exception': error_message,
+            'attachment': request['attachment'], 'model': request['model'],
+            'endpoint': request['endpoint'],
+            'http_status': final.get('status_code'),
+            'transport_error': final.get('transport_error'),
+            'promptFeedback': response.get('promptFeedback'),
+            'candidates_present': 'candidates' in response,
+            'candidates_count': len(candidates) if isinstance(candidates, list) else 0,
+            'finishReason': [c.get('finishReason') for c in candidates if isinstance(c, dict)]
+            if isinstance(candidates, list) else [],
+        }
+        raw['diagnostic'] = diagnostic
+        for key in ('json_parse_error', 'extracted_text_for_json_parse', 'json_text_candidate'):
+            raw.setdefault(key, None)
+        self.write({
+            'state': 'error',
+            'error_message': client.sanitize_diagnostics(error_message),
+            'raw_request_json': client.sanitize_diagnostics(request),
+            'raw_response_json': client.sanitize_diagnostics(raw),
+        })
+        # Automatic calls return normally: let Odoo commit job and chatter together.
+        if not self.env.context.get('gemini_automatic_diagnostics'):
+            self.env.cr.commit()
+
+    def _post_diagnostic_error(self, message, diagnostic):
+        document = self.move_id or self.purchase_order_id
+        if not document:
+            return
+        compact = {key: diagnostic.get(key) for key in (
+            'state', 'mode', 'attachment', 'model', 'endpoint', 'http_status',
+            'transport_error', 'promptFeedback', 'finishReason',
+            'candidates_present', 'candidates_count',
+        )}
+        # Raw OCR text stays on the job; chatter only receives a compact summary.
+        body = Markup('<pre>%s\n%s</pre><a href="%s">Gemini diagnostic job %s</a>') % (
+            message[:2000], json.dumps(compact, ensure_ascii=False, default=str)[:4000],
+            '/web#id=%s&model=account.gemini.digitization.job&view_type=form' % self.id,
+            self.id,
+        )
+        try:
+            with self.env.cr.savepoint():
+                document.message_post(body=body, subtype_xmlid='mail.mt_note')
+        except Exception:
+            _logger.error('Could not post Gemini diagnostic job %s to chatter.', self.id)
 
     def _get_error_message(self, error):
         if getattr(error, 'args', None):
