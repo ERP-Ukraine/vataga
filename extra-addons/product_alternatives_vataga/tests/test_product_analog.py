@@ -296,17 +296,72 @@ class TestProductAnalog(TransactionCase):
         self.assertEqual(analytic.qty_received, 1400)
         return analytic, purchase, refund
 
+    def test_vendor_bill_reversal_without_supplier_return(self):
+        product = self._create_product('Reversed vendor bill product')
+        contract = self._create_seller_contract('Reversed vendor bill contract')
+        analytic = self._create_sale_demand(product, contract, 2100)
+        purchase = self._create_purchase_with_received_quantity(
+            product, contract, ordered_quantity=400, received_quantity=400,
+        )
+        bill = self._create_vendor_bill_from_distribution(
+            product, {str(contract.id): 100}, 400,
+            seller_contract=contract, purchase_line=purchase.order_line,
+        )
+        reversal = bill._reverse_moves()
+        self.assertEqual(reversal.reversed_entry_id, bill)
+        self.assertEqual(reversal.move_type, 'in_refund')
+        self.assertEqual(reversal.invoice_line_ids.purchase_line_id, purchase.order_line)
+        reversal.action_post()
+        self.assertEqual(reversal.state, 'posted')
+        self.assertEqual(analytic.in_invoice, 0)
+        self._create_vendor_bill_from_distribution(
+            product, {str(contract.id): 100}, 400,
+            seller_contract=contract, purchase_line=purchase.order_line,
+        )
+        self.assertFalse(purchase.order_line.move_ids.filtered(
+            lambda move: move._is_purchase_return()
+        ))
+        self.assertEqual(analytic.in_invoice, 400)
+        self.assertEqual(analytic.qty_received, 400)
+
+        # Complete the report totals from the original regression case.
+        self._create_purchase_with_received_quantity(
+            product, contract, ordered_quantity=1000, received_quantity=300,
+        )
+        self._create_vendor_bill(product, contract, 1000)
+        self.assertEqual(analytic.demand, 2100)
+        self.assertEqual(analytic.in_invoice, 1400)
+        self.assertEqual(analytic.qty_received, 700)
+        self.assertAlmostEqual(analytic.closed, 2 / 3)
+        self.assertEqual(round(analytic.closed * 100, 2), 66.67)
+
+    def test_vendor_bill_reversal_with_return_is_deducted_once(self):
+        analytic, purchase, refund = self._prepare_vendor_refund_quantity_case(400)
+        refund.button_draft()
+        bill = purchase.order_line.invoice_lines.move_id.filtered(
+            lambda move: move.move_type == 'in_invoice' and move.state == 'posted'
+        )
+        bill.ensure_one()
+        refund.reversed_entry_id = bill
+        self._create_supplier_return(purchase, 400)
+        refund.action_post()
+        self.assertEqual(analytic.in_invoice, 1000)
+        self.assertEqual(analytic.qty_received, 1000)
+        self.assertAlmostEqual(analytic.closed, 1000 / 1400)
+
     def test_price_only_vendor_refund_keeps_invoice_quantity(self):
         analytic, purchase, refund = self._prepare_vendor_refund_quantity_case(1400)
         self.assertFalse(purchase.order_line.move_ids.filtered(
             lambda move: move._is_purchase_return()
         ))
+        self.assertFalse(refund.reversed_entry_id)
         self.assertEqual(refund.invoice_line_ids.quantity, 1400)
         self.assertEqual(analytic.in_invoice, 1400)
         self.assertEqual(analytic.closed, 1)
 
     def test_vendor_refund_deducts_done_supplier_return(self):
         analytic, purchase, refund = self._prepare_vendor_refund_quantity_case(400)
+        self.assertFalse(refund.reversed_entry_id)
         # Posting the refund before the return also verifies stored-field
         # invalidation when the stock movement is subsequently completed.
         self._create_supplier_return(purchase, 400)

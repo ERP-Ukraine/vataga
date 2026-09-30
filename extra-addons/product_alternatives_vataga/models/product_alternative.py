@@ -1332,6 +1332,12 @@ class ProductAnalytic(models.Model):
                 total_quantity += quantity
                 continue
 
+            if line.move_type == 'in_refund' and line.move_id.reversed_entry_id:
+                # An explicit reversal cancels the bill quantity independently
+                # of stock returns. Do not deduct this credit note twice.
+                total_quantity -= quantity
+                continue
+
             # A credit note alone is not evidence of returned goods. Reuse the
             # purchase links (including historical/multiple-link support), but
             # never guess a purchase from the product or contract alone.
