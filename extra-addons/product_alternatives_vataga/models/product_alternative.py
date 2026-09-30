@@ -995,10 +995,12 @@ class ProductAnalytic(models.Model):
             ).exists()
             if not product_analytics:
                 continue
-            product_analytics._compute_numbers()
-            product_analytics._compute_qty_received()
-            product_analytics._compute_account_move_ids()
-            product_analytics._compute_demand_comment()
+            # Use the ORM compute context: direct assignments outside it call
+            # write(), whose inherited override also changes product links.
+            for field_name in (
+                'demand', 'qty_received', 'account_move_ids', 'demand_comment',
+            ):
+                product_analytics._fields[field_name].compute_value(product_analytics)
             recomputed_count += len(product_analytics)
         return recomputed_count
 
