@@ -1,6 +1,6 @@
 {
     'name': 'Product Analogs',
-    'version': '17.0.1.19',
+    'version': '17.0.1.20',
     'category': 'Inventory',
     'author': 'Vataga',
     'license': 'LGPL-3',

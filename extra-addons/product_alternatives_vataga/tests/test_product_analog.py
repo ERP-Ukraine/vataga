@@ -1,3 +1,5 @@
+from pathlib import Path
+from runpy import run_path
 from unittest.mock import patch
 
 from odoo import Command, fields
@@ -334,6 +336,35 @@ class TestProductAnalog(TransactionCase):
         self.assertEqual(analytic.qty_received, 700)
         self.assertAlmostEqual(analytic.closed, 2 / 3)
         self.assertEqual(round(analytic.closed * 100, 2), 66.67)
+
+        # Simulate persisted values left behind by the old calculation.
+        stored_fields = ['demand', 'in_invoice', 'qty_received', 'closed']
+        self.env.flush_all()
+        with self.env.protecting(
+            [analytic._fields[name] for name in stored_fields], analytic,
+        ):
+            analytic.in_invoice = 1800
+            analytic.closed = 1800 / 2100
+        analytic.flush_recordset(stored_fields)
+        analytic.invalidate_recordset(stored_fields)
+        self.assertEqual(analytic.in_invoice, 1800)
+        count_before = self.ProductAnalytic.search_count([])
+        migration = run_path(str(
+            Path(__file__).resolve().parents[1]
+            / 'migrations/17.0.1.20/post-recompute_product_analytics.py'
+        ))
+        with patch.object(type(self.Product), 'write', side_effect=AssertionError(
+            'Derived-value migration must not write to products'
+        )), patch.object(type(self.ProductAnalytic), 'create', side_effect=AssertionError(
+            'Derived-value migration must not create analytics'
+        )):
+            migration['migrate'](self.env.cr, '17.0.1.19')
+        analytic.invalidate_recordset(stored_fields)
+        self.assertEqual(self.ProductAnalytic.search_count([]), count_before)
+        self.assertEqual(analytic.demand, 2100)
+        self.assertEqual(analytic.in_invoice, 1400)
+        self.assertEqual(analytic.qty_received, 700)
+        self.assertAlmostEqual(analytic.closed, 2 / 3)
 
     def test_vendor_bill_reversal_with_return_is_deducted_once(self):
         analytic, purchase, refund = self._prepare_vendor_refund_quantity_case(400)
