@@ -113,6 +113,40 @@ class TestInternalPickingReport(TransactionCase):
         self.assertEqual(picking.move_ids_without_package.mapped('product_uom_qty'), [2, 5, 8])
         self.assertEqual(len(self._assert_operations(picking)), 3)
 
+    def test_packaging_is_absent_but_quantity_and_uom_remain(self):
+        self.env.user.groups_id |= self.env.ref('uom.group_uom')
+        self.env.user.groups_id |= self.env.ref('product.group_stock_packaging')
+        product = self.products[0]
+        packaging = self.env['product.packaging'].create({
+            'name': 'REPORT PACKAGING 250', 'product_id': product.id, 'qty': 250,
+        })
+        picking = self._picking([(product, 1000, 10)])
+        move = picking.move_ids_without_package
+        move.product_packaging_id = packaging
+        self.env['stock.move.line'].create({
+            'move_id': move.id, 'picking_id': picking.id,
+            'product_id': product.id, 'product_uom_id': product.uom_id.id,
+            'quantity': 1000, 'location_id': self.source.id,
+            'location_dest_id': self.destination.id,
+        })
+        self.assertEqual(move.quantity, 1000)
+        self.assertEqual(move.product_packaging_quantity, 4)
+        self.assertEqual(move.product_packaging_qty, 4)
+        rows = self._assert_operations(picking)
+        table = rows[0].getparent().getparent()
+        quantity_cell = rows[0].xpath('./td')[2]
+        spans = quantity_cell.xpath('./span')
+        self.assertEqual(len(spans), 2)
+        self.assertEqual(spans[1].text_content(), move.product_uom.display_name)
+        self.assertEqual(
+            ' '.join(quantity_cell.text_content().split()),
+            ' '.join(span.text_content() for span in spans),
+        )
+        self.assertNotIn(packaging.name, table.text_content())
+        self.assertNotRegex(table.text_content(), r'(?<!\d)4(?:[.,]0+)?(?!\d)')
+        self.assertNotIn('(', quantity_cell.text_content())
+        self.assertNotIn(')', quantity_cell.text_content())
+
     def test_incoming_outgoing_tables_match_standard_report(self):
         view = self.env.ref('product_vataga.report_picking_actual_quantity')
         for picking_type in [self.warehouse.in_type_id, self.warehouse.out_type_id]:
