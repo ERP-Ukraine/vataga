@@ -5,26 +5,61 @@
         inherit_id="stock.report_picking"
         priority="100"
     >
-        <xpath expr="//th[@name='th_from']" position="before">
-            <th
-                name="th_actual_quantity"
-                t-if="o.picking_type_id.code == 'internal'"
-                groups="stock.group_stock_multi_locations"
-                style="width: 20mm;"
+        <!-- Use the same recordset and order as the Operations tab. -->
+        <xpath expr="//table[thead/tr/th[@name='th_product']]" position="before">
+            <table
+                name="internal_move_table"
+                class="table table-sm"
+                style="width: 100%; table-layout: fixed;"
+                t-if="o.picking_type_id.code == 'internal' and o.move_ids_without_package"
             >
-                <strong>Кількість</strong>
-            </th>
+                <thead>
+                    <tr>
+                        <th name="th_internal_product" style="width: 26%;"><strong>Товар</strong></th>
+                        <th name="th_internal_demand" style="width: 9%;"><strong>Попит</strong></th>
+                        <th name="th_internal_quantity" style="width: 10%;"><strong>Кількість</strong></th>
+                        <th name="th_actual_quantity" style="width: 10%;"><strong>Кількість</strong></th>
+                        <th name="th_internal_from" style="width: 12%;"><strong>Від</strong></th>
+                        <th name="th_internal_to" style="width: 12%;"><strong>До</strong></th>
+                        <th name="th_internal_barcode" class="text-center" style="width: 21%;"><strong>Штрих-код товару</strong></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr t-foreach="o.move_ids_without_package" t-as="move">
+                        <td style="word-wrap: break-word;">
+                            <span t-field="move.product_id.display_name"/>
+                            <t t-if="move.description_picking">
+                                <br/>
+                                <span t-field="move.description_picking"/>
+                            </t>
+                        </td>
+                        <td><span t-field="move.product_uom_qty"/></td>
+                        <td>
+                            <span t-field="move.quantity"/>
+                            <span t-field="move.product_uom" groups="uom.group_uom"/>
+                        </td>
+                        <td name="td_actual_quantity">&#160;</td>
+                        <td style="word-wrap: break-word;"><span t-field="move.location_id.display_name"/></td>
+                        <td style="word-wrap: break-word;"><span t-field="move.location_dest_id.display_name"/></td>
+                        <td class="text-center">
+                            <div
+                                t-if="move.product_id.barcode"
+                                t-field="move.product_id.barcode"
+                                t-options="{'widget': 'barcode', 'symbology': 'auto', 'width': 400, 'height': 100, 'quiet': 0, 'img_style': 'width:100%;height:35px;'}"
+                            />
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
         </xpath>
 
-        <xpath
-            expr="//tr[@t-as='ml' and starts-with(normalize-space(@t-foreach), 'o.move_line_ids_without_package.sorted(')]/td[span[@t-esc='ml.location_id.display_name']]"
-            position="before"
-        >
-            <td
-                name="td_actual_quantity"
-                t-if="o.picking_type_id.code == 'internal'"
-                groups="stock.group_stock_multi_locations"
-            >&#160;</td>
+        <xpath expr="//table[thead/tr/th[@name='th_product']]" position="attributes">
+            <attribute name="t-if">o.picking_type_id.code != 'internal' and o.move_line_ids and o.move_ids_without_package</attribute>
+        </xpath>
+
+        <!-- Package detail rows must not add a second table for internal moves. -->
+        <xpath expr="//table[thead/tr/th[@name='th_package']]/preceding-sibling::div[1]" position="attributes">
+            <attribute name="t-if">o.picking_type_id.code == 'internal' or not (o.package_level_ids and o.picking_type_entire_packs and o.state in ['assigned', 'done'])</attribute>
         </xpath>
     </template>
 </odoo>
