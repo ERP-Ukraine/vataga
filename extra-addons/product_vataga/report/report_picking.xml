@@ -27,10 +27,6 @@
                     <tr t-foreach="o.move_ids_without_package" t-as="move">
                         <td style="word-wrap: break-word;">
                             <span t-field="move.product_id.display_name"/>
-                            <t t-if="move.description_picking">
-                                <br/>
-                                <span t-field="move.description_picking"/>
-                            </t>
                         </td>
                         <td><span t-field="move.product_uom_qty"/></td>
                         <td name="td_actual_quantity">&#160;</td>

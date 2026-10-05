@@ -61,7 +61,8 @@ class TestInternalPickingReport(TransactionCase):
         for row, move in zip(rows, moves):
             cells = row.xpath('./td')
             self.assertEqual(len(cells), 6)
-            self.assertIn(move.product_id.display_name, cells[0].text_content())
+            self.assertEqual(cells[0].text_content().strip(), move.product_id.display_name)
+            self.assertFalse(cells[0].xpath('.//br'))
             expected = self.env['ir.qweb.field.float'].record_to_html(
                 move, 'product_uom_qty', {},
             )
@@ -84,6 +85,19 @@ class TestInternalPickingReport(TransactionCase):
         self.assertFalse(picking.move_line_ids)
         self.assertEqual(picking.move_ids_without_package.mapped('sequence'), [10, 20, 30])
         self.assertEqual(len(self._assert_operations(picking)), 3)
+
+    def test_product_name_is_not_repeated_from_picking_description(self):
+        product = self.products[0]
+        picking = self._picking([(product, 3, 10), (product, 5, 20)])
+        moves = picking.move_ids_without_package
+        moves[0].description_picking = product.display_name
+        moves[1].description_picking = 'Description that must not be printed'
+        rows = self._assert_operations(picking)
+        self.assertEqual(len(rows), 2)
+        for row in rows:
+            product_cell = row.xpath('./td')[0]
+            self.assertEqual(product_cell.text_content().count(product.display_name), 1)
+            self.assertNotIn(moves[1].description_picking, product_cell.text_content())
 
     def test_partial_stock_and_multiple_move_lines_keep_one_row(self):
         product = self.products[0]
