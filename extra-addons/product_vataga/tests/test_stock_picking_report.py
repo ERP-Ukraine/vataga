@@ -53,22 +53,25 @@ class TestInternalPickingReport(TransactionCase):
         table = tables[0]
         self.assertEqual(
             [''.join(th.itertext()).strip() for th in table.xpath('./thead/tr/th')],
-            ['Товар', 'Попит', 'Кількість', 'Кількість', 'Від', 'До', 'Штрих-код товару'],
+            ['Товар', 'Попит', 'Кількість', 'Від', 'До', 'Штрих-код товару'],
         )
         rows = table.xpath('./tbody/tr')
         moves = picking.move_ids_without_package
         self.assertEqual(len(rows), len(moves))
         for row, move in zip(rows, moves):
             cells = row.xpath('./td')
-            self.assertEqual(len(cells), 7)
+            self.assertEqual(len(cells), 6)
             self.assertIn(move.product_id.display_name, cells[0].text_content())
-            for index, field in [(1, 'product_uom_qty'), (2, 'quantity')]:
-                expected = self.env['ir.qweb.field.float'].record_to_html(move, field, {})
-                self.assertEqual(cells[index].xpath('./span')[0].text_content(), str(expected))
-            self.assertEqual(cells[3].text_content().strip(), '')
-            self.assertIn(move.location_id.display_name, cells[4].text_content())
-            self.assertIn(move.location_dest_id.display_name, cells[5].text_content())
-            self.assertEqual(bool(cells[6].xpath('.//img')), bool(move.product_id.barcode))
+            expected = self.env['ir.qweb.field.float'].record_to_html(
+                move, 'product_uom_qty', {},
+            )
+            self.assertEqual(cells[1].xpath('./span')[0].text_content(), str(expected))
+            self.assertEqual(cells[2].get('name'), 'td_actual_quantity')
+            self.assertEqual(cells[2].text_content().strip(), '')
+            self.assertFalse(list(cells[2]))
+            self.assertIn(move.location_id.display_name, cells[3].text_content())
+            self.assertIn(move.location_dest_id.display_name, cells[4].text_content())
+            self.assertEqual(bool(cells[5].xpath('.//img')), bool(move.product_id.barcode))
         self.assertFalse(document.xpath("//th[@name='th_product' or @name='th_package']"))
         return rows
 
@@ -113,7 +116,7 @@ class TestInternalPickingReport(TransactionCase):
         self.assertEqual(picking.move_ids_without_package.mapped('product_uom_qty'), [2, 5, 8])
         self.assertEqual(len(self._assert_operations(picking)), 3)
 
-    def test_packaging_is_absent_but_quantity_and_uom_remain(self):
+    def test_packaging_is_absent_and_quantity_stays_blank(self):
         self.env.user.groups_id |= self.env.ref('uom.group_uom')
         self.env.user.groups_id |= self.env.ref('product.group_stock_packaging')
         product = self.products[0]
@@ -126,24 +129,21 @@ class TestInternalPickingReport(TransactionCase):
         self.env['stock.move.line'].create({
             'move_id': move.id, 'picking_id': picking.id,
             'product_id': product.id, 'product_uom_id': product.uom_id.id,
-            'quantity': 1000, 'location_id': self.source.id,
+            'quantity': 750, 'location_id': self.source.id,
             'location_dest_id': self.destination.id,
         })
-        self.assertEqual(move.quantity, 1000)
-        self.assertEqual(move.product_packaging_quantity, 4)
+        self.assertEqual(move.quantity, 750)
+        self.assertEqual(move.product_packaging_quantity, 3)
         self.assertEqual(move.product_packaging_qty, 4)
         rows = self._assert_operations(picking)
         table = rows[0].getparent().getparent()
         quantity_cell = rows[0].xpath('./td')[2]
-        spans = quantity_cell.xpath('./span')
-        self.assertEqual(len(spans), 2)
-        self.assertEqual(spans[1].text_content(), move.product_uom.display_name)
-        self.assertEqual(
-            ' '.join(quantity_cell.text_content().split()),
-            ' '.join(span.text_content() for span in spans),
-        )
+        self.assertEqual(quantity_cell.text_content().strip(), '')
+        self.assertFalse(list(quantity_cell))
+        self.assertNotIn(move.product_uom.display_name, quantity_cell.text_content())
+        self.assertNotRegex(table.text_content(), r'(?<!\d)750(?:[.,]0+)?(?!\d)')
         self.assertNotIn(packaging.name, table.text_content())
-        self.assertNotRegex(table.text_content(), r'(?<!\d)4(?:[.,]0+)?(?!\d)')
+        self.assertNotRegex(table.text_content(), r'(?<!\d)[34](?:[.,]0+)?(?!\d)')
         self.assertNotIn('(', quantity_cell.text_content())
         self.assertNotIn(')', quantity_cell.text_content())
 

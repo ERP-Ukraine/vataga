@@ -15,12 +15,11 @@
             >
                 <thead>
                     <tr>
-                        <th name="th_internal_product" style="width: 26%;"><strong>Товар</strong></th>
+                        <th name="th_internal_product" style="width: 32%;"><strong>Товар</strong></th>
                         <th name="th_internal_demand" style="width: 9%;"><strong>Попит</strong></th>
-                        <th name="th_internal_quantity" style="width: 10%;"><strong>Кількість</strong></th>
                         <th name="th_actual_quantity" style="width: 10%;"><strong>Кількість</strong></th>
-                        <th name="th_internal_from" style="width: 12%;"><strong>Від</strong></th>
-                        <th name="th_internal_to" style="width: 12%;"><strong>До</strong></th>
+                        <th name="th_internal_from" style="width: 14%;"><strong>Від</strong></th>
+                        <th name="th_internal_to" style="width: 14%;"><strong>До</strong></th>
                         <th name="th_internal_barcode" class="text-center" style="width: 21%;"><strong>Штрих-код товару</strong></th>
                     </tr>
                 </thead>
@@ -34,10 +33,6 @@
                             </t>
                         </td>
                         <td><span t-field="move.product_uom_qty"/></td>
-                        <td>
-                            <span t-field="move.quantity"/>
-                            <span t-field="move.product_uom" groups="uom.group_uom"/>
-                        </td>
                         <td name="td_actual_quantity">&#160;</td>
                         <td style="word-wrap: break-word;"><span t-field="move.location_id.display_name"/></td>
                         <td style="word-wrap: break-word;"><span t-field="move.location_dest_id.display_name"/></td>
