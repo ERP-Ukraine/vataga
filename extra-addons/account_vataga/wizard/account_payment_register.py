@@ -71,6 +71,19 @@ class AccountPaymentRegister(models.TransientModel):
         ref = move.ref or ''
         invoice_date = self._format_date(move.invoice_date)
         tax_info = self._prepare_tax_info(move)
+        tax_groups = [
+            group
+            for groups in (move.tax_totals or {}).get('groups_by_subtotal', {}).values()
+            for group in groups
+        ]
+        # Only this explicit no-VAT group qualifies; preserve mixed/other taxes
+        # and the shared tax formatter used by DKU.
+        if move.move_type == 'in_invoice' and tax_groups and all(
+            group.get('tax_group_name') == 'Не є ПДВ'
+            and group.get('tax_group_amount') == 0.0
+            for group in tax_groups
+        ):
+            tax_info = _('without VAT')
         return _('Payment is reasonable. Ref №%s in %s, %s.') % (ref, invoice_date, tax_info)
 
     def _prepare_purpose_dcu(self, move):
