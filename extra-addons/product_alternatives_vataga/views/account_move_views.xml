@@ -3,9 +3,10 @@
     <record id="account_move_form_view_analog_original_product" model="ir.ui.view">
         <field name="name">account.move.form.analog.original.product</field>
         <field name="model">account.move</field>
-        <field name="inherit_id" ref="account.view_move_form"/>
+        <field name="inherit_id" ref="account_vataga.view_move_form_account"/>
         <field name="arch" type="xml">
-            <xpath expr="//field[@name='invoice_line_ids']//tree//field[@name='product_id']" position="after">
+            <!-- Odoo applies each XPath to its first match: target both lists explicitly. -->
+            <xpath expr="//field[@name='invoice_line_ids']/tree[not(@create='0' and @delete='0')]/field[@name='product_id']" position="after">
                 <field name="analog_original_product_ids" column_invisible="1"/>
                 <field name="has_analog_original_options" column_invisible="1"/>
                 <field name="has_multiple_analog_original_options" column_invisible="1"/>
@@ -14,6 +15,18 @@
                     string="Оригінал аналога"
                     optional="show"
                     invisible="not has_analog_original_options"
+                />
+            </xpath>
+            <xpath expr="//field[@name='invoice_line_ids']/tree[@create='0' and @delete='0']/field[@name='product_id']" position="after">
+                <field name="analog_original_product_ids" column_invisible="1"/>
+                <field name="has_analog_original_options" column_invisible="1"/>
+                <field name="has_multiple_analog_original_options" column_invisible="1"/>
+                <field
+                    name="analog_original_product_id"
+                    string="Оригінал аналога"
+                    optional="show"
+                    invisible="not has_analog_original_options"
+                    readonly="1"
                 />
             </xpath>
         </field>

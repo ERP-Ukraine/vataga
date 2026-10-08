@@ -1,6 +1,6 @@
 {
     'name': 'Product Analogs',
-    'version': '17.0.1.20',
+    'version': '17.0.1.21',
     'category': 'Inventory',
     'author': 'Vataga',
     'license': 'LGPL-3',
@@ -8,6 +8,7 @@
     'installable': True,
     'application': False,
     'depends': [
+        'account_vataga',
         'mrp',
         'product',
         'purchase_demand_vataga',
