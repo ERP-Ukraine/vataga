@@ -1,6 +1,6 @@
 {
     'name': 'Purchase Demand Vataga',
-    'version': '1.4',
+    'version': '1.5',
     'category': 'Inventory/Purchase',
     'author': 'ERP Ukraine LLC',
     'website': 'https://erp.co.ua',
