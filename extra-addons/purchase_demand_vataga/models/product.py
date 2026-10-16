@@ -14,50 +14,111 @@ class ProductAnalytic(models.Model):
         compute='_compute_purchase_order_ids', compute_sudo=False,
     )
 
-    @api.depends('account_move_ids.invoice_line_ids.purchase_line_id.order_id')
+    @api.depends(
+        'product_id', 'sale_contract_id', 'kit_bom_ids',
+        'account_move_ids.invoice_line_ids.purchase_line_id.order_id',
+        'account_move_ids.invoice_line_ids.product_id',
+        'account_move_ids.invoice_line_ids.analytic_distribution',
+        'account_move_ids.invoice_line_ids.seller_contract_id',
+        'account_move_ids.seller_contract_id',
+        'sale_contract_id.seller_purchase_line_ids.product_id',
+        'sale_contract_id.seller_purchase_line_ids.analytic_distribution',
+        'sale_contract_id.seller_purchase_line_ids.order_id.seller_contract_id',
+    )
     @api.depends_context('uid', 'company', 'allowed_company_ids')
     def _compute_purchase_order_ids(self):
         Move = self.env['account.move']
         Line = self.env['account.move.line']
         PurchaseLine = self.env['purchase.order.line']
         Order = self.env['purchase.order']
+        Bom = self.env['mrp.bom']
         for demand in self:
             demand.purchase_order_ids = False
         if not all(model.check_access_rights('read', raise_exception=False)
-                   for model in (Move, Line, PurchaseLine, Order)):
+                   for model in (PurchaseLine, Order)):
             return
-        # Search each model in batch so record rules apply at every step.
-        moves = Move.search([
-            ('id', 'in', self.account_move_ids.ids),
-            ('move_type', 'in', ('in_invoice', 'in_refund')),
-            ('company_id', 'in', self.env.companies.ids),
-        ])
-        lines = Line.search([
-            ('move_id', 'in', moves.ids),
-            ('display_type', 'in', ('product', 'line_section', 'line_note')),
-            ('purchase_line_id', '!=', False),
-        ])
-        purchase_lines = PurchaseLine.search([
-            ('id', 'in', lines.purchase_line_id.ids),
-        ])
+
+        # Batch equivalent of _get_invoice_kit_parent_boms(), using current BOMs.
+        products_by_component = {product.id: {product.id} for product in self.product_id}
+        if Bom.check_access_rights('read', raise_exception=False):
+            boms = Bom.search([
+                ('bom_line_ids.product_id', 'in', self.product_id.ids),
+                ('type', '=', 'phantom'),
+                '|', ('company_id', '=', False),
+                ('company_id', 'in', self.env.companies.ids),
+            ])
+            for bom in boms:
+                kit_ids = (bom.product_id + bom.product_tmpl_id.product_variant_ids).ids
+                for component in bom.bom_line_ids.product_id:
+                    if component.id in products_by_component:
+                        products_by_component[component.id].update(kit_ids)
+        product_ids = set().union(*products_by_component.values()) if products_by_component else set()
+
+        # Orders are searched separately before reading their fields: line rules
+        # do not necessarily grant access to the parent purchase order.
         orders = Order.search([
-            ('id', 'in', purchase_lines.order_id.ids),
             ('company_id', 'in', self.env.companies.ids),
+            ('order_line.product_id', 'in', sorted(product_ids)),
+            '|', ('seller_contract_id', 'in', self.sale_contract_id.ids),
+            ('order_line.seller_contract_id', 'in', self.sale_contract_id.ids),
         ])
-        visible_order_ids = set(orders.ids)
-        order_by_line = {
-            line.id: line.order_id.id for line in purchase_lines
-            if line.order_id.id in visible_order_ids
-        }
-        orders_by_move = defaultdict(set)
-        for line in lines:
-            order_id = order_by_line.get(line.purchase_line_id.id)
-            if order_id:
-                orders_by_move[line.move_id.id].add(order_id)
+        direct_lines = PurchaseLine.search([
+            ('order_id', 'in', orders.ids),
+            ('product_id', 'in', sorted(product_ids)),
+            '|', ('seller_contract_id', 'in', self.sale_contract_id.ids),
+            ('order_id.seller_contract_id', 'in', self.sale_contract_id.ids),
+        ])
+        direct_orders = defaultdict(set)
+        for line in direct_lines:
+            contract = line.seller_contract_id
+            header_contract = line.order_id.seller_contract_id
+            if contract and header_contract and contract != header_contract:
+                continue
+            if not contract and not line.analytic_distribution:
+                contract = header_contract
+            if contract:
+                direct_orders[(line.product_id.id, contract.id)].add(line.order_id.id)
+
+        # Accounting access is optional for the direct purchase source.
+        invoice_lines_by_product = defaultdict(list)
+        order_by_line = {}
+        if all(model.check_access_rights('read', raise_exception=False)
+               for model in (Move, Line)):
+            moves = Move.search([
+                ('id', 'in', self.account_move_ids.ids),
+                ('move_type', 'in', ('in_invoice', 'in_refund')),
+                ('company_id', 'in', self.env.companies.ids),
+            ])
+            lines = Line.search([
+                ('move_id', 'in', moves.ids),
+                ('display_type', 'in', ('product', 'line_section', 'line_note')),
+                ('product_id', 'in', sorted(product_ids)),
+                ('purchase_line_id', '!=', False),
+            ])
+            purchase_lines = PurchaseLine.search([('id', 'in', lines.purchase_line_id.ids)])
+            invoice_orders = Order.search([
+                ('id', 'in', purchase_lines.order_id.ids),
+                ('company_id', 'in', self.env.companies.ids),
+            ])
+            visible_ids = set(invoice_orders.ids)
+            order_by_line = {
+                line.id: line.order_id.id for line in purchase_lines
+                if line.order_id.id in visible_ids
+            }
+            for line in lines:
+                invoice_lines_by_product[line.product_id.id].append(line)
         for demand in self:
             order_ids = set()
-            for move in demand.account_move_ids:
-                order_ids.update(orders_by_move[move.id])
+            if demand.product_id and demand.sale_contract_id:
+                move_ids = set(demand.account_move_ids.ids)
+                for product_id in products_by_component[demand.product_id.id]:
+                    order_ids.update(direct_orders[(product_id, demand.sale_contract_id.id)])
+                    for line in invoice_lines_by_product[product_id]:
+                        if (line.move_id.id in move_ids
+                                and demand._has_related_sale_contract(line)):
+                            order_id = order_by_line.get(line.purchase_line_id.id)
+                            if order_id:
+                                order_ids.add(order_id)
             demand.purchase_order_ids = Order.browse(sorted(order_ids))
 
     @api.model
@@ -74,6 +135,8 @@ class ProductAnalytic(models.Model):
         )
         for name in ('name', 'partner_id', 'date_order', 'amount_total', 'currency_id', 'state'):
             column = etree.SubElement(tree, 'field', name=name)
+            if name == 'date_order':
+                column.set('string', 'Дата замовлення')
             if name == 'amount_total':
                 column.set('widget', 'monetary')
                 column.set('options', "{'currency_field': 'currency_id'}")

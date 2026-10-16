@@ -15,6 +15,11 @@ class TestRelatedPurchases(AccountTestInvoicingCommon):
     def setUpClass(cls):
         super().setUpClass()
         cls.user.groups_id += cls.env.ref('purchase.group_purchase_user')
+        plan = cls.env.ref('analytic_vataga.account_analytic_plan_seller_contract')
+        cls.contract = cls.env['account.analytic.account'].create({
+            'name': 'Demand contract', 'plan_id': plan.id, 'company_id': False,
+        })
+        cls.other_contract = cls.contract.copy({'name': 'Other demand contract'})
         cls.orders = cls.env['purchase.order'].create([
             {
                 'partner_id': cls.partner_a.id,
@@ -34,7 +39,8 @@ class TestRelatedPurchases(AccountTestInvoicingCommon):
             'move_type': move_type,
             'partner_id': self.partner_a.id,
             'invoice_line_ids': [Command.create({
-                'product_id': self.product_a.id,
+                'product_id': order.order_line.product_id.id,
+                'analytic_distribution': {str(self.contract.id): 100},
                 'quantity': 1,
                 'price_unit': 100,
                 'account_id': self.company_data['default_account_expense'].id,
@@ -45,6 +51,8 @@ class TestRelatedPurchases(AccountTestInvoicingCommon):
     def _demand(self, bills):
         # Isolate the new relation from the existing stored invoice computation.
         return self.env['product.analytic'].new({
+            'product_id': self.product_a.id,
+            'sale_contract_id': self.contract.id,
             'account_move_ids': [Command.set(bills.ids)],
         })
 
@@ -92,6 +100,95 @@ class TestRelatedPurchases(AccountTestInvoicingCommon):
         demand = self._demand(self._bill(self.orders[:2]))
         self.assertEqual(demand.purchase_order_ids, self.orders[1:2])
 
+    def test_unbilled_without_purchase_contract(self):
+        order = self.orders[0]
+        order.seller_contract_id = self.contract
+        self.assertFalse(order.ua_contract_id)
+        self.assertFalse(order.invoice_ids)
+        self.assertEqual(order.state, 'draft')
+        self.assertEqual(self._demand(self.env['account.move']).purchase_order_ids, order)
+        order.button_cancel()
+        self.assertEqual(self._demand(self.env['account.move']).purchase_order_ids, order)
+
+    def test_line_contract_and_header_fallback(self):
+        order = self.orders[0]
+        order.order_line.analytic_distribution = {str(self.contract.id): 100}
+        self.assertEqual(self._demand(self.env['account.move']).purchase_order_ids, order)
+        order.seller_contract_id = self.contract
+        order.order_line.analytic_distribution = False
+        self.assertEqual(self._demand(self.env['account.move']).purchase_order_ids, order)
+        order.order_line.analytic_distribution = {str(self.other_contract.id): 100}
+        self.assertFalse(self._demand(self.env['account.move']).purchase_order_ids)
+
+    def test_other_contract_same_product(self):
+        self.orders[0].seller_contract_id = self.other_contract
+        self.assertFalse(self._demand(self.env['account.move']).purchase_order_ids)
+
+    def test_common_bill_excludes_other_product_and_contract(self):
+        self.orders[1].order_line.product_id = self.product_b
+        bill = self._bill(self.orders[:2])
+        self.assertEqual(self._demand(bill).purchase_order_ids, self.orders[:1])
+        bill.invoice_line_ids.filtered(
+            lambda line: line.product_id == self.product_a
+        ).analytic_distribution = {str(self.other_contract.id): 100}
+        self.assertFalse(self._demand(bill).purchase_order_ids)
+
+    def test_kit_purchase(self):
+        kit = self.env['product.product'].create({'name': 'Demand kit'})
+        self.env['mrp.bom'].create({
+            'product_tmpl_id': kit.product_tmpl_id.id,
+            'type': 'phantom',
+            'bom_line_ids': [Command.create({
+                'product_id': self.product_a.id, 'product_qty': 1,
+            })],
+        })
+        order = self.orders[0]
+        order.order_line.product_id = kit
+        order.seller_contract_id = self.contract
+        self.assertEqual(self._demand(self.env['account.move']).purchase_order_ids, order)
+        order.seller_contract_id = False
+        order.order_line.analytic_distribution = False
+        self.assertEqual(self._demand(self._bill(order)).purchase_order_ids, order)
+
+    def test_direct_and_invoice_union(self):
+        self.orders[:2].seller_contract_id = self.contract
+        self.assertEqual(self._demand(self.env['account.move']).purchase_order_ids, self.orders[:2])
+        bill = self._bill(self.orders[:2])
+        self.assertEqual(self._demand(bill).purchase_order_ids, self.orders[:2])
+
+    def test_direct_purchase_record_rules(self):
+        self.orders[:2].seller_contract_id = self.contract
+        self.env['ir.rule'].create({
+            'name': 'Hide direct purchase for demand test',
+            'model_id': self.env['ir.model']._get_id('purchase.order'),
+            'domain_force': repr([('id', '!=', self.orders[0].id)]),
+        })
+        self.assertEqual(self._demand(self.env['account.move']).purchase_order_ids, self.orders[1:2])
+
+    def test_direct_multi_company(self):
+        other_company = self.company_data_2['company']
+        other_order = self.env['purchase.order'].with_company(other_company).create({
+            'company_id': other_company.id,
+            'partner_id': self.partner_a.id,
+            'seller_contract_id': self.contract.id,
+            'order_line': [Command.create({
+                'product_id': self.product_a.id,
+                'name': 'Other company demand purchase',
+                'product_qty': 1,
+                'product_uom': self.product_a.uom_id.id,
+                'price_unit': 100,
+                'date_planned': fields.Datetime.now(),
+            })],
+        })
+        demand = self._demand(self.env['account.move']).with_context(
+            allowed_company_ids=[self.env.company.id],
+        )
+        self.assertFalse(demand.purchase_order_ids)
+        demand = demand.with_context(
+            allowed_company_ids=[self.env.company.id, other_company.id],
+        )
+        self.assertEqual(demand.purchase_order_ids, other_order)
+
     def test_default_form_preserves_fields_and_layout(self):
         model = self.env['product.analytic']
         # Simulate a runtime Studio field without changing the DB schema.
@@ -109,6 +206,7 @@ class TestRelatedPurchases(AccountTestInvoicingCommon):
         self.assertEqual([node.get('name') for node in tree], [
             'name', 'partner_id', 'date_order', 'amount_total', 'currency_id', 'state',
         ])
+        self.assertEqual(tree.find("field[@name='date_order']").get('string'), 'Дата замовлення')
         for attr in ('create', 'edit', 'delete'):
             self.assertEqual(tree.get(attr), '0')
         self.assertTrue(arch.xpath(".//field[@name='x_studio_demand_note']"))
