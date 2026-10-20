@@ -21,6 +21,7 @@ export class QualityMeasurementMatrix extends Component {
             addingSamples: false,
             removingSamples: false,
             data: {
+                control_stage: "incoming",
                 columns: [],
                 samples: [],
                 editable: false,
@@ -53,6 +54,16 @@ export class QualityMeasurementMatrix extends Component {
                 "get_measurement_matrix_data",
                 [[checkId]]
             );
+            if (
+                this.state.data.control_stage === "in_process" &&
+                this.state.data.editable
+            ) {
+                this.state.data = await this.orm.call(
+                    "quality.check",
+                    "initialize_in_process_measurement_matrix",
+                    [[checkId]]
+                );
+            }
         } finally {
             this.state.loading = false;
         }
@@ -62,9 +73,17 @@ export class QualityMeasurementMatrix extends Component {
         this.state.sampleCount = ev.target.value;
     }
 
+    async refreshInProcessMatrix() {
+        await this.load();
+        if (!(await this.props.record.isDirty())) {
+            await this.props.record.load();
+        }
+    }
+
     async addSamples() {
         if (
             !this.checkId ||
+            this.state.data.control_stage === "in_process" ||
             this.state.addingSamples ||
             this.state.removingSamples ||
             this.state.saving
@@ -97,6 +116,7 @@ export class QualityMeasurementMatrix extends Component {
     async removeSamples() {
         if (
             !this.checkId ||
+            this.state.data.control_stage === "in_process" ||
             this.state.addingSamples ||
             this.state.removingSamples ||
             this.state.saving

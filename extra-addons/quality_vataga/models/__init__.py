@@ -2,6 +2,7 @@ from . import maintenance_equipment
 from . import maintenance_equipment_category
 from . import quality_control_parameter_line
 from . import quality_check
+from . import quality_check_in_process
 from . import quality_check_equipment_selection
 from . import quality_check_measurement_column
 from . import quality_check_measurement_value

@@ -1,6 +1,8 @@
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
+from .quality_check_in_process import IN_PROCESS_SAMPLE_TOKEN
+
 
 class QualityCheckSample(models.Model):
     _name = 'quality.check.sample'
@@ -131,6 +133,14 @@ class QualityCheckSample(models.Model):
             for vals in vals_list
             if vals.get('quality_check_id')
         }
+        if (
+            self.env['quality.check'].browse(check_ids).filtered(
+                lambda check: check.x_control_stage == 'in_process',
+            )
+            and self.env.context.get('quality_vataga_in_process_initialization')
+            is not IN_PROCESS_SAMPLE_TOKEN
+        ):
+            raise UserError(_('Зразки міжопераційного контролю формуються лише автоматично.'))
         if any(
             check.quality_state != 'none'
             for check in self.env['quality.check'].browse(check_ids)
@@ -183,6 +193,8 @@ class QualityCheckSample(models.Model):
         )
 
     def unlink(self):
+        if any(sample.quality_check_id.x_control_stage == 'in_process' for sample in self):
+            raise UserError(_('Ручне видалення зразків міжопераційного контролю заборонено.'))
         if len(self) != 1:
             raise UserError(_(
                 'Можна видалити лише один останній порожній зразок.',

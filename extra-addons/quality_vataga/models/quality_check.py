@@ -552,6 +552,13 @@ class QualityCheck(models.Model):
             ))
         count = int(count)
 
+        self._create_measurement_samples(count)
+
+    def _create_measurement_samples(self, count):
+        """Shared row/cell creation for manual and automatic sampling."""
+        self.ensure_one()
+        self._ensure_measurement_editable()
+
         # The row lock keeps sample numbering stable when two inspectors add
         # samples to the same check at the same time.
         self.env.cr.execute(
