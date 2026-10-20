@@ -16,6 +16,12 @@ BOARD_STAGE_XMLIDS = (
 class QualityAlert(models.Model):
     _inherit = 'quality.alert'
 
+    # x_sorting_parameter is not defined by this module: its deployed type and
+    # owner must be verified before an adapter may write to that field.
+    vataga_matrix_failure_snapshot = fields.Text(
+        string='Невідповідності на момент створення', readonly=True, copy=False,
+    )
+
     stage_id = fields.Many2one(
         default=lambda self: self.env.ref(BOARD_STAGE_XMLIDS[0]),
         domain=lambda self: [('id', 'in', self._board_stages().ids)],
@@ -106,9 +112,14 @@ class QualityAlert(models.Model):
                    if any(name not in vals for vals in vals_list)]
         defaults = self.default_get(missing) if missing else {}
         for vals in vals_list:
+            if 'vataga_matrix_failure_snapshot' in vals:
+                raise UserError(_('Snapshot невідповідностей формується лише системою.'))
             if any(vals.get(name) for name in AUDIT_FIELDS):
                 raise AccessError(_('Затвердження можливе лише кнопкою «Затвердити рішення».'))
-            values = dict(vals, is_approved=False, approved_by_id=False, approved_at=False)
+            values = dict(
+                vals, is_approved=False, approved_by_id=False, approved_at=False,
+                vataga_matrix_failure_snapshot=False,
+            )
             stage_id = values.get('stage_id', defaults.get('stage_id'))
             if stage_id and stage_id in (execution.id if execution else False,
                                          approval.id if approval else False):
@@ -116,7 +127,12 @@ class QualityAlert(models.Model):
             check_id = values.get('check_id', defaults.get('check_id'))
             if check_id:
                 check = self.env['quality.check'].browse(check_id)
-                if check.quality_state == 'fail':
+                in_process = check.x_control_stage == 'in_process'
+                if in_process:
+                    values['vataga_matrix_failure_snapshot'] = check._format_matrix_failure_data(
+                        check._get_current_matrix_failure_data(),
+                    ) or False
+                if in_process or check.quality_state == 'fail':
                     failures = check._get_technical_board_failure_description()
                     description = values.get('description', defaults.get('description')) or ''
                     if failures and str(failures) not in description:
@@ -138,6 +154,8 @@ class QualityAlert(models.Model):
             self.invalidate_recordset()
 
     def write(self, vals):
+        if 'vataga_matrix_failure_snapshot' in vals:
+            raise UserError(_('Snapshot невідповідностей не можна змінювати вручну.'))
         if AUDIT_FIELDS.intersection(vals):
             raise AccessError(_('Поля затвердження не можна змінювати вручну.'))
         if {'decision_type', 'approval_user_id', 'stage_id'}.intersection(vals):

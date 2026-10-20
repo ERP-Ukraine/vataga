@@ -18,6 +18,9 @@ class QualityCheckSample(models.Model):
     )
     sequence = fields.Integer(string='Послідовність', default=10)
     sample_number = fields.Integer(string='Номер зразка', required=True)
+    x_was_reworked = fields.Boolean(
+        string='Було доопрацьовано', default=False, readonly=True, copy=False,
+    )
     visual_result = fields.Selection(
         selection=[
             ('yes', 'Так'),
@@ -122,6 +125,8 @@ class QualityCheckSample(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        if any('x_was_reworked' in vals for vals in vals_list):
+            raise UserError(_('Відмітка доопрацювання встановлюється лише системою.'))
         if not self.env.context.get(
             'quality_vataga_sample_initialization',
         ):
@@ -148,7 +153,10 @@ class QualityCheckSample(models.Model):
             raise UserError(_(
                 'Не можна додавати зразки до завершеної перевірки.',
             ))
-        samples = super().create(vals_list)
+        # Explicit False also defeats a forged default_x_was_reworked context.
+        samples = super().create([
+            dict(vals, x_was_reworked=False) for vals in vals_list
+        ])
         values_to_create = []
         for sample in samples:
             values_to_create.extend({
@@ -170,6 +178,7 @@ class QualityCheckSample(models.Model):
                 'У зразку можна змінювати лише результат візуального '
                 'контролю.',
             ))
+        previous_results = self._prepare_rework_tracking()
         if any(
             sample.quality_check_id.quality_state != 'none'
             for sample in self
@@ -177,7 +186,59 @@ class QualityCheckSample(models.Model):
             raise UserError(_(
                 'Не можна змінювати зразки завершеної перевірки.',
             ))
-        return super().write(vals)
+        result = super().write(vals)
+        self._record_rework_transitions(previous_results)
+        return result
+
+    def _prepare_rework_tracking(self):
+        """Capture computed results before an explicit input write, not a read.
+
+        RPCs already authorize the parent before their narrowly scoped sudo
+        writes. Check that authorization again without sudo here, including
+        model-level writes, and serialize edits of the same check.
+        """
+        checks = self.quality_check_id.filtered(
+            lambda check: check.x_control_stage == 'in_process',
+        )
+        if not checks:
+            return {}
+        authorized_checks = checks.sudo(False)
+        authorized_checks.check_access_rights('write')
+        authorized_checks.check_access_rule('write')
+        checks.flush_recordset(['quality_state'])
+        self.env.cr.execute(
+            'SELECT id FROM quality_check WHERE id IN %s ORDER BY id FOR UPDATE',
+            [tuple(checks.ids)],
+        )
+        checks.invalidate_recordset(['quality_state'])
+        eligible = self.filtered(lambda sample: (
+            sample.quality_check_id in checks
+            and sample.quality_check_id.quality_state == 'none'
+        ))
+        eligible.invalidate_recordset(['sample_result'])
+        return {sample.id: sample.sample_result for sample in eligible}
+
+    def _record_rework_transitions(self, previous_results):
+        for sample in self:
+            check = sample.quality_check_id
+            if (
+                previous_results.get(sample.id) != 'fail'
+                or sample.sample_result != 'pass'
+                or check.quality_state != 'none'
+                or check.x_control_stage != 'in_process'
+            ):
+                continue
+            # Bypass only this model's immutable-input guard. No new sudo or
+            # context flag grants permission to write technical audit fields.
+            if not sample.x_was_reworked:
+                super(QualityCheckSample, sample).write({'x_was_reworked': True})
+            check.sudo(False).message_post(
+                body=_(
+                    'Статус зразка №%(number)s змінено з FAIL на PASS після доопрацювання.',
+                    number=sample.sample_number,
+                ),
+                subtype_xmlid='mail.mt_note',
+            )
 
     def _has_entered_results(self):
         self.ensure_one()

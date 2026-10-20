@@ -13,6 +13,9 @@
             </xpath>
             <!-- Own controls: no dependency on an Enterprise header or notebook. -->
             <xpath expr="/form/sheet | /form[not(sheet)]" position="inside">
+                <group string="Невідповідності матриці" invisible="not vataga_matrix_failure_snapshot">
+                    <field name="vataga_matrix_failure_snapshot" nolabel="1" readonly="1"/>
+                </group>
                 <group name="technical_board_action">
                     <field name="is_board_analysis_stage" invisible="1"/>
                     <field name="is_board_approval_stage" invisible="1"/>

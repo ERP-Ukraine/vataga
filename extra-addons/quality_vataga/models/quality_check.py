@@ -733,6 +733,7 @@ class QualityCheck(models.Model):
                 'display_name': sample.display_name,
                 'visual_result': sample.visual_result or '',
                 'sample_result': sample.sample_result,
+                'x_was_reworked': sample.x_was_reworked,
                 'cells': cells,
             })
 

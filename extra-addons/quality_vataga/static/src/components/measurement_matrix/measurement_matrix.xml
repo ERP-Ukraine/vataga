@@ -179,6 +179,9 @@
                         >
                             <th scope="row">
                                 <t t-esc="sample.display_name"/>
+                                <small t-if="sample.x_was_reworked" class="d-block text-muted">
+                                    Після доопрацювання
+                                </small>
                             </th>
                             <td
                                 t-att-class="resultClass(

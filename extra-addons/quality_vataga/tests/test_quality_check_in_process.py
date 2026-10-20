@@ -4,7 +4,7 @@ from odoo.tests import TransactionCase, tagged
 
 
 @tagged('post_install', '-at_install')
-class TestQualityCheckInProcess(TransactionCase):
+class QualityCheckInProcessCase(TransactionCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -95,6 +95,9 @@ class TestQualityCheckInProcess(TransactionCase):
                 }[value.parameter_type]
                 check.update_measurement_value(value.id, payload)
 
+
+@tagged('post_install', '-at_install')
+class TestQualityCheckInProcess(QualityCheckInProcessCase):
     def test_default_incoming_keeps_manual_samples_and_final_has_no_auto_logic(self):
         incoming = self.env['quality.point'].create({
             'title': 'Вхідний за замовчуванням',

@@ -116,4 +116,13 @@ QUnit.module("quality_vataga measurement matrix", (hooks) => {
         assert.containsNone(target, "button");
         assert.ok(target.querySelector("tbody select").disabled);
     });
+
+    QUnit.test("reworked sample shows a readonly badge", async (assert) => {
+        const row = sample(1);
+        row.x_was_reworked = true;
+        await openMatrix(matrix("in_process", [row]));
+        assert.containsOnce(target, "tbody small");
+        assert.strictEqual(target.querySelector("tbody small").textContent.trim(), "Після доопрацювання");
+        assert.containsNone(target, "input[type=checkbox]");
+    });
 });
