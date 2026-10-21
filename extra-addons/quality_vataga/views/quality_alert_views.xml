@@ -11,13 +11,18 @@
                 <attribute name="options">{'clickable': False, 'no_create': True, 'no_open': True}</attribute>
                 <attribute name="readonly">0</attribute>
             </xpath>
+            <xpath expr="//page[@name='miscellaneous']" position="after">
+                <page name="vataga_matrix_failure_history" string="Історія невідповідностей"
+                      invisible="not vataga_matrix_failure_snapshot">
+                    <field name="vataga_matrix_failure_snapshot" nolabel="1" readonly="1"
+                           class="w-100 text-break"/>
+                </page>
+            </xpath>
             <!-- Own controls: no dependency on an Enterprise header or notebook. -->
             <xpath expr="/form/sheet | /form[not(sheet)]" position="inside">
-                <group string="Параметри невідповідності">
-                    <field name="x_sorting_parameter" nolabel="1"/>
-                </group>
-                <group string="Невідповідності матриці" invisible="not vataga_matrix_failure_snapshot">
-                    <field name="vataga_matrix_failure_snapshot" nolabel="1" readonly="1"/>
+                <group name="vataga_sorting_parameters" string="Параметри невідповідності"
+                       col="2" class="w-100">
+                    <field name="x_sorting_parameter" nolabel="1" colspan="2" class="w-100 text-break"/>
                 </group>
                 <group name="technical_board_action">
                     <field name="is_board_analysis_stage" invisible="1"/>

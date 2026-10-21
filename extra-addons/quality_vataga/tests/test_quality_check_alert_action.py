@@ -77,8 +77,56 @@ class TestQualityCheckAlertAction(QualityCheckInProcessCase):
         )
         alert_arch = etree.fromstring(alert_view['arch'])
         fields = alert_arch.xpath("//field[@name='x_sorting_parameter']")
-        self.assertTrue(fields)
+        self.assertEqual(len(fields), 1)
         self.assertNotIn(fields[0].get('readonly'), ('1', 'True'))
+        self.assertEqual(fields[0].get('nolabel'), '1')
+        self.assertEqual(fields[0].get('colspan'), '2')
+        self.assertTrue({'w-100', 'text-break'} <= set(fields[0].get('class', '').split()))
+        group = fields[0].getparent()
+        self.assertEqual(group.tag, 'group')
+        self.assertEqual(group.get('col'), '2')
+        self.assertIn('w-100', group.get('class', '').split())
+        self.assertEqual(group.getparent().tag, 'sheet')
+
+    def test_failure_snapshot_has_one_readonly_page_in_the_main_notebook(self):
+        alert_view = self.env['quality.alert'].get_view(
+            view_id=self.env.ref('quality_control.quality_alert_view_form').id,
+            view_type='form',
+        )
+        arch = etree.fromstring(alert_view['arch'])
+        snapshots = arch.xpath("//field[@name='vataga_matrix_failure_snapshot']")
+        self.assertEqual(len(snapshots), 1)
+        snapshot = snapshots[0]
+        self.assertEqual(snapshot.get('readonly'), '1')
+        self.assertEqual(snapshot.get('nolabel'), '1')
+        self.assertTrue({'w-100', 'text-break'} <= set(snapshot.get('class', '').split()))
+        pages = arch.xpath("//page[@name='vataga_matrix_failure_history']")
+        self.assertEqual(len(pages), 1)
+        page = pages[0]
+        self.assertEqual(page.get('string'), 'Історія невідповідностей')
+        self.assertEqual(page.get('invisible'), 'not vataga_matrix_failure_snapshot')
+        self.assertEqual(snapshot.getparent(), page)
+        notebook = page.getparent()
+        self.assertEqual(notebook.tag, 'notebook')
+        self.assertEqual(notebook.getparent().tag, 'sheet')
+        self.assertNotEqual(notebook.get('name'), 'technical_board_notebook')
+        self.assertEqual(page.xpath('preceding-sibling::page[1]')[0].get('name'), 'miscellaneous')
+        standard_pages = ['description', 'corrective_actions', 'preventive_actions', 'miscellaneous']
+        self.assertEqual(
+            [item.get('name') for item in notebook.findall('page')
+             if item.get('name') in standard_pages],
+            standard_pages,
+        )
+        board_notebooks = arch.xpath("//notebook[@name='technical_board_notebook']")
+        self.assertEqual(len(board_notebooks), 1)
+        self.assertEqual(board_notebooks[0].get('invisible'), "decision_type != 'full_control'")
+        self.assertTrue(board_notebooks[0].xpath(
+            "./page[@name='technical_board_full_control']//field[@name='full_control_line_ids']",
+        ))
+        self.assertFalse(arch.xpath(
+            "//notebook[@name='technical_board_notebook']//field"
+            "[@name='vataga_matrix_failure_snapshot']",
+        ))
 
     def test_opening_and_cancelling_form_creates_nothing_and_keeps_check_open(self):
         check = self._failed_check()
