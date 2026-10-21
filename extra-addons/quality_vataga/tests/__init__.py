@@ -5,4 +5,5 @@ from . import test_quality_check_arrival_details
 from . import test_quality_check_production
 from . import test_quality_check_in_process
 from . import test_quality_stage14
+from . import test_quality_check_alert_action
 from . import test_quality_technical_board

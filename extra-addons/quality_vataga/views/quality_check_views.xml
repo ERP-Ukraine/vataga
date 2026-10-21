@@ -8,6 +8,13 @@
         <field name="arch" type="xml">
             <xpath expr="//header" position="inside">
                 <button
+                    name="action_open_matrix_quality_alert"
+                    type="object"
+                    string="Створити сповіщення"
+                    class="btn-secondary"
+                    invisible="not can_create_matrix_quality_alert"
+                />
+                <button
                     name="action_initialize_measurement_matrix"
                     type="object"
                     string="Ініціалізувати матрицю"
@@ -17,6 +24,7 @@
             </xpath>
 
             <xpath expr="//sheet" position="inside">
+                <field name="can_create_matrix_quality_alert" invisible="1"/>
                 <field
                     name="can_initialize_measurement_matrix"
                     invisible="1"

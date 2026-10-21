@@ -16,8 +16,9 @@ BOARD_STAGE_XMLIDS = (
 class QualityAlert(models.Model):
     _inherit = 'quality.alert'
 
-    # x_sorting_parameter is not defined by this module: its deployed type and
-    # owner must be verified before an adapter may write to that field.
+    x_sorting_parameter = fields.Text(
+        string='Параметри невідповідності', copy=False,
+    )
     vataga_matrix_failure_snapshot = fields.Text(
         string='Невідповідності на момент створення', readonly=True, copy=False,
     )
@@ -108,7 +109,7 @@ class QualityAlert(models.Model):
         prepared = []
         execution = self.env.ref('quality_vataga.quality_alert_stage_board_execution', False)
         approval = self.env.ref('quality_vataga.quality_alert_stage_board_approval', False)
-        missing = [name for name in ('stage_id', 'check_id', 'description')
+        missing = [name for name in ('stage_id', 'check_id', 'description', 'x_sorting_parameter')
                    if any(name not in vals for vals in vals_list)]
         defaults = self.default_get(missing) if missing else {}
         for vals in vals_list:
@@ -129,9 +130,14 @@ class QualityAlert(models.Model):
                 check = self.env['quality.check'].browse(check_id)
                 in_process = check.x_control_stage == 'in_process'
                 if in_process:
+                    failure_data = check._get_current_matrix_failure_data()
                     values['vataga_matrix_failure_snapshot'] = check._format_matrix_failure_data(
-                        check._get_current_matrix_failure_data(),
+                        failure_data,
                     ) or False
+                    values['x_sorting_parameter'] = self._append_matrix_failure_text(
+                        values.get('x_sorting_parameter', defaults.get('x_sorting_parameter')),
+                        [check._format_matrix_failure_data([row]) for row in failure_data],
+                    )
                 if in_process or check.quality_state == 'fail':
                     failures = check._get_technical_board_failure_description()
                     description = values.get('description', defaults.get('description')) or ''
@@ -141,6 +147,15 @@ class QualityAlert(models.Model):
                         values['description'] = Markup(description) + failures
             prepared.append(values)
         return super().create(prepared)
+
+    @api.model
+    def _append_matrix_failure_text(self, manual_text, failure_lines):
+        text = str(manual_text) if manual_text is not False and manual_text is not None else ''
+        for line in failure_lines:
+            if line and line not in text:
+                separator = '\n' if text and not text.endswith('\n') else ''
+                text += separator + line
+        return text or False
 
     def _lock_board_records(self):
         self.check_access_rights('write')

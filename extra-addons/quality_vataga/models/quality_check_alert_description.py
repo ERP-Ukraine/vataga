@@ -1,6 +1,7 @@
 from markupsafe import Markup
 
-from odoo import _, models
+from odoo import _, api, fields, models
+from odoo.exceptions import UserError
 
 from .measurement_utils import format_number
 
@@ -8,8 +9,92 @@ from .measurement_utils import format_number
 class QualityCheckAlertDescription(models.Model):
     _inherit = 'quality.check'
 
+    can_create_matrix_quality_alert = fields.Boolean(
+        string='Можна створити сповіщення про невідповідності',
+        compute='_compute_can_create_matrix_quality_alert',
+    )
+
+    @api.depends(
+        'x_control_stage', 'sample_ids', 'sample_ids.sample_result',
+        'sample_ids.visual_result', 'sample_ids.measurement_value_ids.result',
+    )
+    def _compute_can_create_matrix_quality_alert(self):
+        for check in self:
+            check.can_create_matrix_quality_alert = bool(
+                check.x_control_stage == 'in_process'
+                and check.sample_ids
+                and check._get_current_matrix_failure_data()
+            )
+
+    def action_open_matrix_quality_alert(self):
+        self.ensure_one()
+        self.check_access_rights('read')
+        self.check_access_rule('read')
+        alert_model = self.env['quality.alert']
+        alert_model.check_access_rights('create')
+        if self.x_control_stage != 'in_process' or not self._get_current_matrix_failure_data():
+            raise UserError(_(
+                'Створити сповіщення цією дією можна лише для міжопераційної '
+                'перевірки з актуальними невідповідностями матриці.',
+            ))
+
+        # Reuse standard action metadata and the existing alert form. Returning
+        # an unsaved form keeps creation, attachments and ACLs in the normal UI.
+        action = {}
+        for xmlid in (
+            'quality_control.quality_alert_action_check',
+            'quality_control.quality_alert_action',
+        ):
+            standard_action = self.env.ref(xmlid, False)
+            if (
+                standard_action
+                and standard_action._name == 'ir.actions.act_window'
+                and standard_action.res_model == 'quality.alert'
+            ):
+                action = standard_action.read()[0]
+                break
+        view = self.env.ref('quality_control.quality_alert_view_form')
+        context = {
+            key: value for key, value in self.env.context.items()
+            if not key.startswith('default_')
+        }
+        sources = {'check_id': self}
+        for name in (
+            'product_id', 'team_id', 'production_id', 'company_id',
+            'picking_id', 'lot_id', 'partner_id', 'workorder_id', 'workcenter_id',
+        ):
+            source_field = self._fields.get(name)
+            if source_field and source_field.type == 'many2one':
+                sources[name] = self[name]
+        if self.product_id:
+            sources['product_tmpl_id'] = self.product_id.product_tmpl_id
+        if 'workcenter_id' not in sources and 'workorder_id' in sources:
+            sources['workcenter_id'] = sources['workorder_id'].workcenter_id
+        for name, record in sources.items():
+            target_field = alert_model._fields.get(name)
+            if (
+                target_field and target_field.type == 'many2one'
+                and target_field.comodel_name == record._name
+            ):
+                context['default_' + name] = record.id or False
+        if context.get('default_check_id') != self.id:
+            raise UserError(_('У моделі сповіщення немає стандартного зв’язку з перевіркою.'))
+        context.update(active_model=self._name, active_id=self.id, active_ids=self.ids)
+        action.update({
+            'type': 'ir.actions.act_window',
+            'name': _('Створити сповіщення'),
+            'res_model': 'quality.alert',
+            'view_mode': 'form',
+            'view_id': view.id,
+            'views': [(view.id, 'form')],
+            'res_id': False,
+            'target': 'current',
+            'context': context,
+        })
+        return action
+
     def _get_current_matrix_failure_data(self):
-        """Independent data contract for a future verified sorting-field adapter.
+        """Shared current-failure data for alert fields and descriptions.
 
         Values and norms come from the check snapshot, never the current QCP.
         Reading this method cannot change a check, alert or board decision.
