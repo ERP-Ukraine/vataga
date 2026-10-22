@@ -7,6 +7,9 @@
         <field name="priority" eval="99"/>
         <field name="arch" type="xml">
             <xpath expr="//header" position="inside">
+                <button name="action_open_identification_wizard" type="object" string="Ідентифікувати вироби"
+                        groups="quality.group_quality_user" class="btn-secondary"
+                        invisible="x_control_stage != 'in_process' or quality_state != 'none' or operation_run_id or not in_process_result_quantities_valid"/>
                 <button
                     name="action_open_matrix_quality_alert"
                     type="object"
@@ -61,6 +64,7 @@
                        invisible="x_control_stage != 'in_process'">
                     <group>
                         <field name="in_process_sample_quantity" readonly="1"/>
+                        <field name="operation_run_id" readonly="1" options="{'no_create': True}"/>
                         <field name="in_process_result_quantities_valid" invisible="1"/>
                         <div colspan="2" class="text-muted">
                             Показники цієї перевірки не є допуском до наступної операції.

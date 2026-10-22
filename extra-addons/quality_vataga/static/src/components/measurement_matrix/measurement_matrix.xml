@@ -179,6 +179,10 @@
                         >
                             <th scope="row">
                                 <t t-esc="sample.display_name"/>
+                                <small t-if="sample.controlled_unit_name"
+                                       class="d-block text-break o_quality_controlled_unit">
+                                    <t t-esc="sample.controlled_unit_name"/>
+                                </small>
                                 <small t-if="sample.x_was_reworked" class="d-block text-muted">
                                     Після доопрацювання
                                 </small>

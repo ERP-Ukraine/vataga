@@ -12,3 +12,5 @@ from . import quality_point
 from . import quality_alert
 from . import quality_alert_full_control_line
 from . import quality_check_alert_description
+from . import quality_production_identity
+from . import quality_check_identity

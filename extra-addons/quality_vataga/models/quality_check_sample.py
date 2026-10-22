@@ -18,6 +18,10 @@ class QualityCheckSample(models.Model):
     )
     sequence = fields.Integer(string='Послідовність', default=10)
     sample_number = fields.Integer(string='Номер зразка', required=True)
+    controlled_unit_id = fields.Many2one(
+        'quality.production.unit', string='Контрольований виріб',
+        readonly=True, copy=False, ondelete='restrict', index=True,
+    )
     x_was_reworked = fields.Boolean(
         string='Було доопрацьовано', default=False, readonly=True, copy=False,
     )
@@ -56,6 +60,10 @@ class QualityCheckSample(models.Model):
     )
 
     _sql_constraints = [
+        (
+            'quality_check_unit_uniq', 'unique(quality_check_id, controlled_unit_id)',
+            'Один виріб не може повторюватися у зразках однієї перевірки.',
+        ),
         (
             'quality_check_sample_number_uniq',
             'unique(quality_check_id, sample_number)',
@@ -125,6 +133,8 @@ class QualityCheckSample(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        if any('controlled_unit_id' in vals for vals in vals_list):
+            raise UserError(_('Виріб призначається лише майстром ідентифікації.'))
         if any('x_was_reworked' in vals for vals in vals_list):
             raise UserError(_('Відмітка доопрацювання встановлюється лише системою.'))
         if not self.env.context.get(
@@ -155,7 +165,7 @@ class QualityCheckSample(models.Model):
             ))
         # Explicit False also defeats a forged default_x_was_reworked context.
         samples = super().create([
-            dict(vals, x_was_reworked=False) for vals in vals_list
+            dict(vals, x_was_reworked=False, controlled_unit_id=False) for vals in vals_list
         ])
         values_to_create = []
         for sample in samples:
@@ -171,6 +181,29 @@ class QualityCheckSample(models.Model):
                 quality_vataga_matrix_initialization=True,
             ).create(values_to_create)
         return samples
+
+    def _bind_controlled_unit(self, unit):
+        self.ensure_one()
+        unit.ensure_one()
+        check = self.quality_check_id
+        check._ensure_measurement_editable()
+        unit.check_access_rights('read')
+        unit.check_access_rule('read')
+        run = check.operation_run_id
+        if (
+            check.x_control_stage != 'in_process' or not run or run.state != 'registered'
+            or unit not in run.unit_ids or unit.production_id != check._identity_production()
+            or unit.product_id != check.product_id or unit.company_id != run.company_id
+        ):
+            raise UserError(_('Виріб не відповідає зафіксованому запуску цієї перевірки.'))
+        if self.controlled_unit_id:
+            if self.controlled_unit_id == unit:
+                return
+            raise UserError(_('Не можна замінити вже призначений виріб. Створіть іншу перевірку.'))
+        # The sample ACL is read-only. As with measurement RPCs, authorize the
+        # parent first, then write exactly one protected relation, without
+        # touching inputs, snapshots, results or rework audit.
+        super(QualityCheckSample, self.sudo()).write({'controlled_unit_id': unit.id})
 
     def write(self, vals):
         if set(vals) - {'visual_result'}:

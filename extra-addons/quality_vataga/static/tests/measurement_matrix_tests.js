@@ -74,6 +74,16 @@ QUnit.module("quality_vataga measurement matrix", (hooks) => {
         assert.strictEqual(calls.filter((name) => name === "initialize_in_process_measurement_matrix").length, 0);
     });
 
+    QUnit.test("shows escaped unit identities while historical samples remain unbound", async (assert) => {
+        const identified = sample(1);
+        identified.controlled_unit_name = 'QUNIT/2026/<b>000001</b>';
+        await openMatrix(matrix("in_process", [identified, sample(2)]));
+        assert.containsOnce(target, ".o_quality_controlled_unit");
+        assert.strictEqual(target.querySelector(".o_quality_controlled_unit").textContent.trim(), identified.controlled_unit_name);
+        assert.containsNone(target, ".o_quality_controlled_unit b");
+        assert.containsN(target, "tbody tr", 2);
+    });
+
     QUnit.test("in_process generates on open, hides manual controls and edits results", async (assert) => {
         const data = matrix("in_process", [sample(1), sample(2)]);
         const calls = [];

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="quality_production_run_company_rule" model="ir.rule">
+        <field name="name">Запуски контролю: дозволені компанії</field>
+        <field name="model_id" ref="model_quality_production_run"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="quality_production_unit_company_rule" model="ir.rule">
+        <field name="name">Вироби контролю: дозволені компанії</field>
+        <field name="model_id" ref="model_quality_production_unit"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+</odoo>
