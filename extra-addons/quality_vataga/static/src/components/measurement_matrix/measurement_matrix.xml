@@ -1,5 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <templates xml:space="preserve">
+    <t t-name="quality_vataga.UnitAdmissionButtons">
+        <span class="d-inline-flex gap-1 o_quality_unit_admission_buttons">
+            <button type="button" class="btn btn-secondary o_quality_confirm_admission"
+                    t-att-disabled="state.opening" t-on-click="() => this.open('confirm')">
+                Підтвердити допуск виробів
+            </button>
+            <button type="button" class="btn btn-secondary o_quality_revoke_admission"
+                    t-att-disabled="state.opening" t-on-click="() => this.open('revoke')">
+                Скасувати допуск виробів
+            </button>
+        </span>
+    </t>
     <t t-name="quality_vataga.QualityMeasurementMatrix">
         <div class="o_quality_measurement_matrix w-100">
             <div t-if="state.loading" class="text-muted py-3">

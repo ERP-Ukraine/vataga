@@ -7,11 +7,7 @@
         <field name="priority" eval="99"/>
         <field name="arch" type="xml">
             <xpath expr="//header" position="inside">
-                <button name="action_open_unit_admission_wizard" type="object" string="Підтвердити допуск виробів"
-                        groups="quality.group_quality_user" class="btn-secondary"
-                        invisible="x_control_stage != 'in_process' or not operation_run_id"/>
-                <button name="action_open_unit_admission_revocation_wizard" type="object" string="Скасувати допуск виробів"
-                        groups="quality.group_quality_user" class="btn-secondary"
+                <widget name="quality_unit_admission_buttons" groups="quality.group_quality_user"
                         invisible="x_control_stage != 'in_process' or not operation_run_id"/>
                 <button name="action_open_identification_wizard" type="object" string="Ідентифікувати вироби"
                         groups="quality.group_quality_user" class="btn-secondary"

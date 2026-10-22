@@ -459,3 +459,27 @@ class TestQualityUnitAdmission(QualityCheckInProcessCase):
         arch = etree.fromstring(view['arch'])
         self.assertEqual(arch.xpath("//field[@name='selected']")[0].get('readonly'), 'not eligible')
         self.assertEqual(arch.xpath("//field[@name='reason']")[0].get('required'), "mode == 'revoke'")
+
+    def test_successful_wizard_close_identifies_only_the_updated_check(self):
+        check = self._ready(1, fail_last=False)
+        expected = {
+            'type': 'ir.actions.act_window_close',
+            'infos': {'quality_vataga_check_id': check.id},
+        }
+        self.assertEqual(self._decision(check).action_apply(), expected)
+        self.assertEqual(
+            self._decision(check, mode='revoke', reason='Повторний контроль').action_apply(),
+            expected,
+        )
+
+    def test_check_header_has_one_scoped_admission_widget(self):
+        view = self.env['quality.check'].with_user(self._user()).get_view(
+            view_id=self.env.ref('quality_control.quality_check_view_form').id,
+            view_type='form',
+        )
+        arch = etree.fromstring(view['arch'])
+        widgets = arch.xpath("//header/widget[@name='quality_unit_admission_buttons']")
+        self.assertEqual(len(widgets), 1)
+        self.assertEqual(widgets[0].get('invisible'), "x_control_stage != 'in_process' or not operation_run_id")
+        self.assertFalse(arch.xpath("//header/button[@name='action_open_unit_admission_wizard']"))
+        self.assertFalse(arch.xpath("//header/button[@name='action_open_unit_admission_revocation_wizard']"))

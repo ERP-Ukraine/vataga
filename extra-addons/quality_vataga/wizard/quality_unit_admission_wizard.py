@@ -57,7 +57,10 @@ class QualityUnitAdmissionWizard(models.TransientModel):
             selected.sample_id.ids, self.mode, self.request_key, self.reason or '',
             expected_by_sample={line.sample_id.id: line.expected_admission_id.id for line in selected},
         )
-        return {'type': 'ir.actions.act_window_close'}
+        return {
+            'type': 'ir.actions.act_window_close',
+            'infos': {'quality_vataga_check_id': self.check_id.id},
+        }
 
 
 class QualityUnitAdmissionWizardLine(models.TransientModel):

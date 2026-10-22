@@ -98,7 +98,7 @@ QUnit.module("quality_vataga measurement matrix", (hooks) => {
         assert.strictEqual(target.querySelectorAll(".o_quality_unit_admission")[1].textContent.trim(), "Утримано");
     });
 
-    QUnit.test("in_process generates on open, hides manual controls and edits results", async (assert) => {
+    QUnit.test("formed in_process batch is read without reinitialization and edits results", async (assert) => {
         const data = matrix("in_process", [sample(1), sample(2)]);
         const calls = [];
         await openMatrix(data, (args) => {
@@ -111,7 +111,7 @@ QUnit.module("quality_vataga measurement matrix", (hooks) => {
         assert.containsNone(target, ".o_quality_measurement_sample_controls");
         assert.containsNone(target, "#quality_vataga_sample_count");
         assert.containsN(target, "tbody tr", 2);
-        assert.strictEqual(calls.filter((name) => name === "initialize_in_process_measurement_matrix").length, 1);
+        assert.strictEqual(calls.filter((name) => name === "initialize_in_process_measurement_matrix").length, 0);
         await editSelect(target, "tbody tr:first-child select", "yes");
         assert.ok(calls.includes("update_measurement_visual_result"));
         assert.strictEqual(target.querySelector("tbody tr:first-child select").value, "yes");
