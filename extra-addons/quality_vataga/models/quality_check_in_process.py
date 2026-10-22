@@ -1,3 +1,4 @@
+from collections import Counter
 from decimal import Decimal
 
 from odoo import _, api, fields, models
@@ -6,6 +7,10 @@ from odoo.exceptions import UserError, ValidationError
 
 # A client-supplied RPC context cannot grant permission to create batch rows.
 IN_PROCESS_SAMPLE_TOKEN = object()
+RESULT_QUANTITY_FIELDS = frozenset({
+    'x_passed_qty', 'x_failed_qty', 'x_pending_qty',
+    'in_process_result_quantities_valid',
+})
 
 
 def _batch_dependencies(model):
@@ -40,14 +45,65 @@ class QualityCheckInProcess(models.Model):
         readonly=True,
         copy=False,
     )
+    x_passed_qty = fields.Integer(
+        string='Придатних', compute='_compute_in_process_result_quantities',
+        store=True, readonly=True, copy=False, compute_sudo=False,
+    )
+    x_failed_qty = fields.Integer(
+        string='Брак', compute='_compute_in_process_result_quantities',
+        store=True, readonly=True, copy=False, compute_sudo=False,
+    )
+    x_pending_qty = fields.Integer(
+        string='Не перевірено', compute='_compute_in_process_result_quantities',
+        store=True, readonly=True, copy=False, compute_sudo=False,
+    )
+    in_process_result_quantities_valid = fields.Boolean(
+        string='Кількість зразків відповідає партії',
+        compute='_compute_in_process_result_quantities',
+        store=True, readonly=True, copy=False, compute_sudo=False,
+        help='Підрахунок стосується зафіксованої матриці. Ця ознака не '
+             'підтверджує завершення контролю, вибір ЗВТ або допуск виробів.',
+    )
+
+    @api.depends(
+        'x_control_stage', 'measurement_matrix_required',
+        'in_process_sample_quantity', 'sample_ids', 'sample_ids.sample_result',
+    )
+    def _compute_in_process_result_quantities(self):
+        """Count this check's frozen samples, independently of the current MO.
+
+        Validity describes the tally's coverage, including pending/FAIL rows;
+        it is not a release decision. Existing PASS/ZVT validation still applies.
+        """
+        for check in self:
+            in_process = check.x_control_stage == 'in_process'
+            counts = (
+                Counter(sample.sample_result for sample in check.sample_ids)
+                if in_process else {}
+            )
+            check.x_passed_qty = counts.get('pass', 0)
+            check.x_failed_qty = counts.get('fail', 0)
+            check.x_pending_qty = counts.get('pending', 0)
+            counted = check.x_passed_qty + check.x_failed_qty + check.x_pending_qty
+            check.in_process_result_quantities_valid = bool(
+                in_process and check.measurement_matrix_required
+                and check.in_process_sample_quantity > 0
+                and counted == len(check.sample_ids) == check.in_process_sample_quantity
+            )
 
     @api.model_create_multi
     def create(self, vals_list):
+        if any(RESULT_QUANTITY_FIELDS.intersection(vals) for vals in vals_list):
+            raise UserError(_('Кількісні результати перевірки обчислюються автоматично.'))
         if any('x_control_stage' in vals for vals in vals_list):
             raise UserError(_('Етап перевірки визначається пунктом контролю.'))
         if any(vals.get('in_process_sample_quantity') for vals in vals_list):
             raise UserError(_('Кількість зразків партії встановлює система.'))
-        checks = super().create(vals_list)
+        # Context defaults must not turn readonly computed fields into inputs.
+        context = dict(self.env.context)
+        for name in RESULT_QUANTITY_FIELDS:
+            context.pop('default_' + name, None)
+        checks = super(QualityCheckInProcess, self.with_context(context)).create(vals_list)
         checks.filtered(lambda check: (
             check.x_control_stage == 'in_process'
             and check.quality_state == 'pass'
@@ -55,6 +111,8 @@ class QualityCheckInProcess(models.Model):
         return checks
 
     def write(self, vals):
+        if RESULT_QUANTITY_FIELDS.intersection(vals):
+            raise UserError(_('Кількісні результати перевірки обчислюються автоматично.'))
         if 'x_control_stage' in vals:
             raise UserError(_('Етап перевірки визначається пунктом контролю.'))
         if 'in_process_sample_quantity' in vals:

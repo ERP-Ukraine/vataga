@@ -34,7 +34,6 @@
 
             <xpath expr="//field[@name='measure_on']" position="after">
                 <field name="x_control_stage" readonly="1"/>
-                <field name="in_process_sample_quantity" readonly="1" invisible="x_control_stage != 'in_process'"/>
                 <field
                     name="has_operation_product_quantity"
                     invisible="1"
@@ -55,6 +54,29 @@
                     readonly="1"
                     invisible="not picking_id"
                 />
+            </xpath>
+
+            <xpath expr="//sheet/notebook" position="before">
+                <group name="quality_vataga_control_results" string="Результати контролю"
+                       invisible="x_control_stage != 'in_process'">
+                    <group>
+                        <field name="in_process_sample_quantity" readonly="1"/>
+                        <field name="in_process_result_quantities_valid" invisible="1"/>
+                        <div colspan="2" class="text-muted">
+                            Показники цієї перевірки не є допуском до наступної операції.
+                        </div>
+                        <div colspan="2" class="alert alert-warning mb-0"
+                             invisible="in_process_result_quantities_valid">
+                            Матрицю партії не сформовано або кількість зразків
+                            не відповідає зафіксованій партії.
+                        </div>
+                    </group>
+                    <group>
+                        <field name="x_passed_qty" readonly="1"/>
+                        <field name="x_failed_qty" readonly="1"/>
+                        <field name="x_pending_qty" readonly="1"/>
+                    </group>
+                </group>
             </xpath>
 
             <xpath expr="//sheet/notebook" position="inside">
