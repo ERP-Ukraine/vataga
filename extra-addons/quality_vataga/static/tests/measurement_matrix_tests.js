@@ -84,6 +84,20 @@ QUnit.module("quality_vataga measurement matrix", (hooks) => {
         assert.containsN(target, "tbody tr", 2);
     });
 
+    QUnit.test("shows inspector admission separately from the sample result", async (assert) => {
+        const approved = sample(1);
+        approved.controlled_unit_name = "QUNIT/2026/000006";
+        approved.sample_result = "pass";
+        approved.unit_admission_label = "Допущено";
+        const held = sample(2);
+        held.sample_result = "pass";
+        held.unit_admission_label = "Утримано";
+        await openMatrix(matrix("in_process", [approved, held]));
+        assert.containsN(target, ".o_quality_unit_admission", 2);
+        assert.strictEqual(target.querySelector(".o_quality_unit_admission").textContent.trim(), "Допущено");
+        assert.strictEqual(target.querySelectorAll(".o_quality_unit_admission")[1].textContent.trim(), "Утримано");
+    });
+
     QUnit.test("in_process generates on open, hides manual controls and edits results", async (assert) => {
         const data = matrix("in_process", [sample(1), sample(2)]);
         const calls = [];

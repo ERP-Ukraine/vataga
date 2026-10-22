@@ -183,6 +183,10 @@
                                        class="d-block text-break o_quality_controlled_unit">
                                     <t t-esc="sample.controlled_unit_name"/>
                                 </small>
+                                <small t-if="sample.unit_admission_label" class="d-block o_quality_unit_admission"
+                                       t-att-title="sample.unit_admission_reason || ''">
+                                    <t t-esc="sample.unit_admission_label"/>
+                                </small>
                                 <small t-if="sample.x_was_reworked" class="d-block text-muted">
                                     Після доопрацювання
                                 </small>

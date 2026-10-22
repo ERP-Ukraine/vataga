@@ -38,6 +38,9 @@
                         </group>
                     </group>
                     <notebook>
+                        <page string="Історія допусків" groups="quality.group_quality_user">
+                            <field name="unit_admission_ids" readonly="1" nolabel="1"/>
+                        </page>
                         <page string="Вироби">
                             <field name="unit_ids" readonly="1">
                                 <tree create="0" edit="0" delete="0">

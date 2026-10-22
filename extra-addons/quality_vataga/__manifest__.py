@@ -1,7 +1,7 @@
 {
     'name': 'Параметри якості обладнання Vataga',
     'summary': 'Параметри обладнання та налаштування контролю якості',
-    'version': '17.0.2.30',
+    'version': '17.0.2.31',
     'category': 'Manufacturing/Quality',
     'author': 'Vataga',
     'license': 'LGPL-3',
@@ -17,6 +17,7 @@
         'security/technical_board.xml',
         'security/ir.model.access.csv',
         'security/quality_identification.xml',
+        'security/quality_unit_admission.xml',
         'data/quality_identification_sequences.xml',
         'data/quality_alert_board_stages.xml',
         'data/ir_config_parameter_data.xml',
@@ -28,6 +29,7 @@
         'views/quality_alert_views.xml',
         'views/quality_production_identity_views.xml',
         'wizard/quality_check_identification_views.xml',
+        'wizard/quality_unit_admission_views.xml',
     ],
     'assets': {
         'web.qunit_suite_tests': [

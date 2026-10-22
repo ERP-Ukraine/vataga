@@ -12,3 +12,7 @@ access_quality_production_unit_read,quality.production.unit.read,model_quality_p
 access_quality_production_unit_register,quality.production.unit.register,model_quality_production_unit,quality.group_quality_user,1,1,1,0
 access_quality_check_identification_wizard,quality.check.identification.wizard,model_quality_check_identification_wizard,quality.group_quality_user,1,1,1,1
 access_quality_check_identification_line,quality.check.identification.line,model_quality_check_identification_line,quality.group_quality_user,1,1,1,1
+access_quality_unit_admission_read,quality.unit.admission.read,model_quality_unit_admission,base.group_user,1,0,0,0
+access_quality_unit_admission_confirm,quality.unit.admission.confirm,model_quality_unit_admission,quality.group_quality_user,1,1,1,0
+access_quality_unit_admission_wizard,quality.unit.admission.wizard,model_quality_unit_admission_wizard,quality.group_quality_user,1,1,1,1
+access_quality_unit_admission_wizard_line,quality.unit.admission.wizard.line,model_quality_unit_admission_wizard_line,quality.group_quality_user,1,1,1,1
