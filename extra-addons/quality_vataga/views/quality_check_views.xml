@@ -66,8 +66,8 @@
                        invisible="x_control_stage != 'in_process'">
                     <field name="quality_transfer_controlled" invisible="1"/>
                     <div class="alert alert-warning" colspan="2" invisible="not quality_transfer_controlled">
-                        Активний лише поштучний облік передач. Виконання Work Orders і складський випуск цього MO
-                        заблоковані до наступного етапу інтеграції. Приймання не є запуском обробки.
+                        Активний захищений поштучний маршрут. Стандартне завершення Work Orders і складський випуск заблоковані.
+                        Приймання не є запуском обробки; для виконання оберіть конкретні QUNIT у робочому завданні.
                     </div>
                     <group>
                         <field name="in_process_sample_quantity" readonly="1"/>

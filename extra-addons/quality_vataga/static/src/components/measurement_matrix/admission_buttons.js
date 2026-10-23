@@ -151,3 +151,20 @@ export class QualityUnitTransferWorkorderButtons extends QualityUnitAdmissionBut
 registry.category('view_widgets').add('quality_unit_transfer_workorder_buttons', {
     component: QualityUnitTransferWorkorderButtons,
 });
+
+export class QualityUnitExecutionButtons extends QualityUnitTransferWorkorderButtons {
+    static template = 'quality_vataga.UnitExecutionButtons';
+
+    get actionMethods() {
+        return {
+            start: 'action_open_quality_execution_start',
+            finish: 'action_open_quality_execution_finish',
+            stop: 'action_open_quality_execution_stop',
+            control: 'action_open_quality_execution_control',
+        };
+    }
+}
+
+registry.category('view_widgets').add('quality_unit_execution_buttons', {
+    component: QualityUnitExecutionButtons,
+});

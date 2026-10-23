@@ -1,5 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <templates xml:space="preserve">
+    <t t-name="quality_vataga.UnitExecutionButtons">
+        <div class="d-flex gap-2 flex-wrap mb-3">
+            <button type="button" class="btn btn-primary o_quality_execution_start" t-att-disabled="state.opening" t-on-click="() => this.open('start')">Розпочати обробку виробів</button>
+            <button type="button" class="btn btn-primary o_quality_execution_finish" t-att-disabled="state.opening" t-on-click="() => this.open('finish')">Завершити обробку виробів</button>
+            <button type="button" class="btn btn-secondary o_quality_execution_stop" t-att-disabled="state.opening" t-on-click="() => this.open('stop')">Зупинити обробку</button>
+            <button type="button" class="btn btn-secondary o_quality_execution_control" t-att-disabled="state.opening" t-on-click="() => this.open('control')">Створити контроль виконаних виробів</button>
+        </div>
+    </t>
     <t t-name="quality_vataga.UnitAdmissionButtons">
         <span class="d-inline-flex gap-1 o_quality_unit_admission_buttons">
             <button type="button" class="btn btn-secondary o_quality_confirm_admission"

@@ -22,3 +22,9 @@ access_quality_unit_transfer_event,quality.unit.transfer.event,model_quality_uni
 access_quality_unit_transfer_event_read,quality.unit.transfer.event.read,model_quality_unit_transfer_event,base.group_user,1,0,0,0
 access_quality_unit_transfer_wizard,quality.unit.transfer.wizard,model_quality_unit_transfer_wizard,quality.group_quality_user,1,1,1,1
 access_quality_unit_transfer_wizard_line,quality.unit.transfer.wizard.line,model_quality_unit_transfer_wizard_line,quality.group_quality_user,1,1,1,1
+access_quality_execution_read,quality.unit.execution.read,model_quality_unit_execution,base.group_user,1,0,0,0
+access_quality_execution_operator,quality.unit.execution.operator,model_quality_unit_execution,mrp.group_mrp_user,1,1,1,0
+access_quality_execution_batch_read,quality.unit.execution.batch.read,model_quality_unit_execution_batch,base.group_user,1,0,0,0
+access_quality_execution_batch_operator,quality.unit.execution.batch.operator,model_quality_unit_execution_batch,mrp.group_mrp_user,1,0,1,0
+access_quality_execution_wizard,quality.unit.execution.wizard,model_quality_unit_execution_wizard,mrp.group_mrp_user,1,1,1,1
+access_quality_execution_line,quality.unit.execution.wizard.line,model_quality_unit_execution_wizard_line,mrp.group_mrp_user,1,1,1,1

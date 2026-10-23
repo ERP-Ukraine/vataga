@@ -2,7 +2,7 @@
 
 import { Component, EventBus, markRaw, reactive, useState, xml } from "@odoo/owl";
 import { QualityMeasurementMatrix } from "@quality_vataga/components/measurement_matrix/measurement_matrix";
-import { QualityUnitAdmissionButtons, QualityUnitTransferWorkorderButtons, QUALITY_CHECK_MATRIX_REFRESH } from "@quality_vataga/components/measurement_matrix/admission_buttons";
+import { QualityUnitAdmissionButtons, QualityUnitTransferWorkorderButtons, QualityUnitExecutionButtons, QUALITY_CHECK_MATRIX_REFRESH } from "@quality_vataga/components/measurement_matrix/admission_buttons";
 import { click, findChildren, getFixture, makeDeferred, mount, nextTick } from "@web/../tests/helpers/utils";
 
 // Real OWL components and useRecordObserver, with deterministic server replies.
@@ -47,12 +47,26 @@ QUnit.module("quality_vataga matrix refresh", () => {
             </div>`;
     }
 
+    class ExecutionForm extends CheckForm {
+        static components = { QualityUnitExecutionButtons };
+        static template = xml`
+            <div>
+                <QualityUnitExecutionButtons record="state.record"/>
+                <span class="in-progress" t-esc="state.record.data.processing"/>
+                <span class="processed" t-esc="state.record.data.processed"/>
+                <span class="note" t-esc="state.record.data.note"/>
+                <span class="history" t-esc="state.record.data.history.length"/>
+                <span class="chatter" t-esc="state.record.data.messages.length"/>
+                <span t-foreach="state.record.data.executions" t-as="unit" t-key="unit.name" class="execution-unit" t-esc="unit.name + ': ' + unit.state"/>
+            </div>`;
+    }
+
     async function settle() {
         await nextTick();
         await nextTick();
     }
 
-    async function fixture({ approved = [], sent = [], received = [], model = "quality.check", unformed = false, staleQuantity = false, dirty = false, stage = "in_process" } = {}) {
+    async function fixture({ approved = [], sent = [], received = [], model = "quality.check", execution = false, unformed = false, staleQuantity = false, dirty = false, stage = "in_process" } = {}) {
         const target = getFixture();
         const calls = [];
         const servers = new Map();
@@ -68,6 +82,7 @@ QUnit.module("quality_vataga matrix refresh", () => {
                 servers.set(id, {
                     formed: !unformed, approved: new Set(approved), history: [], messages: [], note: "saved",
                     sent: new Set(sent), received: new Set(received), returned: new Set(),
+                    processing: new Set(), processed: new Set(),
                 });
             }
             return servers.get(id);
@@ -99,6 +114,8 @@ QUnit.module("quality_vataga matrix refresh", () => {
                 transferred: source.sent.size, received: source.received.size,
                 awaiting: source.approved.size - source.sent.size, quality_transfer_has_run: true,
                 receipts: [...source.received].map((i) => `QUNIT/${id}/${i + 1}`),
+                processing: source.processing.size, processed: source.processed.size,
+                executions: [...source.received].map((i) => ({ name: `QUNIT/${id}/${i + 1}`, state: source.processed.has(i) ? 'Оброблено' : source.processing.has(i) ? 'В процесі' : 'Очікує обробки' })),
             };
         }
         const orm = {
@@ -147,7 +164,12 @@ QUnit.module("quality_vataga matrix refresh", () => {
                     }
                     for (const unit of units) {
                         const source = server(id);
-                        if (mode === "send") {
+                        if (mode === "start") {
+                            source.processing.add(unit);
+                        } else if (mode === "finish" || mode === "stop") {
+                            source.processing.delete(unit);
+                            if (mode === "finish") { source.processed.add(unit); }
+                        } else if (mode === "send") {
                             source.sent.add(unit);
                         } else if (mode === "receive") {
                             source.received.add(unit);
@@ -165,6 +187,9 @@ QUnit.module("quality_vataga matrix refresh", () => {
                         type: "ir.actions.act_window_close",
                         infos: model === "mrp.workorder" ? { quality_vataga_workorder_id: id } : { quality_vataga_check_id: id },
                     };
+                }
+                if (method.startsWith("action_open_quality_execution_")) {
+                    return { type: "ir.actions.act_window", res_model: "quality.unit.execution.wizard", target: "new", view_mode: "form", views: [[789, "form"]] };
                 }
                 throw new Error(`Unexpected RPC: ${rpcModel}.${method}`);
             },
@@ -214,7 +239,7 @@ QUnit.module("quality_vataga matrix refresh", () => {
                 },
             },
         };
-        const form = await mount(model === "mrp.workorder" ? WorkorderForm : CheckForm, target, { env, props: { record: first } });
+        const form = await mount(execution ? ExecutionForm : model === "mrp.workorder" ? WorkorderForm : CheckForm, target, { env, props: { record: first } });
         await settle();
         return {
             target, form, first, bus, calls, server, matrix, record,
@@ -226,6 +251,7 @@ QUnit.module("quality_vataga matrix refresh", () => {
                     confirm: ".o_quality_confirm_admission", revoke: ".o_quality_revoke_admission",
                     transfer: ".o_quality_send_units", send: ".o_quality_send_units",
                     receive: ".o_quality_receive_units", return: ".o_quality_return_units",
+                    start: ".o_quality_execution_start", finish: ".o_quality_execution_finish", stop: ".o_quality_execution_stop", control: ".o_quality_execution_control",
                 }[mode];
                 await click(target, selector);
             },
@@ -495,5 +521,60 @@ QUnit.module("quality_vataga matrix refresh", () => {
         await ctx.apply("receive", [0]);
         assert.strictEqual(ctx.rootLoads, 0);
         assert.strictEqual(text(ctx, ".received"), "0");
+    });
+
+    QUnit.test("unit execution start and finish refresh native WO data, QUNIT, history and chatter", async (assert) => {
+        const ctx = await fixture({ model: "mrp.workorder", execution: true, received: [0, 1, 2, 3] });
+        let mail = 0;
+        ctx.bus.addEventListener("MAIL:RELOAD-THREAD", () => mail++);
+        await ctx.open("start");
+        assert.deepEqual(ctx.openedAction.views, [[789, "form"]]);
+        await ctx.apply("start");
+        assert.strictEqual(text(ctx, ".in-progress"), "4");
+        assert.strictEqual(text(ctx, ".processed"), "0");
+        await ctx.open("finish");
+        await ctx.apply("finish", [0]);
+        assert.strictEqual(text(ctx, ".in-progress"), "3");
+        assert.strictEqual(text(ctx, ".processed"), "1");
+        assert.ok(text(ctx, ".execution-unit").includes("Оброблено"));
+        await ctx.open("finish");
+        await ctx.apply("finish", [1, 2, 3]);
+        assert.strictEqual(text(ctx, ".processed"), "4");
+        assert.strictEqual(text(ctx, ".history"), "3");
+        assert.strictEqual(text(ctx, ".chatter"), "3");
+        assert.strictEqual(mail, 3);
+        assert.strictEqual(ctx.first.resId, 1);
+    });
+
+    QUnit.test("execution cancel, X and failed RPC never show unconfirmed progress", async (assert) => {
+        const ctx = await fixture({ model: "mrp.workorder", execution: true, received: [0] });
+        for (const infos of [undefined, { special: true }]) {
+            await ctx.open("start");
+            await ctx.cancel(infos);
+        }
+        await ctx.open("start");
+        try { await ctx.apply("start", [0], true); } catch (error) { assert.ok(error); }
+        assert.strictEqual(ctx.rootLoads, 0);
+        assert.strictEqual(text(ctx, ".in-progress"), "0");
+        assert.ok(ctx.dialogOpen);
+    });
+
+    QUnit.test("execution preserves edits until save and updates only the current WO", async (assert) => {
+        const ctx = await fixture({ model: "mrp.workorder", execution: true, received: [0] });
+        await ctx.open("start");
+        ctx.first.data.note = "operator note";
+        ctx.first.dirty = true;
+        await ctx.apply("start", [0]);
+        assert.strictEqual(text(ctx, ".note"), "operator note");
+        assert.strictEqual(ctx.rootLoads, 0);
+        await ctx.first.save();
+        await settle();
+        assert.strictEqual(text(ctx, ".in-progress"), "1");
+        await ctx.open("finish");
+        ctx.form.state.record = ctx.record(2);
+        await settle();
+        await ctx.apply("finish", [0]);
+        assert.strictEqual(text(ctx, ".processed"), "0");
+        assert.strictEqual(ctx.rootLoads, 1);
     });
 });

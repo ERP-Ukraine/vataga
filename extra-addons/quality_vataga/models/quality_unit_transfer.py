@@ -28,6 +28,7 @@ class QualityUnitTransfer(models.Model):
     company_id = fields.Many2one('res.company', required=True, readonly=True, ondelete='restrict', index=True)
     state = fields.Selection([
         ('sent', 'Передано'), ('received', 'Прийнято наступною операцією'), ('returned', 'Повернено'),
+        ('advanced', 'Оброблено та передано далі'),
     ], string='Стан передачі', required=True, readonly=True, index=True)
     request_key = fields.Char(required=True, readonly=True, copy=False)
     sent_by_id = fields.Many2one('res.users', string='Передав', required=True, readonly=True, ondelete='restrict')
@@ -48,8 +49,7 @@ class QualityUnitTransfer(models.Model):
 
     @api.private
     def init(self):
-        # This iteration supports one outstanding handoff per physical unit.
-        # Receipt is not consumption by a later run, nor permission to run MRP.
+        # Preserve one outstanding physical handoff per unit across ALL WOs.
         self.env.cr.execute("""
             CREATE UNIQUE INDEX IF NOT EXISTS quality_unit_transfer_active_unique
             ON quality_unit_transfer (controlled_unit_id)
@@ -123,8 +123,12 @@ class QualityUnitTransfer(models.Model):
         ''', [source.id, source.id, destination.id, production.id])
         if self.env.cr.fetchone():
             raise ValidationError(_('Циклічна або несумісна залежність операцій.'))
-        if production.state not in ('confirmed', 'progress') or source.state != 'progress' or destination.state in ('progress', 'done', 'cancel') or destination.qty_produced or production.qty_produced:
-            raise ValidationError(_('Передача доступна з активної операції відкритого MO до ще не розпочатої наступної операції.'))
+        protected_progress = False
+        if destination.state == 'progress' and production.quality_transfer_controlled:
+            self.env.cr.execute('SELECT 1 FROM quality_unit_execution WHERE workorder_id = %s LIMIT 1', [destination.id])
+            protected_progress = bool(self.env.cr.fetchone())
+        if production.state not in ('confirmed', 'progress') or source.state != 'progress' or destination.state in ('done', 'cancel') or (destination.state == 'progress' and not protected_progress) or destination.qty_produced or production.qty_produced:
+            raise ValidationError(_('Передача потребує активної вихідної операції відкритого MO та наступної операції без стандартного повного виконання; частковий прогрес має бути підтверджений поштучним маршрутом.'))
         return production
 
     @api.model
@@ -164,6 +168,7 @@ class QualityUnitTransfer(models.Model):
             admission.workorder_id.invalidate_recordset()
             destination.invalidate_recordset()
             production = self._check_admission(admission, destination)
+            self._advance_processed_receipt(admission, vals['request_key'])
             # A real write on the shared MO serializes activation with native
             # completion/inventory, even under PostgreSQL REPEATABLE READ.
             production._enable_quality_transfer_control()
@@ -186,6 +191,8 @@ class QualityUnitTransfer(models.Model):
     def write(self, vals):
         if self.env.context.get(TRANSFER_CONTEXT) is not TRANSFER_TOKEN:
             raise UserError(_('Запис передачі захищено. Використайте приймання або повернення.'))
+        if vals.get('state') == 'advanced':
+            raise UserError(_('Передачу далі фіксує лише перевірений маршрут виконаних виробів.'))
         allowed = {'state', 'received_by_id', 'received_at'} if vals.get('state') == 'received' else {'state', 'returned_by_id', 'returned_at', 'return_reason'}
         if set(vals) != allowed or vals.get('state') not in ('received', 'returned'):
             raise UserError(_('Реквізити передачі незмінні.'))
@@ -310,7 +317,7 @@ class QualityUnitTransferEvent(models.Model):
 
     transfer_id = fields.Many2one('quality.unit.transfer', required=True, readonly=True, ondelete='restrict', index=True)
     company_id = fields.Many2one(related='transfer_id.company_id', store=True, readonly=True, compute_sudo=False)
-    action = fields.Selection([('sent', 'Передано'), ('received', 'Прийнято'), ('returned', 'Повернено')], required=True, readonly=True)
+    action = fields.Selection([('sent', 'Передано'), ('received', 'Прийнято'), ('returned', 'Повернено'), ('advanced', 'Передано далі після обробки')], required=True, readonly=True)
     actor_id = fields.Many2one('res.users', string='Виконав', required=True, readonly=True, ondelete='restrict')
     occurred_at = fields.Datetime(string='Дата', required=True, readonly=True)
     reason = fields.Text(string='Причина', readonly=True)
@@ -361,7 +368,7 @@ class QualityAdmissionTransfer(models.Model):
         # Protective existence check, including records hidden by a record
         # rule. It conveys no data or authorization and never changes ACLs.
         self.env['quality.unit.transfer'].flush_model(['admission_id', 'state'])
-        self.env.cr.execute("SELECT 1 FROM quality_unit_transfer WHERE admission_id = %s AND state IN ('sent', 'received') LIMIT 1", [self.id])
+        self.env.cr.execute("SELECT 1 FROM quality_unit_transfer WHERE admission_id = %s AND state IN ('sent', 'received', 'advanced') LIMIT 1", [self.id])
         if self.env.cr.fetchone():
             return _('Виріб передано або прийнято наступною операцією. Спочатку оформіть контрольоване повернення з причиною.')
         return super()._get_consumption_error()

@@ -51,8 +51,8 @@
                     <field name="quality_transfer_has_run" invisible="1"/>
                     <field name="quality_transfer_controlled" invisible="1"/>
                     <div class="alert alert-warning" invisible="not quality_transfer_controlled">
-                        Активний лише поштучний облік передач. Приймання не запускає обробку виробів.
-                        Виконання Work Orders і складський випуск цього MO заблоковані до наступного етапу інтеграції.
+                        Приймання не запускає обробку виробів. Для явного виконання прийнятих QUNIT відкрийте «Поштучне виконання».
+                        Стандартне завершення Work Orders і складський випуск цього MO заблоковані.
                     </div>
                     <widget name="quality_unit_transfer_workorder_buttons"/>
                     <group>

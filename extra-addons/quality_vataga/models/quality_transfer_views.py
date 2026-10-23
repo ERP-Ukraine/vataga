@@ -7,7 +7,7 @@ class QualityCheckTransfers(models.Model):
 
     unit_transfer_ids = fields.One2many(related='operation_run_id.unit_transfer_ids', readonly=True, compute_sudo=False)
     quality_transfer_controlled = fields.Boolean(related='operation_run_id.production_id.quality_transfer_controlled', readonly=True, compute_sudo=False)
-    x_transferred_qty = fields.Integer(string='Передано', compute='_compute_transfer_quantities', help='Активні передачі, включно з уже прийнятими виробами. Повернені не враховуються.')
+    x_transferred_qty = fields.Integer(string='Передано', compute='_compute_transfer_quantities', help='Неповернені передачі, включно з прийнятими та переданими далі після обробки.')
     x_received_qty = fields.Integer(string='Прийнято наступною операцією', compute='_compute_transfer_quantities', help='Прийнята частина переданих виробів. Не додавайте до кількості переданих.')
     x_awaiting_transfer_qty = fields.Integer(string='Очікує передачі', compute='_compute_transfer_quantities')
 
@@ -16,10 +16,10 @@ class QualityCheckTransfers(models.Model):
     def _compute_transfer_quantities(self):
         for check in self:
             transfers = self.env['quality.unit.transfer'].search([
-                ('source_run_id', '=', check.operation_run_id.id), ('state', 'in', ('sent', 'received')),
+                ('source_run_id', '=', check.operation_run_id.id), ('state', 'in', ('sent', 'received', 'advanced')),
             ]) if check.operation_run_id else self.env['quality.unit.transfer']
             check.x_transferred_qty = len(transfers.controlled_unit_id)
-            check.x_received_qty = len(transfers.filtered(lambda record: record.state == 'received').controlled_unit_id)
+            check.x_received_qty = len(transfers.filtered(lambda record: record.state in ('received', 'advanced')).controlled_unit_id)
             check.x_awaiting_transfer_qty = max(check.x_admitted_qty - check.x_transferred_qty, 0)
 
     def action_open_unit_transfer_wizard(self):
@@ -78,12 +78,12 @@ class MrpWorkorderTransferViews(models.Model):
             runs = self.env['quality.production.run'].search([('workorder_id', '=', workorder.id), ('state', '=', 'registered')])
             admissions = self.env['quality.unit.admission'].search([('operation_run_id', 'in', runs.ids), ('state', '=', 'confirmed')])
             admitted = admissions.filtered(lambda record: not record._get_effectiveness_error()).controlled_unit_id
-            outgoing = self.env['quality.unit.transfer'].search([('source_workorder_id', '=', workorder.id), ('state', 'in', ('sent', 'received'))])
-            incoming = self.env['quality.unit.transfer'].search([('destination_workorder_id', '=', workorder.id), ('state', '=', 'received')])
+            outgoing = self.env['quality.unit.transfer'].search([('source_workorder_id', '=', workorder.id), ('state', 'in', ('sent', 'received', 'advanced'))])
+            incoming = self.env['quality.unit.transfer'].search([('destination_workorder_id', '=', workorder.id), ('state', 'in', ('received', 'advanced'))])
             workorder.quality_transfer_has_run = bool(runs)
             workorder.quality_admitted_qty = len(admitted)
             workorder.quality_transferred_qty = len(outgoing.controlled_unit_id)
-            workorder.quality_received_qty = len(outgoing.filtered(lambda record: record.state == 'received').controlled_unit_id)
+            workorder.quality_received_qty = len(outgoing.filtered(lambda record: record.state in ('received', 'advanced')).controlled_unit_id)
             workorder.quality_awaiting_transfer_qty = len(admitted - outgoing.controlled_unit_id)
             workorder.quality_held_qty = len(runs.unit_ids - admitted)
             workorder.quality_incoming_received_qty = len(incoming.controlled_unit_id)

@@ -1,14 +1,14 @@
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
-BOUNDARY_MESSAGE = 'Для цього MO активовано поштучний облік передач. Наразі доступні лише передача, приймання та повернення QUNIT. Виконання операцій, зміна виробничої кількості та складський випуск заблоковані до впровадження перевіреної поштучної інтеграції MRP / Shop Floor.'
+BOUNDARY_MESSAGE = 'Для цього MO активовано захищений поштучний маршрут. Використайте «Поштучне виконання» з явним вибором прийнятих QUNIT. Стандартне завершення Work Order, зміна виробничої кількості та складський випуск заблоковані.'
 TIMER_CLOSE_TOKEN = object()
 
 
 class MrpProductionTransfer(models.Model):
     _inherit = 'mrp.production'
 
-    quality_transfer_controlled = fields.Boolean(string='Поштучний маршрут: лише облік передач', readonly=True, copy=False)
+    quality_transfer_controlled = fields.Boolean(string='Захищений поштучний маршрут', readonly=True, copy=False)
     quality_transfer_revision = fields.Integer(readonly=True, copy=False)
 
     def _lock_quality_transfer_scope(self):
@@ -128,7 +128,7 @@ class MrpWorkorderTransferBoundary(models.Model):
             'qty_producing', 'qty_produced', 'qty_reported_from_previous_wo',
             'blocked_by_workorder_ids', 'needed_by_workorder_ids', 'operation_id',
             'move_raw_ids', 'move_finished_ids', 'move_line_ids', 'finished_lot_id', 'time_ids',
-        }.intersection(vals) or vals.get('state') in ('progress', 'done', 'cancel'):
+        }.intersection(vals) or 'state' in vals:
             self._quality_transfer_relation_productions(vals)._check_quality_transfer_boundary()
         return super().write(vals)
 
@@ -155,6 +155,35 @@ class MrpWorkorderTransferBoundary(models.Model):
     def _update_finished_move(self):
         self.production_id._check_quality_transfer_boundary()
         return super()._update_finished_move()
+
+    def _begin_quality_execution(self, batch):
+        """Explicit unit execution, without native quantity or stock updates."""
+        self.ensure_one()
+        self._check_quality_execution_access()
+        batch.check_access_rights('read')
+        batch.check_access_rule('read')
+        if batch.workorder_id != self or batch.operator_id != self.env.user or not batch.execution_ids or batch.timer_ids:
+            raise UserError(_('Некоректний робочий інтервал.'))
+        for record in batch.execution_ids:
+            if record.state != 'progress':
+                raise UserError(_('Обробка вже завершена.'))
+            error = record.transfer_id._get_execution_error(self, current=record)
+            if error:
+                raise UserError(error)
+        timers = self.env['mrp.workcenter.productivity']
+        timers.check_access_rights('create')
+        values = self._prepare_timeline_vals(self.duration, batch.started_at)
+        values.update(quality_execution_batch_id=batch.id, company_id=self.company_id.id,
+                      workorder_id=self.id, workcenter_id=self.workcenter_id.id,
+                      user_id=self.env.uid, date_start=batch.started_at, date_end=False)
+        # Skip only this module's blanket boundary after unit validation,
+        # retaining normal ACLs and native productivity constraints.
+        context = {key: value for key, value in self.env.context.items() if not key.startswith('default_')}
+        super(MrpProductivityTransferBoundary, timers.with_context(context)).create(values)
+        values = {'state': 'progress'}
+        if not self.date_start:
+            values['date_start'] = batch.started_at
+        super(MrpWorkorderTransferBoundary, self).write(values)
 
 
 class StockMoveTransferBoundary(models.Model):
@@ -230,6 +259,8 @@ class StockScrapTransferBoundary(models.Model):
 class MrpProductivityTransferBoundary(models.Model):
     _inherit = 'mrp.workcenter.productivity'
 
+    quality_execution_batch_id = fields.Many2one('quality.unit.execution.batch', readonly=True, ondelete='restrict', index=True, copy=True)
+
     @api.model_create_multi
     def create(self, vals_list):
         for vals in vals_list:
@@ -239,11 +270,15 @@ class MrpProductivityTransferBoundary(models.Model):
                 and workorder.id in self.env.context.get('quality_vataga_closing_workorders', ())
                 and vals.get('date_end')
             )
+            if (vals.get('quality_execution_batch_id') or self.env.context.get('default_quality_execution_batch_id')) and not stopping:
+                raise UserError(_('Робочий інтервал QUNIT встановлює система.'))
             if not stopping:
                 workorder.production_id._check_quality_transfer_boundary()
         return super().create(vals_list)
 
     def write(self, vals):
+        if 'quality_execution_batch_id' in vals:
+            raise UserError(_('Зв’язок робочого часу з виконанням незмінний.'))
         # An already running source timer may be stopped normally. Creating
         # or reassigning a timer must not become an alternate start path.
         stopping = (
@@ -260,10 +295,16 @@ class MrpProductivityTransferBoundary(models.Model):
         # Native _close may split an existing timer into closed productive
         # and performance intervals. Permit only that private operation, with
         # normal ACLs, so an active source timer can always be stopped.
+        if self.quality_execution_batch_id.execution_ids.filtered(lambda row: row.state == 'progress'):
+            raise UserError(_('Активні QUNIT потрібно завершити або зупинити через «Поштучне виконання».'))
         return super(MrpProductivityTransferBoundary, self.with_context(
             quality_vataga_timer_close=TIMER_CLOSE_TOKEN,
             quality_vataga_closing_workorders=tuple(self.workorder_id.ids),
         ))._close()
+
+    def unlink(self):
+        self.workorder_id.production_id._check_quality_transfer_boundary()
+        return super().unlink()
 
 
 class QualityCheckTransferIdentityBoundary(models.Model):
@@ -273,6 +314,6 @@ class QualityCheckTransferIdentityBoundary(models.Model):
         # Downstream registration would otherwise let an unknown Shop Floor
         # path treat receipt as processing. Do not create a second QUNIT or
         # resize the frozen batch to simulate partial execution.
-        if not self.operation_run_id:
+        if not self.operation_run_id and not self._is_execution_identification(mode, mapping, run, workorder):
             self._identity_production()._check_quality_transfer_boundary()
         return super()._identify_samples_locked(mode, mapping, run, workorder, confirmed)
