@@ -460,6 +460,26 @@ class TestQualityUnitAdmission(QualityCheckInProcessCase):
         self.assertEqual(arch.xpath("//field[@name='selected']")[0].get('readonly'), 'not eligible')
         self.assertEqual(arch.xpath("//field[@name='reason']")[0].get('required'), "mode == 'revoke'")
 
+    def test_admission_wizard_actions_include_explicit_form_view(self):
+        check = self._ready(1, fail_last=False)
+        view = self.env.ref('quality_vataga.quality_unit_admission_wizard_form')
+        self.assertEqual(view.model, 'quality.unit.admission.wizard')
+        for mode, opener in (
+            ('confirm', check.action_open_unit_admission_wizard),
+            ('revoke', check.action_open_unit_admission_revocation_wizard),
+        ):
+            with self.subTest(mode=mode):
+                action = opener()
+                self.assertEqual(action['type'], 'ir.actions.act_window')
+                self.assertEqual(action['res_model'], view.model)
+                self.assertEqual(action['target'], 'new')
+                self.assertEqual(action['view_mode'], 'form')
+                self.assertEqual(action['views'], [(view.id, 'form')])
+                self.assertEqual(action['context'], {
+                    'default_check_id': check.id, 'default_mode': mode,
+                })
+        self.assertFalse(self._admissions(check, state=False))
+
     def test_successful_wizard_close_identifies_only_the_updated_check(self):
         check = self._ready(1, fail_last=False)
         expected = {

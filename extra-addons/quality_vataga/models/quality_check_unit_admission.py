@@ -224,6 +224,7 @@ class QualityCheckUnitAdmission(models.Model):
         return {
             'type': 'ir.actions.act_window', 'name': _('Допуск виробів'),
             'res_model': 'quality.unit.admission.wizard', 'view_mode': 'form', 'target': 'new',
+            'views': [(self.env.ref('quality_vataga.quality_unit_admission_wizard_form').id, 'form')],
             'context': {'default_check_id': self.id, 'default_mode': mode},
         }
 

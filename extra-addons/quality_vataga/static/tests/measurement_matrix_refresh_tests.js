@@ -42,6 +42,7 @@ QUnit.module("quality_vataga matrix refresh", () => {
         const servers = new Map();
         const bus = new EventBus();
         let closeCallback;
+        let openedAction;
         let dialogOpen = false;
         let rootLoads = 0;
         let lateRead;
@@ -103,7 +104,14 @@ QUnit.module("quality_vataga matrix refresh", () => {
                     return true;
                 }
                 if (method.startsWith("action_open_unit_admission")) {
-                    return { type: "ir.actions.act_window", res_model: "quality.unit.admission.wizard", target: "new" };
+                    return {
+                        type: "ir.actions.act_window", res_model: "quality.unit.admission.wizard",
+                        target: "new", view_mode: "form", views: [[123, "form"]],
+                        context: {
+                            default_check_id: id,
+                            default_mode: method === "action_open_unit_admission_revocation_wizard" ? "revoke" : "confirm",
+                        },
+                    };
                 }
                 if (method === "action_apply") {
                     const [, mode, units, fail] = args;
@@ -157,6 +165,8 @@ QUnit.module("quality_vataga matrix refresh", () => {
                 orm, notification: { add() {} }, ui: { block() {}, unblock() {} },
                 action: {
                     async doAction(action, options) {
+                        // Odoo 17 preprocesses direct actions via views.map().
+                        openedAction = { ...action, views: action.views.map((view) => [...view]) };
                         dialogOpen = true;
                         closeCallback = options.onClose;
                     },
@@ -169,6 +179,7 @@ QUnit.module("quality_vataga matrix refresh", () => {
             target, form, first, bus, calls, server, matrix, record,
             get rootLoads() { return rootLoads; },
             get dialogOpen() { return dialogOpen; },
+            get openedAction() { return openedAction; },
             async open(mode = "confirm") {
                 await click(target, mode === "revoke" ? ".o_quality_revoke_admission" : ".o_quality_confirm_admission");
             },
@@ -178,7 +189,7 @@ QUnit.module("quality_vataga matrix refresh", () => {
                 await closeCallback(result.infos);
                 await settle();
             },
-            async cancel() { dialogOpen = false; await closeCallback(); await settle(); },
+            async cancel(infos) { dialogOpen = false; await closeCallback(infos); await settle(); },
             deferRead(id) { const deferred = makeDeferred(); lateRead = { id, deferred }; return deferred; },
             matrixComponent() { return findChildren(form, (node) => node.component instanceof QualityMeasurementMatrix).component; },
         };
@@ -226,17 +237,25 @@ QUnit.module("quality_vataga matrix refresh", () => {
         assert.strictEqual(labels(ctx)[0], "Допущено");
     });
 
-    QUnit.test("cancel or dialog X does not reload parent or matrix", async (assert) => {
-        const ctx = await fixture();
-        const reads = rpcCount(ctx, "get_measurement_matrix_data");
-        for (let i = 0; i < 2; i++) {
-            await ctx.open();
-            await ctx.cancel();
-        }
-        assert.strictEqual(ctx.rootLoads, 0);
-        assert.strictEqual(rpcCount(ctx, "web_read"), 0);
-        assert.strictEqual(rpcCount(ctx, "get_measurement_matrix_data"), reads);
-    });
+    for (const mode of ["confirm", "revoke"]) {
+        QUnit.test(`${mode} opens an explicit modal form; cancel and X do not refresh`, async (assert) => {
+            const ctx = await fixture();
+            const reads = rpcCount(ctx, "get_measurement_matrix_data");
+            for (const infos of [undefined, { special: true }]) {
+                await ctx.open(mode);
+                assert.ok(ctx.dialogOpen);
+                assert.strictEqual(ctx.openedAction.res_model, "quality.unit.admission.wizard");
+                assert.strictEqual(ctx.openedAction.target, "new");
+                assert.strictEqual(ctx.openedAction.view_mode, "form");
+                assert.deepEqual(ctx.openedAction.views, [[123, "form"]]);
+                assert.deepEqual(ctx.openedAction.context, { default_check_id: 1, default_mode: mode });
+                await ctx.cancel(infos);
+            }
+            assert.strictEqual(ctx.rootLoads, 0);
+            assert.strictEqual(rpcCount(ctx, "web_read"), 0);
+            assert.strictEqual(rpcCount(ctx, "get_measurement_matrix_data"), reads);
+        });
+    }
 
     for (const mode of ["confirm", "revoke"]) {
         QUnit.test(`${mode} error leaves dialog and unconfirmed UI unchanged`, async (assert) => {
