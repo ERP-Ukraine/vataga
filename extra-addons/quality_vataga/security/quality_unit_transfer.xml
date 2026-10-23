@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="quality_unit_transfer_company_rule" model="ir.rule">
+        <field name="name">Передачі виробів: дозволені компанії</field>
+        <field name="model_id" ref="model_quality_unit_transfer"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="quality_unit_transfer_event_company_rule" model="ir.rule">
+        <field name="name">Події передач: дозволені компанії</field>
+        <field name="model_id" ref="model_quality_unit_transfer_event"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+</odoo>

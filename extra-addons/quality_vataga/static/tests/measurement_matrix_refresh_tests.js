@@ -2,7 +2,7 @@
 
 import { Component, EventBus, markRaw, reactive, useState, xml } from "@odoo/owl";
 import { QualityMeasurementMatrix } from "@quality_vataga/components/measurement_matrix/measurement_matrix";
-import { QualityUnitAdmissionButtons, QUALITY_CHECK_MATRIX_REFRESH } from "@quality_vataga/components/measurement_matrix/admission_buttons";
+import { QualityUnitAdmissionButtons, QualityUnitTransferWorkorderButtons, QUALITY_CHECK_MATRIX_REFRESH } from "@quality_vataga/components/measurement_matrix/admission_buttons";
 import { click, findChildren, getFixture, makeDeferred, mount, nextTick } from "@web/../tests/helpers/utils";
 
 // Real OWL components and useRecordObserver, with deterministic server replies.
@@ -21,6 +21,9 @@ QUnit.module("quality_vataga matrix refresh", () => {
                 <span class="pending" t-esc="state.record.data.x_pending_qty"/>
                 <span class="admitted" t-esc="state.record.data.x_admitted_qty"/>
                 <span class="held" t-esc="state.record.data.x_held_qty"/>
+                <span class="transferred" t-esc="state.record.data.transferred"/>
+                <span class="received" t-esc="state.record.data.received"/>
+                <span class="awaiting" t-esc="state.record.data.awaiting"/>
                 <span class="note" t-esc="state.record.data.note"/>
                 <span class="history" t-esc="state.record.data.history.length"/>
                 <span class="chatter" t-esc="state.record.data.messages.length"/>
@@ -31,12 +34,25 @@ QUnit.module("quality_vataga matrix refresh", () => {
         }
     }
 
+    class WorkorderForm extends CheckForm {
+        static components = { QualityUnitTransferWorkorderButtons };
+        static template = xml`
+            <div>
+                <QualityUnitTransferWorkorderButtons record="state.record"/>
+                <span class="transferred" t-esc="state.record.data.transferred"/>
+                <span class="received" t-esc="state.record.data.received"/>
+                <span class="awaiting" t-esc="state.record.data.awaiting"/>
+                <span class="note" t-esc="state.record.data.note"/>
+                <span t-foreach="state.record.data.receipts" t-as="unit" t-key="unit" class="received-unit" t-esc="unit"/>
+            </div>`;
+    }
+
     async function settle() {
         await nextTick();
         await nextTick();
     }
 
-    async function fixture({ approved = [], unformed = false, staleQuantity = false, dirty = false, stage = "in_process" } = {}) {
+    async function fixture({ approved = [], sent = [], received = [], model = "quality.check", unformed = false, staleQuantity = false, dirty = false, stage = "in_process" } = {}) {
         const target = getFixture();
         const calls = [];
         const servers = new Map();
@@ -51,6 +67,7 @@ QUnit.module("quality_vataga matrix refresh", () => {
             if (!servers.has(id)) {
                 servers.set(id, {
                     formed: !unformed, approved: new Set(approved), history: [], messages: [], note: "saved",
+                    sent: new Set(sent), received: new Set(received), returned: new Set(),
                 });
             }
             return servers.get(id);
@@ -67,6 +84,7 @@ QUnit.module("quality_vataga matrix refresh", () => {
                     sample_result: i === 4 ? "fail" : "pass", cells: [],
                     unit_admission_label: source.approved.has(i) ? "Допущено" : "Утримано",
                     unit_admission_reason: source.approved.has(i) ? "" : "Потрібне рішення інспектора",
+                    unit_transfer_label: source.received.has(i) ? "Прийнято наступною операцією" : source.sent.has(i) ? "Передано" : source.returned.has(i) ? "Повернено" : "",
                 })) : [],
             };
         }
@@ -78,11 +96,14 @@ QUnit.module("quality_vataga matrix refresh", () => {
                 x_passed_qty: source.formed ? 4 : 0, x_failed_qty: source.formed ? 1 : 0, x_pending_qty: 0,
                 x_admitted_qty: source.approved.size, x_held_qty: source.formed ? 5 - source.approved.size : 0,
                 history: [...source.history], messages: [...source.messages], note: source.note,
+                transferred: source.sent.size, received: source.received.size,
+                awaiting: source.approved.size - source.sent.size, quality_transfer_has_run: true,
+                receipts: [...source.received].map((i) => `QUNIT/${id}/${i + 1}`),
             };
         }
         const orm = {
-            async call(model, method, args) {
-                calls.push({ model, method, args });
+            async call(rpcModel, method, args) {
+                calls.push({ model: rpcModel, method, args });
                 const id = args[0][0];
                 if (method === "get_measurement_matrix_data") {
                     if (lateRead?.id === id) {
@@ -113,29 +134,49 @@ QUnit.module("quality_vataga matrix refresh", () => {
                         },
                     };
                 }
+                if (method.includes("unit_transfer_wizard") || method.includes("unit_receipt_wizard") || method.includes("unit_return_wizard")) {
+                    return {
+                        type: "ir.actions.act_window", res_model: "quality.unit.transfer.wizard",
+                        target: "new", views: [[456, "form"]], view_mode: "form",
+                    };
+                }
                 if (method === "action_apply") {
                     const [, mode, units, fail] = args;
                     if (fail) {
                         throw new Error("Admission refused");
                     }
                     for (const unit of units) {
-                        mode === "revoke" ? server(id).approved.delete(unit) : server(id).approved.add(unit);
+                        const source = server(id);
+                        if (mode === "send") {
+                            source.sent.add(unit);
+                        } else if (mode === "receive") {
+                            source.received.add(unit);
+                        } else if (mode === "return") {
+                            source.sent.delete(unit);
+                            source.received.delete(unit);
+                            source.returned.add(unit);
+                        } else {
+                            mode === "revoke" ? source.approved.delete(unit) : source.approved.add(unit);
+                        }
                     }
                     server(id).history.push(mode);
                     server(id).messages.push(mode);
-                    return { type: "ir.actions.act_window_close", infos: { quality_vataga_check_id: id } };
+                    return {
+                        type: "ir.actions.act_window_close",
+                        infos: model === "mrp.workorder" ? { quality_vataga_workorder_id: id } : { quality_vataga_check_id: id },
+                    };
                 }
-                throw new Error(`Unexpected RPC: ${model}.${method}`);
+                throw new Error(`Unexpected RPC: ${rpcModel}.${method}`);
             },
         };
         function record(id) {
             const rec = reactive({
-                id: `record_${id}`, resId: id, resModel: "quality.check", context: {}, dirty: false,
+                id: `record_${id}`, resId: id, resModel: model, context: {}, dirty: false,
                 data: formData(id),
                 async isDirty() { return this.dirty; },
-                async load() { this.data = await orm.call("quality.check", "web_read", [[id]]); },
+                async load() { this.data = await orm.call(this.resModel, "web_read", [[id]]); },
                 async save() {
-                    await orm.call("quality.check", "write", [[id], { note: this.data.note }]);
+                    await orm.call(this.resModel, "write", [[id], { note: this.data.note }]);
                     this.dirty = false;
                     await this.load();
                     return true;
@@ -173,7 +214,7 @@ QUnit.module("quality_vataga matrix refresh", () => {
                 },
             },
         };
-        const form = await mount(CheckForm, target, { env, props: { record: first } });
+        const form = await mount(model === "mrp.workorder" ? WorkorderForm : CheckForm, target, { env, props: { record: first } });
         await settle();
         return {
             target, form, first, bus, calls, server, matrix, record,
@@ -181,7 +222,12 @@ QUnit.module("quality_vataga matrix refresh", () => {
             get dialogOpen() { return dialogOpen; },
             get openedAction() { return openedAction; },
             async open(mode = "confirm") {
-                await click(target, mode === "revoke" ? ".o_quality_revoke_admission" : ".o_quality_confirm_admission");
+                const selector = {
+                    confirm: ".o_quality_confirm_admission", revoke: ".o_quality_revoke_admission",
+                    transfer: ".o_quality_send_units", send: ".o_quality_send_units",
+                    receive: ".o_quality_receive_units", return: ".o_quality_return_units",
+                }[mode];
+                await click(target, selector);
             },
             async apply(mode = "confirm", units = [0, 1, 2, 3], fail = false) {
                 const result = await orm.call("quality.unit.admission.wizard", "action_apply", [[1], mode, units, fail]);
@@ -377,5 +423,77 @@ QUnit.module("quality_vataga matrix refresh", () => {
         assert.strictEqual(text(ctx, ".held"), "4");
         assert.strictEqual(labels(ctx)[0], "Допущено");
         assert.strictEqual(rpcCount(ctx, "initialize_in_process_measurement_matrix"), 0);
+    });
+
+    QUnit.test("sending four QUNIT refreshes QC counters, matrix statuses and audit without F5", async (assert) => {
+        const ctx = await fixture({ approved: [0, 1, 2, 3] });
+        await ctx.open("transfer");
+        assert.strictEqual(ctx.openedAction.res_model, "quality.unit.transfer.wizard");
+        await ctx.apply("send");
+        assert.strictEqual(text(ctx, ".transferred"), "4");
+        assert.strictEqual(text(ctx, ".received"), "0");
+        assert.strictEqual(text(ctx, ".awaiting"), "0");
+        assert.strictEqual(text(ctx, ".held"), "1");
+        assert.strictEqual(ctx.target.querySelectorAll(".o_quality_unit_transfer").length, 4);
+        assert.ok([...ctx.target.querySelectorAll(".o_quality_unit_transfer")].every((node) => node.textContent.trim() === "Передано"));
+        assert.strictEqual(text(ctx, ".history"), "1");
+        assert.strictEqual(text(ctx, ".chatter"), "1");
+    });
+
+    QUnit.test("workorder receipt refreshes exact QUNIT and counters without affecting QC bus", async (assert) => {
+        const ctx = await fixture({ model: "mrp.workorder", approved: [0, 1, 2, 3], sent: [0, 1, 2, 3] });
+        let qcEvents = 0;
+        ctx.bus.addEventListener(QUALITY_CHECK_MATRIX_REFRESH, () => qcEvents++);
+        await ctx.open("receive");
+        await ctx.apply("receive");
+        assert.strictEqual(text(ctx, ".received"), "4");
+        assert.deepEqual([...ctx.target.querySelectorAll(".received-unit")].map((node) => node.textContent), ["QUNIT/1/1", "QUNIT/1/2", "QUNIT/1/3", "QUNIT/1/4"]);
+        assert.strictEqual(ctx.rootLoads, 1);
+        assert.strictEqual(qcEvents, 0);
+        assert.ok(ctx.calls.some((call) => call.model === "mrp.workorder" && call.method === "action_open_quality_unit_receipt_wizard"));
+    });
+
+    QUnit.test("return refreshes workorder counts; dirty form is preserved until save", async (assert) => {
+        const ctx = await fixture({ model: "mrp.workorder", approved: [0, 1, 2, 3], sent: [0, 1, 2, 3], received: [0, 1, 2, 3] });
+        await ctx.open("return");
+        ctx.first.data.note = "unsaved transfer note";
+        ctx.first.dirty = true;
+        await ctx.apply("return", [0]);
+        assert.strictEqual(ctx.rootLoads, 0);
+        assert.strictEqual(text(ctx, ".note"), "unsaved transfer note");
+        await ctx.first.save();
+        await settle();
+        assert.strictEqual(text(ctx, ".transferred"), "3");
+        assert.strictEqual(text(ctx, ".received"), "3");
+        assert.strictEqual(text(ctx, ".awaiting"), "1");
+        assert.strictEqual(text(ctx, ".note"), "unsaved transfer note");
+    });
+
+    QUnit.test("transfer wizard cancel and failed receipt never reload or change confirmed data", async (assert) => {
+        const ctx = await fixture({ model: "mrp.workorder", approved: [0], sent: [0] });
+        for (const mode of ["send", "receive", "return"]) {
+            await ctx.open(mode);
+            await ctx.cancel({ special: true });
+        }
+        await ctx.open("receive");
+        try {
+            await ctx.apply("receive", [0], true);
+            assert.ok(false, "RPC must reject");
+        } catch (error) {
+            assert.strictEqual(error.message, "Admission refused");
+        }
+        assert.strictEqual(text(ctx, ".received"), "0");
+        assert.strictEqual(ctx.rootLoads, 0);
+        assert.ok(ctx.dialogOpen);
+    });
+
+    QUnit.test("receipt from a previous workorder cannot refresh another workorder", async (assert) => {
+        const ctx = await fixture({ model: "mrp.workorder", sent: [0] });
+        await ctx.open("receive");
+        ctx.form.state.record = ctx.record(2);
+        await settle();
+        await ctx.apply("receive", [0]);
+        assert.strictEqual(ctx.rootLoads, 0);
+        assert.strictEqual(text(ctx, ".received"), "0");
     });
 });

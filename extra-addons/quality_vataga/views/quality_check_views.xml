@@ -64,6 +64,11 @@
             <xpath expr="//sheet/notebook" position="before">
                 <group name="quality_vataga_control_results" string="Результати контролю"
                        invisible="x_control_stage != 'in_process'">
+                    <field name="quality_transfer_controlled" invisible="1"/>
+                    <div class="alert alert-warning" colspan="2" invisible="not quality_transfer_controlled">
+                        Активний лише поштучний облік передач. Виконання Work Orders і складський випуск цього MO
+                        заблоковані до наступного етапу інтеграції. Приймання не є запуском обробки.
+                    </div>
                     <group>
                         <field name="in_process_sample_quantity" readonly="1"/>
                         <field name="operation_run_id" readonly="1" options="{'no_create': True}"/>
@@ -84,8 +89,28 @@
                         <field name="x_pending_qty" readonly="1"/>
                         <field name="x_admitted_qty" readonly="1"/>
                         <field name="x_held_qty" readonly="1"/>
+                        <field name="x_transferred_qty" readonly="1"/>
+                        <field name="x_received_qty" readonly="1"/>
+                        <field name="x_awaiting_transfer_qty" readonly="1"/>
                     </group>
                 </group>
+            </xpath>
+
+            <xpath expr="//sheet/notebook" position="inside">
+                <page name="quality_unit_transfers" string="Передачі виробів" invisible="not operation_run_id">
+                    <field name="unit_transfer_ids" readonly="1">
+                        <tree create="0" edit="0" delete="0">
+                            <field name="controlled_unit_id"/>
+                            <field name="destination_workorder_id"/>
+                            <field name="state"/>
+                            <field name="sent_by_id"/>
+                            <field name="sent_at"/>
+                            <field name="received_by_id"/>
+                            <field name="received_at"/>
+                            <field name="return_reason"/>
+                        </tree>
+                    </field>
+                </page>
             </xpath>
 
             <xpath expr="//sheet/notebook" position="inside">

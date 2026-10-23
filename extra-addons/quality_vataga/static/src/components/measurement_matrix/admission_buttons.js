@@ -59,6 +59,18 @@ export class QualityUnitAdmissionButtons extends Component {
         );
     }
 
+    get actionMethods() {
+        return {
+            confirm: 'action_open_unit_admission_wizard',
+            revoke: 'action_open_unit_admission_revocation_wizard',
+            transfer: 'action_open_unit_transfer_wizard',
+        };
+    }
+
+    get closeInfoKey() {
+        return 'quality_vataga_check_id';
+    }
+
     async open(mode) {
         const record = this.props.record;
         const checkId = record.resId;
@@ -75,10 +87,8 @@ export class QualityUnitAdmissionButtons extends Component {
             if (!this.isCurrentCheck(checkId)) {
                 return;
             }
-            const method = mode === "revoke"
-                ? "action_open_unit_admission_revocation_wizard"
-                : "action_open_unit_admission_wizard";
-            const action = await this.orm.call("quality.check", method, [[checkId]], {
+            const method = this.actionMethods[mode];
+            const action = await this.orm.call(record.resModel, method, [[checkId]], {
                 context: record.context,
             });
             if (!this.isCurrentCheck(checkId)) {
@@ -87,7 +97,7 @@ export class QualityUnitAdmissionButtons extends Component {
             await this.action.doAction(action, {
                 onClose: (infos) => {
                     // Cancel (including the dialog X) has no success marker.
-                    if (infos?.quality_vataga_check_id === checkId) {
+                    if (infos?.[this.closeInfoKey] === checkId) {
                         return this.refreshAfterDecision(checkId);
                     }
                 },
@@ -113,4 +123,31 @@ export class QualityUnitAdmissionButtons extends Component {
 
 registry.category("view_widgets").add("quality_unit_admission_buttons", {
     component: QualityUnitAdmissionButtons,
+});
+
+export class QualityUnitTransferWorkorderButtons extends QualityUnitAdmissionButtons {
+    static template = 'quality_vataga.UnitTransferWorkorderButtons';
+
+    get actionMethods() {
+        return {
+            send: 'action_open_quality_unit_transfer_wizard',
+            receive: 'action_open_quality_unit_receipt_wizard',
+            return: 'action_open_quality_unit_return_wizard',
+        };
+    }
+
+    get closeInfoKey() {
+        return 'quality_vataga_workorder_id';
+    }
+
+    async refreshAfterDecision(workorderId) {
+        if (this.isCurrentCheck(workorderId)) {
+            const refreshed = await refreshQualityCheckRecord(this.props.record.model.root, this.ui, true);
+            this.pendingCheckId = refreshed ? false : workorderId;
+        }
+    }
+}
+
+registry.category('view_widgets').add('quality_unit_transfer_workorder_buttons', {
+    component: QualityUnitTransferWorkorderButtons,
 });

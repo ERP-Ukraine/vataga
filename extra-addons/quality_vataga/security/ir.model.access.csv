@@ -16,3 +16,9 @@ access_quality_unit_admission_read,quality.unit.admission.read,model_quality_uni
 access_quality_unit_admission_confirm,quality.unit.admission.confirm,model_quality_unit_admission,quality.group_quality_user,1,1,1,0
 access_quality_unit_admission_wizard,quality.unit.admission.wizard,model_quality_unit_admission_wizard,quality.group_quality_user,1,1,1,1
 access_quality_unit_admission_wizard_line,quality.unit.admission.wizard.line,model_quality_unit_admission_wizard_line,quality.group_quality_user,1,1,1,1
+access_quality_unit_transfer,quality.unit.transfer,model_quality_unit_transfer,quality.group_quality_user,1,1,1,0
+access_quality_unit_transfer_read,quality.unit.transfer.read,model_quality_unit_transfer,base.group_user,1,0,0,0
+access_quality_unit_transfer_event,quality.unit.transfer.event,model_quality_unit_transfer_event,quality.group_quality_user,1,0,1,0
+access_quality_unit_transfer_event_read,quality.unit.transfer.event.read,model_quality_unit_transfer_event,base.group_user,1,0,0,0
+access_quality_unit_transfer_wizard,quality.unit.transfer.wizard,model_quality_unit_transfer_wizard,quality.group_quality_user,1,1,1,1
+access_quality_unit_transfer_wizard_line,quality.unit.transfer.wizard.line,model_quality_unit_transfer_wizard_line,quality.group_quality_user,1,1,1,1

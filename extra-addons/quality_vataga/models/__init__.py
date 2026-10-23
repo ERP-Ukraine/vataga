@@ -16,3 +16,6 @@ from . import quality_production_identity
 from . import quality_check_identity
 from . import quality_unit_admission
 from . import quality_check_unit_admission
+from . import quality_unit_transfer
+from . import quality_transfer_mrp
+from . import quality_transfer_views
