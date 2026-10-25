@@ -20,3 +20,6 @@ from . import quality_unit_transfer
 from . import quality_transfer_mrp
 from . import quality_transfer_views
 from . import quality_unit_execution
+from . import quality_unit_release_readiness
+from . import quality_unit_release
+from . import quality_release_evidence

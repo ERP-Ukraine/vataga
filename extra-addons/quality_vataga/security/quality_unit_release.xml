@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="group_quality_unit_release" model="res.groups">
+        <field name="name">Дозвіл поштучного випуску QUNIT</field>
+        <field name="category_id" model="res.groups" eval="obj(ref('quality.group_quality_user')).category_id.id"/>
+        <field name="implied_ids" eval="[(4, ref('quality.group_quality_user')), (4, ref('mrp.group_mrp_user'))]"/>
+    </record>
+    <record id="quality_release_batch_company_rule" model="ir.rule">
+        <field name="name">Пакети дозволу: дозволені компанії</field>
+        <field name="model_id" ref="model_quality_unit_release_batch"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="quality_release_line_company_rule" model="ir.rule">
+        <field name="name">Дозволи випуску: дозволені компанії</field>
+        <field name="model_id" ref="model_quality_unit_release_line"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="quality_release_event_company_rule" model="ir.rule">
+        <field name="name">Події дозволу: дозволені компанії</field>
+        <field name="model_id" ref="model_quality_unit_release_event"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+</odoo>

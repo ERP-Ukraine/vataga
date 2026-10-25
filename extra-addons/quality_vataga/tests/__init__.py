@@ -9,6 +9,7 @@ from . import test_quality_production_identity
 from . import test_quality_unit_admission
 from . import test_quality_unit_transfer
 from . import test_quality_unit_execution
+from . import test_quality_unit_release
 from . import test_quality_stage14
 from . import test_quality_check_alert_action
 from . import test_quality_technical_board

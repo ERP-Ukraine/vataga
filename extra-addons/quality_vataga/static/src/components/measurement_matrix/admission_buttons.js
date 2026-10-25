@@ -168,3 +168,22 @@ export class QualityUnitExecutionButtons extends QualityUnitTransferWorkorderBut
 registry.category('view_widgets').add('quality_unit_execution_buttons', {
     component: QualityUnitExecutionButtons,
 });
+
+export class QualityUnitReleaseButtons extends QualityUnitTransferWorkorderButtons {
+    static template = 'quality_vataga.UnitReleaseButtons';
+
+    get actionMethods() {
+        return {
+            authorize: 'action_open_unit_release_wizard',
+            cancelRelease: 'action_open_unit_release_cancel_wizard',
+        };
+    }
+
+    get closeInfoKey() {
+        return 'quality_vataga_production_id';
+    }
+}
+
+registry.category('view_widgets').add('quality_unit_release_buttons', {
+    component: QualityUnitReleaseButtons,
+});

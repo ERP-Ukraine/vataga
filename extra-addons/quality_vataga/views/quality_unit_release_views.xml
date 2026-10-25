@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="quality_unit_release_line_form" model="ir.ui.view">
+        <field name="name">quality.unit.release.line.form</field>
+        <field name="model">quality.unit.release.line</field>
+        <field name="arch" type="xml">
+            <form create="0" edit="0" delete="0" string="Дозвіл випуску QUNIT">
+                <sheet>
+                    <div class="alert alert-info">Це дозвіл. Складський випуск не виконувався.</div>
+                    <group>
+                        <group>
+                            <field name="unit_id"/>
+                            <field name="batch_id"/>
+                            <field name="production_id"/>
+                            <field name="product_id"/>
+                            <field name="last_workorder_id"/>
+                            <field name="last_run_id"/>
+                            <field name="check_id"/>
+                            <field name="admission_id"/>
+                        </group>
+                        <group>
+                            <field name="current_state"/>
+                            <field name="ineffective_reason"/>
+                            <field name="authorized_by_id"/>
+                            <field name="authorized_at"/>
+                            <field name="cancelled_by_id"/>
+                            <field name="cancelled_at"/>
+                            <field name="cancellation_reason"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Підстави">
+                            <group>
+                                <field name="execution_ids" widget="many2many_tags"/>
+                                <field name="transfer_ids" widget="many2many_tags"/>
+                                <field name="admission_ids" widget="many2many_tags"/>
+                                <field name="check_ids" widget="many2many_tags"/>
+                            </group>
+                            <field name="evidence_snapshot" readonly="1" nolabel="1" class="w-100"/>
+                        </page>
+                        <page string="Аудит">
+                            <field name="event_ids" readonly="1">
+                                <tree create="0" edit="0" delete="0">
+                                    <field name="action"/>
+                                    <field name="actor_id"/>
+                                    <field name="occurred_at"/>
+                                    <field name="reason"/>
+                                </tree>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+    <record id="quality_unit_release_batch_form" model="ir.ui.view">
+        <field name="name">quality.unit.release.batch.form</field>
+        <field name="model">quality.unit.release.batch</field>
+        <field name="arch" type="xml">
+            <form create="0" edit="0" delete="0" string="Пакет дозволу випуску">
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="production_id"/>
+                        <field name="authorized_by_id"/>
+                        <field name="authorized_at"/>
+                    </group>
+                    <field name="line_ids" readonly="1">
+                        <tree create="0" edit="0" delete="0">
+                            <field name="unit_id"/>
+                            <field name="current_state"/>
+                            <field name="last_workorder_id"/>
+                            <field name="check_id"/>
+                            <field name="ineffective_reason"/>
+                        </tree>
+                    </field>
+                </sheet>
+            </form>
+        </field>
+    </record>
+    <record id="mrp_production_quality_unit_release" model="ir.ui.view">
+        <field name="name">mrp.production.quality.unit.release</field>
+        <field name="model">mrp.production</field>
+        <field name="inherit_id" ref="mrp.mrp_production_form_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="/form/sheet/notebook" position="inside">
+                <page name="quality_unit_release" string="Поштучний випуск" invisible="not quality_transfer_controlled">
+                    <field name="quality_transfer_controlled" invisible="1"/>
+                    <div class="alert alert-info">Підготовка та дозвіл випуску конкретних QUNIT. Складські рухи, виробничі кількості й собівартість не змінюються.</div>
+                    <widget name="quality_unit_release_buttons" groups="quality_vataga.group_quality_unit_release"/>
+                    <group>
+                        <group>
+                            <field name="quality_release_total" readonly="1"/>
+                            <field name="quality_release_ready" readonly="1"/>
+                            <field name="quality_release_authorized" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="quality_release_not_ready" readonly="1"/>
+                            <field name="quality_release_blocked" readonly="1"/>
+                            <field name="quality_release_produced" readonly="1"/>
+                        </group>
+                    </group>
+                    <field name="quality_release_unit_ids" readonly="1">
+                        <tree create="0" edit="0" delete="0">
+                            <field name="name"/>
+                            <field name="quality_release_last_workorder_id"/>
+                            <field name="quality_release_execution_done"/>
+                            <field name="quality_release_quality_result"/>
+                            <field name="quality_release_admission_id"/>
+                            <field name="quality_release_state"/>
+                            <field name="quality_release_reason"/>
+                        </tree>
+                    </field>
+                    <separator string="Пакети підтверджених дозволів"/>
+                    <field name="quality_release_batch_ids" readonly="1"/>
+                </page>
+            </xpath>
+        </field>
+    </record>
+    <record id="quality_production_unit_release_history" model="ir.ui.view">
+        <field name="name">quality.production.unit.release.history</field>
+        <field name="model">quality.production.unit</field>
+        <field name="inherit_id" ref="quality_vataga.quality_production_unit_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="/form/sheet/notebook" position="inside">
+                <page name="quality_unit_release_history" string="Дозволи випуску">
+                    <field name="quality_release_state" readonly="1"/>
+                    <field name="quality_release_reason" readonly="1"/>
+                    <field name="quality_release_line_ids" readonly="1">
+                        <tree create="0" edit="0" delete="0">
+                            <field name="batch_id"/>
+                            <field name="current_state"/>
+                            <field name="last_workorder_id"/>
+                            <field name="last_run_id"/>
+                            <field name="check_id"/>
+                            <field name="admission_id"/>
+                            <field name="authorized_by_id"/>
+                            <field name="authorized_at"/>
+                            <field name="ineffective_reason"/>
+                        </tree>
+                    </field>
+                </page>
+            </xpath>
+        </field>
+    </record>
+    <record id="quality_check_release_quantity_labels" model="ir.ui.view">
+        <field name="name">quality.check.release.quantity.labels</field>
+        <field name="model">quality.check</field>
+        <field name="inherit_id" ref="quality_vataga.quality_check_view_form_measurement_matrix"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='operation_product_quantity_label']" position="attributes">
+                <attribute name="invisible">not has_operation_product_quantity or x_control_stage == 'in_process'</attribute>
+            </xpath>
+            <xpath expr="//field[@name='operation_product_quantity_label']" position="after">
+                <field name="quality_release_mo_quantity_label" readonly="1" invisible="x_control_stage != 'in_process' or not quality_release_mo_quantity_label"/>
+                <field name="in_process_sample_quantity" string="Кількість виробів у поточному контролі" readonly="1" invisible="x_control_stage != 'in_process'"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>
