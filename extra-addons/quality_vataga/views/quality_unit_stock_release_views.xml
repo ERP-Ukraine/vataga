@@ -40,6 +40,10 @@
                         <page name="snapshot" string="Знімок підстав">
                             <field name="evidence_snapshot" nolabel="1" readonly="1" class="w-100"/>
                         </page>
+                        <page name="posting_diagnostic" string="Перешкоди проведення">
+                            <div class="alert alert-warning">Діагностика знімка підготовки. Проведення залишається заблокованим незалежно від стану інтервалів.</div>
+                            <field name="posting_diagnostic" nolabel="1" readonly="1" class="w-100"/>
+                        </page>
                     </notebook>
                 </sheet>
             </form>

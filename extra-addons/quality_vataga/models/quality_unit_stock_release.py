@@ -10,13 +10,15 @@ from .quality_release_access import check_stock_release_roles, has_stock_release
 from .stock_release_plan_utils import (
     StockReleasePlanError, allocate_reserved_quantity, exact_quantity, proportional_quantity,
 )
+from .stock_release_diagnostics import posting_blocker_codes
 
 
 PLAN_CONTEXT = 'quality_vataga_stock_release_plan'
 PLAN_TOKEN = object()
 POSTING_UNAVAILABLE = (
-    'Складське проведення QUNIT недоступне: ще не перевірено часткове споживання, '
-    'розподіл вартості робочих інтервалів і складський баланс в ізольованій Odoo Enterprise. '
+    'Складське проведення QUNIT заблоковано: потрібні захищений реєстр фактичних випусків, '
+    'поштучний розподіл робочих інтервалів без повторного нарахування та незмінні зв’язки '
+    'готових виробів зі спожитими компонентами. Інтеграційну перевірку Enterprise не виконано. '
     'Підготовлений план не є складським випуском та не змінює залишки.'
 )
 
@@ -45,6 +47,7 @@ class QualityUnitStockReleasePlan(models.Model):
     evidence_snapshot = fields.Text(string='Підстави та резерви на момент підготовки', required=True, readonly=True)
     component_summary = fields.Text(string='Пропозиція часткового споживання', required=True, readonly=True)
     posting_note = fields.Text(string='Стан проведення', compute='_compute_posting_note')
+    posting_diagnostic = fields.Text(string='Перешкоди складського проведення', compute='_compute_posting_diagnostic')
 
     _sql_constraints = [
         ('request_unique', 'unique(production_id, request_key)', 'Цей запит підготовки вже оброблено.'),
@@ -54,6 +57,30 @@ class QualityUnitStockReleasePlan(models.Model):
     def _compute_posting_note(self):
         for plan in self:
             plan.posting_note = _(POSTING_UNAVAILABLE)
+
+    @api.depends('evidence_snapshot')
+    def _compute_posting_diagnostic(self):
+        for plan in self:
+            # Describe the immutable preparation facts, not a current cost
+            # estimate or certification. Older snapshots remain untouched.
+            try:
+                costing = json.loads(plan.evidence_snapshot or '{}').get('costing', {})
+                timers = costing.get('timers', [])
+                if not isinstance(timers, list) or any(not isinstance(timer, dict) for timer in timers):
+                    raise ValueError('Invalid timer snapshot')
+                codes = posting_blocker_codes(timers)
+            except (ValueError, TypeError, AttributeError):
+                codes = posting_blocker_codes([]) + ['legacy_snapshot']
+            labels = {
+                'posting_journal_missing': _('Немає реєстру проведених QUNIT з фактичними stock.move, stock.move.line та використаним дозволом 13.4А. Блокування після qty_produced не можна знімати.'),
+                'interval_allocation_missing': _('Немає зафіксованого поштучного розподілу вартості часу. Стандартний _cal_price повторно враховує повний час Work Orders при кожному частковому випуску.'),
+                'native_genealogy_overwrite': _('Повторний стандартний _post_inventory замінює consume_line_ids попередніх готових рухів компонентами останнього випуску.'),
+                'enterprise_validation_pending': _('Потрібна інтеграційна перевірка на окремій Odoo Enterprise, включно з оцінкою запасів та бухгалтерськими проведеннями.'),
+                'open_intervals': _('У знімку є відкриті робочі інтервали. Вартість окремого завершеного виробу ще не зафіксована.'),
+                'unmapped_intervals': _('У знімку є інтервали без поіменного робочого запуску QUNIT або старий знімок без такої прив’язки. Належність часу виробам не визначена.'),
+                'legacy_snapshot': _('Знімок не містить придатних даних діагностики. Його значення не змінено.'),
+            }
+            plan.posting_diagnostic = '\n\n'.join(labels[code] for code in codes)
 
     @api.model
     def check_access_rights(self, operation, raise_exception=True):
@@ -342,6 +369,13 @@ class MrpProductionStockReleasePlan(models.Model):
         timers = self.env['mrp.workcenter.productivity']
         if workorders:
             timers = unit._release_records('mrp.workcenter.productivity', 'workorder_id IN %s', [tuple(workorders.ids)])
+        timer_facts = [dict(
+            id=timer.id, workorder=timer.workorder_id.id,
+            start=fields.Datetime.to_string(timer.date_start), end=fields.Datetime.to_string(timer.date_end),
+            # A boolean fact about the accessible timer, not a grant of
+            # access to its execution batch and not a cost allocation.
+            has_execution_batch=bool(timer.quality_execution_batch_id),
+        ) for timer in timers]
         return dict(
             schema=1, posting_available=False, quantity=len(permissions),
             production=dict(id=self.id, company=self.company_id.id, product=self.product_id.id, bom=self.bom_id.id,
@@ -358,8 +392,7 @@ class MrpProductionStockReleasePlan(models.Model):
                                         for line in move_lines.filtered(lambda line: line.move_id == finished).sorted('id')]),
             costing=dict(verified=False, method=self.product_id.with_company(self.company_id).cost_method if 'cost_method' in self.product_id._fields else False,
                          workorders=[dict(id=workorder.id, costs_hour=workorder.workcenter_id.costs_hour) for workorder in workorders],
-                         timers=[dict(id=timer.id, workorder=timer.workorder_id.id,
-                                      start=fields.Datetime.to_string(timer.date_start), end=fields.Datetime.to_string(timer.date_end)) for timer in timers]),
+                         timers=timer_facts, blockers=posting_blocker_codes(timer_facts)),
         )
 
     def action_open_unit_stock_release_wizard(self):

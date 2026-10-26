@@ -111,6 +111,37 @@ class TestQualityUnitStockReleasePreparation(QualityCheckInProcessCase):
         self.assertEqual(before, self._stock_snapshot(check.production_id))
         self.assertEqual(check.production_id.quality_release_produced, 0)
 
+    def test_preparation_reports_cost_and_genealogy_blockers_without_stock_changes(self):
+        check, source, last, units, target, permission = self._authorized()
+        before = self._stock_snapshot(check.production_id)
+        self._wizard(check.production_id, units[1]).action_prepare()
+        plan = self._plans(check.production_id)
+        costing = json.loads(plan.evidence_snapshot)['costing']
+        self.assertIn('posting_journal_missing', costing['blockers'])
+        self.assertIn('interval_allocation_missing', costing['blockers'])
+        self.assertIn('native_genealogy_overwrite', costing['blockers'])
+        self.assertIn('enterprise_validation_pending', costing['blockers'])
+        self.assertTrue(all('has_execution_batch' in timer for timer in costing['timers']))
+        self.assertIn('consume_line_ids', plan.posting_diagnostic)
+        self.assertEqual(before, self._stock_snapshot(check.production_id))
+        with self.assertRaises(UserError):
+            plan.with_context(posting_available=True, integration_validated=True).action_post()
+        self.assertEqual(before, self._stock_snapshot(check.production_id))
+
+    def test_legacy_plan_diagnostic_does_not_rewrite_its_snapshot(self):
+        check, source, last, units, target, permission = self._authorized()
+        self._wizard(check.production_id, units[1]).action_prepare()
+        plan = self._plans(check.production_id)
+        snapshot = plan.evidence_snapshot
+        # A transient view of an old snapshot exercises the compute without
+        # rewriting the immutable historical preparation record.
+        old_plan = self.env['quality.unit.stock.release.plan'].new({
+            'evidence_snapshot': json.dumps({'costing': {'timers': [{'end': False}]}}),
+        })
+        self.assertTrue(old_plan.posting_diagnostic)
+        self.assertEqual(plan.evidence_snapshot, snapshot)
+        self.assertIn('consume_line_ids', plan.posting_diagnostic)
+
     def test_four_units_without_permission_cannot_be_prepared(self):
         check, source, last, units, target, permission = self._authorized()
         for unit in units - units[1]:
