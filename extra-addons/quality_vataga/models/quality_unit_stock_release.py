@@ -18,7 +18,8 @@ PLAN_TOKEN = object()
 POSTING_UNAVAILABLE = (
     'Складське проведення QUNIT заблоковано до перевірки Enterprise-моста. '
     'Реєстр, розподільник закритих інтервалів та складське ядро реалізовано; '
-    'повторна перевірка допусків і продовження 13.3/13.4А після часткового випуску ще не увімкнені. '
+    'інкрементальна вартість, повторна перевірка допусків і продовження 13.3/13.4А реалізовані, '
+    'але ввімкнення очікує ізольованих Enterprise-тестів. '
     'Підготовлений план не є складським випуском та не змінює залишки.'
 )
 
@@ -73,7 +74,7 @@ class QualityUnitStockReleasePlan(models.Model):
                 codes = posting_blocker_codes([]) + ['legacy_snapshot']
             labels = {
                 'enterprise_bridge_pending': _('Реєстр quality.stock.posting реалізовано. Enterprise-міст QUNIT → дозвіл 13.4А → план залишається серверно заблокованим до інтеграційної перевірки.'),
-                'interval_scope_required': _('Розподільник equal_closed_members_v1 потребує закритих інтервалів з явним незмінним складом QUNIT. Відсутні, відкриті або неоднозначні інтервали блокуються.'),
+                'interval_scope_required': _('Інкрементальний розподільник equal_closed_members_v2 фіксує лише закритий час вибраного QUNIT. Інші вироби продовжують роботу; спільні відкриті або неоднозначні інтервали блокують пов’язані вироби.'),
                 'native_post_inventory_forbidden': _('Складське ядро встановлює consume_line_ids тільки для нової одиниці й захищає обидва напрямки зв’язку. Стандартний _post_inventory після реєстрації випуску заборонено.'),
                 'enterprise_validation_pending': _('Потрібна інтеграційна перевірка на окремій Odoo Enterprise, включно з оцінкою запасів та бухгалтерськими проведеннями.'),
                 'open_intervals': _('У знімку є відкриті робочі інтервали. Вартість окремого завершеного виробу ще не зафіксована.'),
@@ -208,7 +209,8 @@ class QualityUnitStockReleasePlan(models.Model):
         self.check_access_rights('read')
         self.check_access_rule('read')
         self.production_id._check_unit_stock_release_access()
-        raise UserError(_(POSTING_UNAVAILABLE))
+        self.env['quality.stock.posting']._post_plan(self)
+        return {'type': 'ir.actions.client', 'tag': 'reload'}
 
 
 class MrpProductionStockReleasePlan(models.Model):
@@ -299,15 +301,17 @@ class MrpProductionStockReleasePlan(models.Model):
         moves = unit._release_records('stock.move', 'raw_material_production_id = %s OR production_id = %s', [self.id, self.id])
         moves.check_access_rights('read')
         moves.check_access_rule('read')
-        if not moves or moves.filtered(lambda row: row.state == 'done') or self.qty_produced:
-            raise ValidationError(_('MO вже має проведення або не має складських рухів. Поіменна звірка фактичних випусків ще не реалізована.'))
+        issued = self._check_named_stock_history()
+        remaining_units = len(all_units) - len(issued)
+        if not moves or remaining_units <= 0 or permissions.unit_id & issued:
+            raise ValidationError(_('Вибрані вироби вже випущено або MO не має залишкової партії.'))
         if any(move.company_id != self.company_id for move in moves):
             raise ValidationError(_('Складські рухи іншої компанії не можуть бути частиною плану.'))
-        raw = moves.filtered(lambda row: row.raw_material_production_id == self and row.state != 'cancel')
-        finished = moves.filtered(lambda row: row.production_id == self and row.state != 'cancel')
+        raw = moves.filtered(lambda row: row.raw_material_production_id == self and row.state not in ('done', 'cancel'))
+        finished = moves.filtered(lambda row: row.production_id == self and row.state not in ('done', 'cancel'))
         if (not raw or len(finished) != 1 or finished.product_id != self.product_id
                 or finished.product_uom != self.product_uom_id or finished.picked
-                or finished.product_uom_qty != self.product_qty
+                or finished.product_uom_qty != remaining_units
                 or finished.location_dest_id != self.location_dest_id):
             raise ValidationError(_('Потрібен один непроведений рух основного товару на повний план MO без побічної продукції.'))
         move_lines = unit._release_records('stock.move.line', 'move_id IN %s', [tuple(moves.ids)])
@@ -329,7 +333,8 @@ class MrpProductionStockReleasePlan(models.Model):
                 used_bom_lines.add(move.bom_line_id.id)
                 expected_uom = self.env['uom.uom'].browse(demand['product_uom'])
                 total = expected_uom._compute_quantity(demand['product_uom_qty'], move.product_uom, round=False)
-                if float_compare(move.product_uom_qty, total, precision_rounding=move.product_uom.rounding):
+                remaining_total = proportional_quantity(total, remaining_units, len(all_units), move.product_uom.rounding)
+                if float_compare(move.product_uom_qty, remaining_total, precision_rounding=move.product_uom.rounding):
                     raise ValidationError(_('%s: потреба руху відрізняється від BOM; автоматично ділити відхилення або втрати заборонено.', move.product_id.display_name))
                 quantity = proportional_quantity(total, len(permissions), len(all_units), move.product_uom.rounding)
                 stock_quantity = exact_quantity(move.product_uom._compute_quantity(quantity, move.product_id.uom_id, round=False), move.product_id.uom_id.rounding)
@@ -342,7 +347,7 @@ class MrpProductionStockReleasePlan(models.Model):
                 ):
                     raise ValidationError(_('%s: резерви не відповідають руху або містять партії, власника чи пакування, які потребують явного розподілу.', move.product_id.display_name))
                 reserved = [(line.id, line.product_uom_id._compute_quantity(line.quantity, move.product_id.uom_id, round=False)) for line in lines]
-                total_stock = move.product_uom._compute_quantity(total, move.product_id.uom_id, round=False)
+                total_stock = move.product_uom._compute_quantity(remaining_total, move.product_id.uom_id, round=False)
                 if float_compare(sum(value for _line_id, value in reserved), total_stock, precision_rounding=move.product_id.uom_id.rounding):
                     raise ValidationError(_('%s: кількості stock.move.line не відповідають повному резерву BOM.', move.product_id.display_name))
                 slices = []
@@ -355,7 +360,7 @@ class MrpProductionStockReleasePlan(models.Model):
                     product_name=move.product_id.with_context(lang=False).display_name,
                     uom_id=move.product_uom.id, uom_name=move.product_uom.with_context(lang=False).name,
                     full_quantity=total, quantity=quantity, stock_quantity=stock_quantity,
-                    remaining_quantity=0 if len(permissions) == len(all_units) else exact_quantity(total - quantity, move.product_uom.rounding),
+                    remaining_quantity=exact_quantity(remaining_total - quantity, move.product_uom.rounding),
                     reservations=slices,
                     source_lines=[dict(id=line.id, quantity=line.quantity, uom=line.product_uom_id.id, picked=line.picked) for line in lines],
                     picked=move.picked, source=move.location_id.id, destination=move.location_dest_id.id,
@@ -385,7 +390,8 @@ class MrpProductionStockReleasePlan(models.Model):
                         permission=permission.id, check=permission.check_id.id, admission=permission.admission_id.id,
                         evidence=permission.evidence_snapshot) for permission in permissions.sorted('id')],
             components=components,
-            finished=dict(move=finished.id, quantity=len(permissions), remaining=self.product_qty - len(permissions),
+            released_unit_ids=sorted(issued.ids),
+            finished=dict(move=finished.id, quantity=len(permissions), remaining=remaining_units - len(permissions),
                           source=finished.location_id.id, destination=finished.location_dest_id.id,
                           source_lines=[dict(id=line.id, quantity=line.quantity, uom=line.product_uom_id.id,
                                              lot=line.lot_id.id, picked=line.picked)

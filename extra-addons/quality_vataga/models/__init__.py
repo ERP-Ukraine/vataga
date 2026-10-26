@@ -25,4 +25,6 @@ from . import quality_unit_release
 from . import quality_release_evidence
 from . import quality_unit_stock_release
 from . import stock_posting_core
+from . import stock_posting_incremental
 from . import quality_stock_posting
+from . import quality_stock_continuation

@@ -116,7 +116,8 @@ class StockCostScope(models.Model):
     snapshot = fields.Json(required=True, readonly=True)
     frozen_by_id = fields.Many2one('res.users', required=True, readonly=True, ondelete='restrict')
     frozen_at = fields.Datetime(required=True, readonly=True)
-    _sql_constraints = [('production_unique', 'unique(production_id)', 'Розподіл вартості MO вже зафіксовано.')]
+    scope_key = fields.Char(readonly=True, copy=False)
+    _sql_constraints = [('scope_request_unique', 'unique(production_id,scope_key)', 'Цей склад розподілу вже зафіксовано.')]
 
     def check_access_rule(self, operation):
         result = super().check_access_rule(operation)
@@ -157,6 +158,8 @@ class StockCostScope(models.Model):
             self._lock_production(production)
             if production.qty_produced or production.state not in ('confirmed', 'progress'):
                 raise ValidationError(_('Розподіл фіксують до першого випуску відкритого MO.'))
+            if self.search_count([('production_id', '=', production.id)]):
+                raise ValidationError(_('Розподіл уже існує. Для продовження потрібна інкрементальна політика.'))
             if production.product_qty != len(unit_keys):
                 raise ValidationError(_('Потрібен повний поіменний склад MO: один ключ — одна одиниця.'))
             if not production.bom_id or production.bom_id.type != 'normal':
@@ -279,6 +282,19 @@ class StockPosting(models.Model):
         return {}
 
     @api.model
+    def _before_unit_post(self, scope, key):
+        if key not in scope.snapshot.get('selected', scope.snapshot['keys']):
+            raise ValidationError(_('Цей виріб не входить до поточного складу вартості.'))
+
+    @api.model
+    def _finish_production(self, scope):
+        production = scope.production_id
+        if self.env['quality.stock.cost.scope']._timers(production).filtered(lambda timer: not timer.date_end):
+            raise ValidationError(_('MO не закривають з відкритими робочими інтервалами.'))
+        production.workorder_ids.button_finish()
+        production.write({'date_finished': fields.Datetime.now(), 'is_locked': True})
+
+    @api.model
     def _receipts(self, production):
         self.flush_model()
         self.env.cr.execute('SELECT id FROM quality_stock_posting WHERE production_id=%s ORDER BY id', [production.id])
@@ -332,6 +348,7 @@ class StockPosting(models.Model):
                 raise ValidationError(_('Виріб або дозвіл вже використано в іншому проведенні.'))
             scope._assert_current()
             self._reconcile(scope)
+            self._before_unit_post(scope, unit_key)
             identities = self._posting_identity_values(scope, unit_key, permission_key, plan)
             data = scope.snapshot
             if (unit_key not in data['keys'] or production.product_qty != data['quantity']
@@ -423,8 +440,7 @@ class StockPosting(models.Model):
             if len(receipts) + 1 == len(data['keys']):
                 # All actual stock is reconciled first; never call native
                 # button_mark_done/_post_inventory again to close this MO.
-                production.workorder_ids.button_finish()
-                production.write({'date_finished': fields.Datetime.now(), 'is_locked': True})
+                self._finish_production(scope)
             production.message_post(body=_('Проведено виріб %(unit)s; реєстр %(record)s.', unit=unit_key, record=receipt.id),
                                     subtype_xmlid='mail.mt_note')
             return receipt.with_env(self.env)
@@ -477,6 +493,7 @@ class StockCostAllocation(models.Model):
     amount = fields.Float(required=True, readonly=True)
     _sql_constraints = [
         ('share_unique', 'unique(scope_id,timer_id,unit_key)', 'Частку часу вже нараховано.'),
+        ('timer_unit_unique', 'unique(timer_id,unit_key)', 'Час цього виробу вже нараховано іншим випуском.'),
         ('amount_nonnegative', 'check(amount >= 0)', 'Вартість частки не може бути від’ємною.'),
     ]
 
@@ -627,7 +644,7 @@ class StockCostTimerBoundary(models.Model):
         }))
         for production in workorders.production_id.sorted('id'):
             self.env['quality.stock.posting']._lock_production(production, operation='read')
-            self.env.cr.execute('SELECT 1 FROM quality_stock_cost_scope WHERE production_id=%s LIMIT 1', [production.id])
+            self.env.cr.execute('SELECT 1 FROM quality_stock_cost_scope WHERE production_id=%s AND policy=%s LIMIT 1', [production.id, POLICY])
             if self.env.cr.fetchone():
                 raise UserError(_('Вартість MO вже зафіксовано. Нові інтервали потребують окремої процедури коригування; автоматичне донарахування заблоковано.'))
         return super().create(vals_list)

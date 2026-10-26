@@ -156,4 +156,4 @@ class QualityUnitStockReleaseWizardLine(models.TransientModel):
             line.admission_id = permission.admission_id
             line.eligible = bool(permission) and not reason
             line.unavailable_reason = reason
-            line.stock_status = _('Складське проведення недоступне')
+            line.stock_status = _('Випущено на склад') if line.unit_id._stock_posted() else _('Не випущено')

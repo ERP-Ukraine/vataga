@@ -44,18 +44,21 @@ def main():
             (addon / 'tests').mkdir()
             (addon / 'security').mkdir()
             (addon / '__manifest__.py').write_text(repr({
-                'name': 'Disposable native QUNIT kernel probe', 'version': '17.0.2.40',
+                'name': 'Disposable native QUNIT kernel probe', 'version': '17.0.2.41',
                 'depends': ['mrp_account'], 'license': 'LGPL-3',
                 'data': ['security/stock_posting.xml', 'security/ir.model.access.csv'],
             }), encoding='utf-8')
             (addon / '__init__.py').write_text('from . import models\nfrom . import tests\n', encoding='utf-8')
-            for filename in ('stock_posting_core.py', 'stock_cost_allocator.py', 'stock_release_plan_utils.py', 'quality_release_access.py'):
+            for filename in ('stock_posting_core.py', 'stock_posting_incremental.py', 'stock_cost_allocator.py', 'stock_release_plan_utils.py', 'quality_release_access.py'):
                 shutil.copyfile(root / 'models' / filename, addon / 'models' / filename)
-            (addon / 'models' / '__init__.py').write_text('from . import stock_posting_core\n', encoding='utf-8')
-            for filename in ('test_stock_posting_core.py', 'test_stock_release_native_contract.py'):
+            (addon / 'models' / '__init__.py').write_text('from . import stock_posting_core\nfrom . import stock_posting_incremental\n', encoding='utf-8')
+            for filename in ('test_stock_posting_core.py', 'test_stock_posting_incremental.py', 'test_stock_release_native_contract.py'):
                 shutil.copyfile(root / 'tests' / filename, addon / 'tests' / filename)
-            (addon / 'tests' / '__init__.py').write_text('from . import test_stock_release_native_contract\nfrom . import test_stock_posting_core\n', encoding='utf-8')
+            (addon / 'tests' / '__init__.py').write_text('from . import test_stock_release_native_contract\nfrom . import test_stock_posting_core\nfrom . import test_stock_posting_incremental\n', encoding='utf-8')
             shutil.copyfile(root / 'security' / 'stock_posting.xml', addon / 'security' / 'stock_posting.xml')
+            (addon / 'migrations' / '17.0.2.41').mkdir(parents=True)
+            shutil.copyfile(root / 'migrations' / '17.0.2.41' / 'pre-migration.py',
+                            addon / 'migrations' / '17.0.2.41' / 'pre-migration.py')
             with (root / 'security' / 'ir.model.access.csv').open(encoding='utf-8') as stream:
                 rows = list(csv.DictReader(stream))
             with (addon / 'security' / 'ir.model.access.csv').open('w', newline='', encoding='utf-8') as stream:

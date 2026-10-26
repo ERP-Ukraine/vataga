@@ -146,7 +146,7 @@ class QualityUnitReleaseLine(models.Model):
     authorized_by_id = fields.Many2one(related='batch_id.authorized_by_id', store=True, readonly=True, compute_sudo=False)
     authorized_at = fields.Datetime(related='batch_id.authorized_at', store=True, readonly=True, compute_sudo=False)
     state = fields.Selection([('confirmed', 'Підтверджено'), ('cancelled', 'Скасовано')], required=True, readonly=True, index=True)
-    current_state = fields.Selection([('authorized', 'Дозволено до випуску'), ('lapsed', 'Дозвіл втратив чинність'), ('cancelled', 'Скасовано')], string='Чинність дозволу', compute='_compute_effectiveness')
+    current_state = fields.Selection([('authorized', 'Дозволено до випуску'), ('lapsed', 'Дозвіл втратив чинність'), ('cancelled', 'Скасовано'), ('used', 'Використано')], string='Чинність дозволу', compute='_compute_effectiveness')
     is_effective = fields.Boolean(string='Дозвіл чинний', compute='_compute_effectiveness')
     ineffective_reason = fields.Text(string='Причина втрати чинності', compute='_compute_effectiveness')
     evidence_snapshot = fields.Text(string='Підстави на момент підтвердження', required=True, readonly=True)
@@ -212,6 +212,8 @@ class QualityUnitReleaseLine(models.Model):
         self.check_access_rule('read')
         if self.state != 'confirmed':
             return _('Дозвіл скасовано.')
+        if self._stock_permission_used():
+            return _('Дозвіл використано складським випуском.')
         data = self.unit_id._get_release_readiness(ignore_line=self)
         if data['state'] != 'ready':
             return data['reason']
@@ -226,7 +228,7 @@ class QualityUnitReleaseLine(models.Model):
             error = line._get_effectiveness_error()
             line.is_effective = not bool(error)
             line.ineffective_reason = error or ''
-            line.current_state = 'cancelled' if line.state == 'cancelled' else 'lapsed' if error else 'authorized'
+            line.current_state = 'used' if line._stock_permission_used() else 'cancelled' if line.state == 'cancelled' else 'lapsed' if error else 'authorized'
 
     def _cancel(self, production, reason):
         production._check_unit_release_access()
@@ -237,8 +239,9 @@ class QualityUnitReleaseLine(models.Model):
         with self.env.cr.savepoint():
             production._lock_quality_transfer_scope()
             self.invalidate_recordset()
-            if production.qty_produced or production.move_finished_ids.filtered(lambda move: move.state == 'done'):
-                raise UserError(_('MO вже має складське проведення. Потрібна окрема процедура скасування з перевіркою фактичного випуску.'))
+            production._check_named_stock_history()
+            if self._stock_permission_used():
+                raise UserError(_('Використаний складським випуском дозвіл звичайним способом не скасовується.'))
             for line in self.sorted('id'):
                 if line.state == 'cancelled':
                     continue
@@ -307,7 +310,7 @@ class MrpProductionUnitRelease(models.Model):
     quality_release_authorized = fields.Integer(string='Дозволено до випуску', compute='_compute_unit_release_counts')
     quality_release_not_ready = fields.Integer(string='Не готово', compute='_compute_unit_release_counts')
     quality_release_blocked = fields.Integer(string='Заблоковано', compute='_compute_unit_release_counts')
-    quality_release_produced = fields.Integer(string='Фактично випущено', compute='_compute_unit_release_counts', help='Поштучний складський випуск у 13.4А не виконується. Це не кількість дозволів.')
+    quality_release_produced = fields.Integer(string='Фактично випущено', compute='_compute_unit_release_counts', help='Фактичні QUNIT за незмінним складським реєстром. Це не кількість PASS або дозволів.')
 
     @api.depends('quality_release_unit_ids.quality_release_state', 'quality_transfer_revision')
     @api.depends_context('uid', 'allowed_company_ids')
@@ -320,7 +323,7 @@ class MrpProductionUnitRelease(models.Model):
             production.quality_release_authorized = states.count('authorized')
             production.quality_release_not_ready = states.count('not_ready')
             production.quality_release_blocked = states.count('blocked') + states.count('lapsed')
-            production.quality_release_produced = 0
+            production.quality_release_produced = states.count('produced')
 
     def _check_unit_release_access(self):
         self.ensure_one()

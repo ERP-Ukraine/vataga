@@ -1,5 +1,6 @@
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
+from .stock_bridge_authority import permits
 
 BOUNDARY_MESSAGE = 'Для цього MO активовано захищений поштучний маршрут. Використайте «Поштучне виконання» з явним вибором прийнятих QUNIT. Стандартне завершення Work Order, зміна виробничої кількості та складський випуск заблоковані.'
 TIMER_CLOSE_TOKEN = object()
@@ -32,8 +33,10 @@ class MrpProductionTransfer(models.Model):
         self.modified(['quality_transfer_revision'])
         return controlled
 
-    def _check_quality_transfer_boundary(self):
+    def _check_quality_transfer_boundary(self, purpose=None):
         if self._lock_quality_transfer_scope():
+            if permits(self, purpose):
+                return
             raise UserError(_(BOUNDARY_MESSAGE))
 
     def _enable_quality_transfer_control(self):
@@ -62,7 +65,7 @@ class MrpProductionTransfer(models.Model):
             'product_id', 'company_id', 'bom_id', 'workorder_ids', 'move_raw_ids',
             'move_finished_ids', 'lot_producing_id', 'backorder_sequence', 'allow_workorder_dependencies',
         }.intersection(vals):
-            self._check_quality_transfer_boundary()
+            self._check_quality_transfer_boundary(purpose='final_production' if set(vals) <= {'state', 'date_finished', 'is_locked'} else None)
         return super().write(vals)
 
     def unlink(self):
@@ -129,7 +132,7 @@ class MrpWorkorderTransferBoundary(models.Model):
             'blocked_by_workorder_ids', 'needed_by_workorder_ids', 'operation_id',
             'move_raw_ids', 'move_finished_ids', 'move_line_ids', 'finished_lot_id', 'time_ids',
         }.intersection(vals) or 'state' in vals:
-            self._quality_transfer_relation_productions(vals)._check_quality_transfer_boundary()
+            self._quality_transfer_relation_productions(vals)._check_quality_transfer_boundary(purpose='final_workorder' if set(vals) <= {'state', 'qty_produced', 'date_finished', 'date_start', 'costs_hour'} else None)
         return super().write(vals)
 
     def unlink(self):
@@ -143,6 +146,16 @@ class MrpWorkorderTransferBoundary(models.Model):
     def button_finish(self):
         self.production_id._check_quality_transfer_boundary()
         return super().button_finish()
+
+    def _finish_named_stock_workorders(self):
+        if not permits(self.production_id, 'final_workorder'):
+            raise UserError(_(BOUNDARY_MESSAGE))
+        self.check_access_rights('write')
+        self.check_access_rule('write')
+        result = super().button_finish()
+        if any(workorder.state != 'done' for workorder in self):
+            raise UserError(_('Штатні перевірки Odoo не завершили Work Orders. Спочатку виконайте потрібні дії контролю; останній випуск відкотиться.'))
+        return result
 
     def button_done(self):
         self.production_id._check_quality_transfer_boundary()
@@ -201,7 +214,7 @@ class StockMoveTransferBoundary(models.Model):
     def create(self, vals_list):
         for vals in vals_list:
             defaults = {name: self.env.context.get('default_' + name) for name in ('production_id', 'raw_material_production_id', 'workorder_id')}
-            self.browse()._quality_transfer_productions(dict(defaults, **vals))._check_quality_transfer_boundary()
+            self.browse()._quality_transfer_productions(dict(defaults, **vals))._check_quality_transfer_boundary(purpose='stock_move')
         return super().create(vals_list)
 
     def write(self, vals):
@@ -210,15 +223,15 @@ class StockMoveTransferBoundary(models.Model):
             'production_id', 'raw_material_production_id', 'workorder_id', 'product_id',
             'location_id', 'location_dest_id',
         }.intersection(vals) or vals.get('state') in ('done', 'cancel'):
-            self._quality_transfer_productions(vals)._check_quality_transfer_boundary()
+            self._quality_transfer_productions(vals)._check_quality_transfer_boundary(purpose='stock_move')
         return super().write(vals)
 
     def unlink(self):
-        self._quality_transfer_productions()._check_quality_transfer_boundary()
+        self._quality_transfer_productions()._check_quality_transfer_boundary(purpose='stock_move')
         return super().unlink()
 
     def _action_done(self, cancel_backorder=False):
-        self._quality_transfer_productions()._check_quality_transfer_boundary()
+        self._quality_transfer_productions()._check_quality_transfer_boundary(purpose='stock_move')
         return super()._action_done(cancel_backorder=cancel_backorder)
 
 
@@ -234,17 +247,17 @@ class StockMoveLineTransferBoundary(models.Model):
     def create(self, vals_list):
         for vals in vals_list:
             defaults = {name: self.env.context.get('default_' + name) for name in ('move_id', 'production_id', 'workorder_id')}
-            self.browse()._quality_transfer_productions(dict(defaults, **vals))._check_quality_transfer_boundary()
+            self.browse()._quality_transfer_productions(dict(defaults, **vals))._check_quality_transfer_boundary(purpose='stock_line')
         return super().create(vals_list)
 
     def write(self, vals):
         # Include both old and new parent moves so detaching a line cannot
         # evade the boundary. Even a direct ORM quantity write is protected.
-        self._quality_transfer_productions(vals)._check_quality_transfer_boundary()
+        self._quality_transfer_productions(vals)._check_quality_transfer_boundary(purpose='stock_line')
         return super().write(vals)
 
     def unlink(self):
-        self._quality_transfer_productions()._check_quality_transfer_boundary()
+        self._quality_transfer_productions()._check_quality_transfer_boundary(purpose='stock_line')
         return super().unlink()
 
 

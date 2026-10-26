@@ -8,6 +8,7 @@ RELEASE_STATES = [
     ('not_ready', 'Не готовий'), ('blocked', 'Заблоковано'),
     ('ready', 'Готовий до випуску'), ('authorized', 'Дозволено до випуску'),
     ('lapsed', 'Дозвіл втратив чинність'),
+    ('produced', 'Випущено на склад'),
 ]
 
 
@@ -216,10 +217,11 @@ class QualityUnitReleaseReadiness(models.Model):
             production.check_access_rule('read')
             if not production.quality_transfer_controlled:
                 raise ReleaseReadinessError('uncontrolled', _('MO не використовує захищений поштучний маршрут.'), 'not_ready')
+            if self in production._check_named_stock_history():
+                data.update(state='produced', code='stock_posted', reason=_('Виріб уже випущено на склад.'))
+                return data
             if production.state not in ('confirmed', 'progress') or self.company_id not in self.env.companies or production.company_id != self.company_id or production.product_id != self.product_id:
                 raise ReleaseReadinessError('identity', _('Потрібен відкритий MO цього товару та дозволеної компанії.'))
-            if production.qty_produced or production.move_finished_ids.filtered(lambda move: move.state == 'done' and move.product_id == self.product_id):
-                raise ReleaseReadinessError('stock_history', _('MO вже має складський випуск. Поіменне зіставлення зі складом потребує інтеграції 13.4Б.'))
             lot = self.lot_id
             if self.product_id.tracking in ('lot', 'serial') and not lot:
                 raise ReleaseReadinessError('lot_required', _('Для товару з обліком lot/serial потрібно явно призначити справжню партію або серійний номер. QUNIT не замінює складський номер.'))
@@ -336,7 +338,7 @@ class QualityUnitReleaseReadiness(models.Model):
                 active = self.env['quality.unit.release.line']
                 data.update(state='blocked', reason=_('Немає доступу до історії дозволів цього QUNIT.'))
             state, reason = data['state'], data['reason']
-            if active:
+            if active and state != 'produced':
                 valid = state == 'ready' and len(active) == 1 and active.evidence_snapshot == data['snapshot']
                 state = 'authorized' if valid else 'lapsed'
                 reason = '' if valid else reason or _('Підстави змінилися. Скасуйте старий дозвіл та підтвердіть готовність знову.')

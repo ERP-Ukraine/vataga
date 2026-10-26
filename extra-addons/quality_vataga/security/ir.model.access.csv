@@ -1,4 +1,5 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_stock_timer_binding,quality.stock.timer.binding,model_quality_stock_timer_binding,mrp.group_mrp_user,1,0,1,0
 access_stock_cost_scope,quality.stock.cost.scope,model_quality_stock_cost_scope,mrp.group_mrp_user,1,0,1,0
 access_stock_posting,quality.stock.posting,model_quality_stock_posting,mrp.group_mrp_user,1,0,1,0
 access_stock_posting_line,quality.stock.posting.line,model_quality_stock_posting_line,mrp.group_mrp_user,1,0,1,0

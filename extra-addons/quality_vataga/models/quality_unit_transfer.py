@@ -127,7 +127,8 @@ class QualityUnitTransfer(models.Model):
         if destination.state == 'progress' and production.quality_transfer_controlled:
             self.env.cr.execute('SELECT 1 FROM quality_unit_execution WHERE workorder_id = %s LIMIT 1', [destination.id])
             protected_progress = bool(self.env.cr.fetchone())
-        if production.state not in ('confirmed', 'progress') or source.state != 'progress' or destination.state in ('done', 'cancel') or (destination.state == 'progress' and not protected_progress) or destination.qty_produced or production.qty_produced:
+        production._check_named_stock_history()
+        if production.state not in ('confirmed', 'progress') or source.state != 'progress' or destination.state in ('done', 'cancel') or (destination.state == 'progress' and not protected_progress) or destination.qty_produced:
             raise ValidationError(_('Передача потребує активної вихідної операції відкритого MO та наступної операції без стандартного повного виконання; частковий прогрес має бути підтверджений поштучним маршрутом.'))
         return production
 
