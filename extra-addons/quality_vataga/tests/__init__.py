@@ -10,6 +10,8 @@ from . import test_quality_unit_admission
 from . import test_quality_unit_transfer
 from . import test_quality_unit_execution
 from . import test_quality_unit_release
+from . import test_quality_unit_stock_release
+from . import test_stock_release_plan_utils
 from . import test_quality_stage14
 from . import test_quality_check_alert_action
 from . import test_quality_technical_board

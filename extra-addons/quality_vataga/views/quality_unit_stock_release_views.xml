@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="quality_unit_stock_release_plan_form" model="ir.ui.view">
+        <field name="name">quality.unit.stock.release.plan.form</field>
+        <field name="model">quality.unit.stock.release.plan</field>
+        <field name="arch" type="xml">
+            <form string="План випуску — без складського проведення" create="0" edit="0" delete="0">
+                <header>
+                    <button name="action_check_current" type="object" string="Перевірити актуальність"/>
+                </header>
+                <sheet>
+                    <div class="alert alert-warning"><field name="posting_note" nolabel="1" readonly="1" class="w-100"/></div>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="production_id"/>
+                            <field name="quantity"/>
+                        </group>
+                        <group>
+                            <field name="prepared_by_id"/>
+                            <field name="prepared_at"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page name="units" string="Вироби та дозволи">
+                            <field name="permission_ids" readonly="1">
+                                <tree create="0" edit="0" delete="0">
+                                    <field name="unit_id"/>
+                                    <field name="batch_id"/>
+                                    <field name="check_id"/>
+                                    <field name="admission_id"/>
+                                    <field name="current_state"/>
+                                </tree>
+                            </field>
+                        </page>
+                        <page name="components" string="Пропозиція розходу">
+                            <div class="alert alert-info">Кількості нижче є пропозицією за BOM. Резерви не поділено, компоненти не списано, собівартість не проведено.</div>
+                            <field name="component_summary" nolabel="1" readonly="1" class="w-100"/>
+                        </page>
+                        <page name="snapshot" string="Знімок підстав">
+                            <field name="evidence_snapshot" nolabel="1" readonly="1" class="w-100"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+    <record id="mrp_production_quality_unit_stock_release" model="ir.ui.view">
+        <field name="name">mrp.production.quality.unit.stock.release</field>
+        <field name="model">mrp.production</field>
+        <field name="inherit_id" ref="quality_vataga.mrp_production_quality_unit_release"/>
+        <field name="arch" type="xml">
+            <xpath expr="//page[@name='quality_unit_release']/widget[@name='quality_unit_release_buttons']" position="after">
+                <div groups="quality_vataga.group_quality_unit_stock_release">
+                    <button name="action_open_unit_stock_release_wizard" type="object" string="Випустити дозволені вироби" class="btn-secondary"/>
+                    <span class="ms-2 text-muted">Доступна підготовка плану. Складське проведення заблоковано до інтеграційної перевірки.</span>
+                </div>
+            </xpath>
+            <xpath expr="//page[@name='quality_unit_release']" position="inside">
+                <group groups="quality_vataga.group_quality_unit_stock_release" col="1">
+                    <separator string="Плани підготовки — без складського проведення"/>
+                    <field name="quality_stock_release_plan_ids" readonly="1" nolabel="1">
+                        <tree create="0" edit="0" delete="0">
+                            <field name="name"/>
+                            <field name="quantity"/>
+                            <field name="prepared_by_id"/>
+                            <field name="prepared_at"/>
+                        </tree>
+                    </field>
+                </group>
+            </xpath>
+        </field>
+    </record>
+    <record id="quality_production_unit_stock_release_plan_history" model="ir.ui.view">
+        <field name="name">quality.production.unit.stock.release.plan.history</field>
+        <field name="model">quality.production.unit</field>
+        <field name="inherit_id" ref="quality_vataga.quality_production_unit_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="/form/sheet/notebook" position="inside">
+                <page name="quality_stock_release_preparation" string="Підготовка складського випуску" groups="quality_vataga.group_quality_unit_stock_release">
+                    <div class="alert alert-warning">Це історія підготовки. Плани не підтверджують надходження продукції на склад.</div>
+                    <field name="stock_release_plan_ids" readonly="1">
+                        <tree create="0" edit="0" delete="0">
+                            <field name="name"/>
+                            <field name="production_id"/>
+                            <field name="quantity"/>
+                            <field name="prepared_by_id"/>
+                            <field name="prepared_at"/>
+                        </tree>
+                    </field>
+                </page>
+            </xpath>
+        </field>
+    </record>
+</odoo>

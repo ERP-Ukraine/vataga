@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="group_quality_unit_stock_release" model="res.groups">
+        <field name="name">Підготовка складського випуску QUNIT</field>
+        <field name="category_id" ref="base.module_category_inventory_inventory"/>
+        <field name="implied_ids" eval="[(4, ref('stock.group_stock_user')), (4, ref('mrp.group_mrp_user')), (4, ref('quality.group_quality_user'))]"/>
+    </record>
+    <record id="quality_stock_release_plan_company_rule" model="ir.rule">
+        <field name="name">Плани складського випуску: дозволені компанії</field>
+        <field name="model_id" ref="model_quality_unit_stock_release_plan"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+</odoo>
