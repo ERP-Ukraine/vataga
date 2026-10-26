@@ -1,39 +1,37 @@
-# Temporary staging diagnostics
+# Gemini OCR failure diagnostics
 
-Deploy only to staging. Restart Odoo and upgrade `account_gemini_digitization`
-with the normal staging deployment procedure to load the diagnostic form XML.
-The manifest version is intentionally unchanged.
+Version: 17.0.1.0.1. Upgrade this module on staging, then retry vendor bill
+238330. Production is outside this change.
 
-Reproduce OCR from a draft vendor bill or purchase order. An ERROR notification
-now includes the job ID, stage and actual exception text (with secrets removed).
-The failed job remains stored; other pipeline statuses retain the old cleanup.
+Failed attempts add an internal note to the source bill or purchase order with
+UTC attempt time, failed stage, a fixed safe description, HTTP status and numeric
+Gemini API error code when available, document ID and attachment ID.
+Stages: preparation, request, response receipt, parsing/validation, product
+matching, result application. Known attachment, transport and JSON errors have
+specific safe descriptions. Arbitrary exception/API messages, PDF/base64,
+credentials, prompts and full responses are never included in the note.
 
-The source document's chatter receives an internal note with a compact summary
-and a link to the read-only job form. In that form, open **Raw JSON**:
+Temporary jobs and recognition lines are deleted for every returned outcome.
+Processing and application failures roll back their savepoint before the note
+is posted. There are no manual commits. Successful runs add no diagnostic note.
+Partial recognition, ambiguous matches, and automatic application safety checks
+retain the existing staging behavior. Unexpected matcher exceptions abort the
+attempt rather than allowing partially matched results to be applied.
 
-- `raw_request_json`: attachment metadata, model and endpoint without API key.
-- `raw_response_json.diagnostic`: job ID, state, mode, stage, exception, HTTP
-  status, transport error, promptFeedback, finishReason and candidate counts.
-- `attempts` / `final_response`: existing GeminiClient response captures.
-- `text_extraction`, `json_parse_error`, `extracted_text_for_json_parse`,
-  `json_text_candidate`: existing extraction and JSON parser evidence.
-  Null/absent data means the corresponding stage was not reached.
+The earlier temporary staging diagnostic job links are superseded by durable
+notes; retained old jobs are not migrated or deleted by this change.
 
-Direct form URL: `/web#id=<JOB_ID>&model=account.gemini.digitization.job&view_type=form`.
-The chatter summary survives subsequent job deletion. Full OCR text stays on
-the job. Credentials and binary payloads are redacted before diagnostic writes.
-
-Stages: preflight, attachment_decode, request, http_response, text_extraction,
-json_parse, response_parse, ocr_line_create, matching. The OCR creation stage is
-identified from the failing parser frame, without changing ResponseParser.
-Existing matching warnings and ApplyService/manual-review behavior are unchanged.
-
-Run isolated regression tests (ORM/HTTP doubles, no database required;
-MarkupSafe, an existing Odoo dependency, must be available):
+Run isolated mocked client/formatter tests without Odoo:
 
 ```sh
 python -B extra-addons/account_gemini_digitization/tests/test_staging_diagnostics.py -v
 ```
 
-These tests do not replace staging validation of Odoo transactions, access rules,
-chatter and the XML form. No real Gemini request is made by the tests.
+Run database-backed regression tests in an Odoo 17 test environment:
+
+```sh
+odoo -d test-db -u account_gemini_digitization --test-enable --stop-after-init --test-tags /account_gemini_digitization
+```
+
+All HTTP requests in tests are mocked. The isolated tests do not validate actual
+Odoo transactions or chatter persistence; those require the database tests.

@@ -1,10 +1,13 @@
 import json
 import logging
+import html
 
 from markupsafe import Markup
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
+
+from ..services.gemini_client import DiagnosticState
 
 from ..services import (
     DigitizationApplyService,
@@ -234,12 +237,14 @@ class AccountGeminiDigitizationJob(models.Model):
                     'raw_request_json': client.sanitize_diagnostics(client.last_request_payload),
                 })
                 client.diagnostic_stage = 'response_parse'
+                client.diagnostic['stage'] = 'parse'
                 ResponseParser(self.env).apply_to_job(
                     self,
                     response,
                     raw_response=client.sanitize_diagnostics(client.last_raw_response),
                 )
                 client.diagnostic_stage = 'matching'
+                client.diagnostic['stage'] = 'matching'
                 self._run_product_matching()
         except UserError as error:
             self._save_processing_error(error, client)
@@ -254,16 +259,15 @@ class AccountGeminiDigitizationJob(models.Model):
     def run_automatic_pipeline(self):
         self.ensure_one()
         self._check_linked_document_access('write')
+        diagnostic = DiagnosticState(stage='prepare', attempted_at=fields.Datetime.now())
+        self = self.with_context(gemini_diagnostic=diagnostic)
         try:
-            self.with_context(gemini_automatic_diagnostics=True).action_process()
+            with self.env.cr.savepoint():
+                self.action_process()
         except Exception as error:
-            if self.state != 'error':
-                self.with_context(gemini_automatic_diagnostics=True)._save_processing_error(
-                    error, GeminiClient(self.env))
-            diagnostic = (self.raw_response_json or {}).get('diagnostic', {})
-            message = 'Gemini OCR error\nJob: %s\nStage: %s\nError: %s' % (
-                self.id, diagnostic.get('stage', 'preflight'), self.error_message)
-            self._post_diagnostic_error(message, diagnostic)
+            _logger.error('Gemini automatic digitization failed for job %s.', self.id)
+            message = _('Не вдалося завершити оцифрування. Дані до документа не застосовано.')
+            self._post_failure_diagnostic(diagnostic)
             return {
                 'status': 'error',
                 'message': message,
@@ -293,27 +297,17 @@ class AccountGeminiDigitizationJob(models.Model):
                 'sticky': False,
             }
 
+        diagnostic['stage'] = 'apply'
         try:
-            apply_service = DigitizationApplyService(self.env, self)
-            if self.mode not in ('full_bill', 'full_purchase'):
-                apply_service.validate_for_automatic_apply()
-            apply_result = apply_service.apply()
-        except UserError as error:
-            details = self._get_error_message(error)
-            self._set_automatic_review_message(details)
-            message = self._get_automatic_manual_review_message(details)
-            self._post_automatic_pipeline_message(message)
-            return {
-                'status': 'manual_review',
-                'message': message,
-                'notification_type': 'warning',
-                'sticky': False,
-            }
-        except Exception as error:
-            _logger.exception('Gemini automatic apply failed.')
-            self._set_automatic_review_message(str(error))
-            message = self._get_automatic_manual_review_message()
-            self._post_automatic_pipeline_message(message)
+            with self.env.cr.savepoint():
+                apply_service = DigitizationApplyService(self.env, self)
+                if self.mode not in ('full_bill', 'full_purchase'):
+                    apply_service.validate_for_automatic_apply()
+                apply_result = apply_service.apply()
+        except Exception:
+            message = _('Не вдалося безпечно застосувати результат. Зміни скасовано.')
+            self._set_automatic_review_message(message)
+            self._post_failure_diagnostic(diagnostic)
             return {
                 'status': 'manual_review',
                 'message': message,
@@ -387,6 +381,8 @@ class AccountGeminiDigitizationJob(models.Model):
             ProductMatcher(self.env).match_job(self)
             self._update_matching_message_after_matching()
         except Exception as error:
+            if self.env.context.get('gemini_diagnostic') is not None:
+                raise
             _logger.exception('Gemini digitization product matching failed.')
             warning = _('Product matching warning: %s') % error
             self.write({
@@ -572,7 +568,7 @@ class AccountGeminiDigitizationJob(models.Model):
             return _('Оцифрування завершено. Рядки замовлення на закупівлю створено.')
         return _('Оцифрування завершено. Дані з документа автоматично застосовано.')
 
-    def _post_automatic_pipeline_message(self, message):
+    def _post_automatic_pipeline_message(self, message, post_to_chatter=False):
         self.ensure_one()
         _logger.info(
             'Gemini OCR result for %s/%s: %s',
@@ -580,7 +576,26 @@ class AccountGeminiDigitizationJob(models.Model):
             self.res_id,
             message,
         )
-        return False
+        if not post_to_chatter:
+            return False
+
+        document = self._get_automatic_pipeline_chatter_document()
+        if not document:
+            return False
+        try:
+            with self.env.cr.savepoint():
+                document.message_post(
+                    body=self._format_automatic_chatter_body(message),
+                    subtype_xmlid='mail.mt_note',
+                )
+        except Exception:
+            _logger.exception(
+                'Could not post Gemini OCR result to chatter for %s/%s.',
+                self.res_model,
+                self.res_id,
+            )
+            return False
+        return True
 
     def _unlink_temporary_job(self):
         jobs = self.sudo().exists()
@@ -619,87 +634,16 @@ class AccountGeminiDigitizationJob(models.Model):
 
     def _save_processing_error(self, error, client):
         self.ensure_one()
-        config = self.env['ir.config_parameter'].sudo()
-        client._diagnostic_secrets.extend([
-            config.get_param('account_gemini_digitization.gemini_api_key'),
-            self.attachment_id.datas,
-        ])
-        request = client.last_request_payload or {
-            'model': config.get_param('account_gemini_digitization.gemini_model', client.DEFAULT_MODEL),
-            'mode': self.mode,
-        }
-        request = dict(request)
-        request.setdefault('endpoint', client._build_endpoint(request))
-        attachment = self.attachment_id
-        request.setdefault('attachment', {
-            'id': attachment.id, 'name': attachment.name,
-            'mimetype': attachment.mimetype, 'size': attachment.file_size,
-        })
-        raw = dict(client.last_raw_response or {})
-        final = raw.get('final_response') or {}
-        response = final.get('response_json') or {}
-        response = response if isinstance(response, dict) else {}
-        candidates = response.get('candidates')
-        error_message = str(error)
-        # Distinguish ORM line creation from parsing without changing ResponseParser.
-        traceback = error.__traceback__
-        while traceback:
-            frame = traceback.tb_frame
-            if (frame.f_code.co_name == 'apply_to_job'
-                    and frame.f_code.co_filename.endswith('response_parser.py')
-                    and 'line' in frame.f_locals):
-                client.diagnostic_stage = 'ocr_line_create'
-            traceback = traceback.tb_next
-        # Include the original JSON decoder reason, not only the translated wrapper.
-        if raw.get('json_parse_error'):
-            error_message += '\nJSON: %s' % raw['json_parse_error']
-        diagnostic = {
-            'job_id': self.id, 'state': 'error', 'mode': self.mode,
-            'stage': client.diagnostic_stage,
-            'exception_type': type(error).__name__, 'exception': error_message,
-            'attachment': request['attachment'], 'model': request['model'],
-            'endpoint': request['endpoint'],
-            'http_status': final.get('status_code'),
-            'transport_error': final.get('transport_error'),
-            'promptFeedback': response.get('promptFeedback'),
-            'candidates_present': 'candidates' in response,
-            'candidates_count': len(candidates) if isinstance(candidates, list) else 0,
-            'finishReason': [c.get('finishReason') for c in candidates if isinstance(c, dict)]
-            if isinstance(candidates, list) else [],
-        }
-        raw['diagnostic'] = diagnostic
-        for key in ('json_parse_error', 'extracted_text_for_json_parse', 'json_text_candidate'):
-            raw.setdefault(key, None)
-        self.write({
+        # Do not expose arbitrary exception text through the manual job form either.
+        values = {
             'state': 'error',
-            'error_message': client.sanitize_diagnostics(error_message),
-            'raw_request_json': client.sanitize_diagnostics(request),
-            'raw_response_json': client.sanitize_diagnostics(raw),
-        })
-        # Automatic calls return normally: let Odoo commit job and chatter together.
-        if not self.env.context.get('gemini_automatic_diagnostics'):
-            self.env.cr.commit()
-
-    def _post_diagnostic_error(self, message, diagnostic):
-        document = self.move_id or self.purchase_order_id
-        if not document:
-            return
-        compact = {key: diagnostic.get(key) for key in (
-            'state', 'mode', 'attachment', 'model', 'endpoint', 'http_status',
-            'transport_error', 'promptFeedback', 'finishReason',
-            'candidates_present', 'candidates_count',
-        )}
-        # Raw OCR text stays on the job; chatter only receives a compact summary.
-        body = Markup('<pre>%s\n%s</pre><a href="%s">Gemini diagnostic job %s</a>') % (
-            message[:2000], json.dumps(compact, ensure_ascii=False, default=str)[:4000],
-            '/web#id=%s&model=account.gemini.digitization.job&view_type=form' % self.id,
-            self.id,
-        )
-        try:
-            with self.env.cr.savepoint():
-                document.message_post(body=body, subtype_xmlid='mail.mt_note')
-        except Exception:
-            _logger.error('Could not post Gemini diagnostic job %s to chatter.', self.id)
+            'error_message': _('Не вдалося обробити документ Gemini. Перевірте налаштування та формат відповіді.'),
+        }
+        if client.last_request_payload is not None:
+            values['raw_request_json'] = client.sanitize_diagnostics(client.last_request_payload)
+        if client.last_raw_response is not None:
+            values['raw_response_json'] = client.sanitize_diagnostics(client.last_raw_response)
+        self.write(values)
 
     def _get_error_message(self, error):
         if getattr(error, 'args', None):
@@ -832,3 +776,75 @@ class AccountGeminiDigitizationJob(models.Model):
             )
         except Exception:
             return str(value)
+
+
+    def _post_failure_diagnostic(self, diagnostic):
+        # Deliberately allowlist locally generated descriptions and numeric metadata.
+        # Exception strings and API messages can contain keys, URLs and document data.
+        descriptions = {
+            'prepare': _('Підготовка документа: перевірте вкладення та налаштування Gemini.'),
+            'request': _('Запит Gemini API не завершено: перевірте з’єднання та час очікування.'),
+            'receive': _('Gemini API повернув помилку або непридатну відповідь.'),
+            'parse': _('Відповідь Gemini не пройшла розбір або перевірку структури.'),
+            'matching': _('Не вдалося завершити зіставлення товарів; зміни скасовано.'),
+            'apply': _('Не вдалося застосувати результат до документа; зміни скасовано.'),
+        }
+        http_descriptions = {
+            400: _('Некоректний запит Gemini API.'),
+            401: _('Gemini API відхилив автентифікацію.'),
+            402: _('Gemini API вимагає оплати.'),
+            403: _('Gemini API відмовив у доступі.'),
+            404: _('Не знайдено ресурс або модель Gemini API.'),
+            429: _('Перевищено квоту або частоту запитів Gemini API.'),
+            500: _('Внутрішня помилка Gemini API.'),
+        }
+        stage = diagnostic.get('stage', 'prepare')
+        message = 'Gemini OCR — %s UTC\n%s' % (
+            diagnostic['attempted_at'], descriptions.get(stage, descriptions['prepare']),
+        )
+        status = diagnostic.get('http_status')
+        if type(status) is int and 100 <= status <= 599:
+            message += '\nHTTP %s: %s' % (
+                status, http_descriptions.get(status, _('Відповідь сервера Gemini API.')),
+            )
+        reasons = {
+            'missing_api_key': _('Не налаштовано API-ключ.'),
+            'missing_attachment': _('Не знайдено вкладення.'),
+            'unsupported_mimetype': _('Непідтримуваний формат вкладення.'),
+            'empty_attachment': _('Вкладення порожнє або недоступне.'),
+            'attachment_decode_error': _('Не вдалося декодувати вкладення.'),
+            'timeout': _('Вичерпано час очікування API.'),
+            'connection_error': _('Помилка з’єднання з API.'),
+            'response_is_not_json': _('API повернув порожню відповідь або відповідь не у форматі JSON.'),
+            'no_candidates': _('У відповіді немає candidates.'),
+            'no_text_parts': _('У відповіді немає тексту для розпізнавання.'),
+            'invalid_json': _('Розпізнаний текст містить невалідний JSON.'),
+            'invalid_json_root': _('Кореневий елемент JSON має бути об’єктом.'),
+        }
+        reason = reasons.get(diagnostic.get('reason'))
+        if reason:
+            message += '\n%s' % reason
+        code = diagnostic.get('api_code')
+        if type(code) is int and 100 <= code <= 599:
+            message += '\nGemini API code: %s' % code
+        message += '\n%s: %s' % (_('Документ ID'), self.res_id or self.move_id.id)
+        if self.attachment_id:
+            message += '\n%s: %s' % (_('Вкладення ID'), self.attachment_id.id)
+        return self._post_automatic_pipeline_message(message, post_to_chatter=True)
+
+
+
+    def _get_automatic_pipeline_chatter_document(self):
+        self.ensure_one()
+        document = self.move_id or self.purchase_order_id
+        if document:
+            return document.exists()
+        if self.res_model in ('account.move', 'purchase.order') and self.res_id:
+            return self.env[self.res_model].browse(self.res_id).exists()
+        return False
+
+
+
+    def _format_automatic_chatter_body(self, message):
+        lines = html.escape(str(message or '')).splitlines()
+        return Markup('<br/>'.join(lines))

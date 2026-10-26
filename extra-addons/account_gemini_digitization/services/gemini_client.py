@@ -15,6 +15,25 @@ from odoo.exceptions import UserError
 _logger = logging.getLogger(__name__)
 
 
+class DiagnosticState:
+    """Per-attempt, identity-hashable state shared across Odoo savepoint rollbacks."""
+
+    def __init__(self, **values):
+        self._values = values
+
+    def __getitem__(self, key):
+        return self._values[key]
+
+    def __setitem__(self, key, value):
+        self._values[key] = value
+
+    def get(self, key, default=None):
+        return self._values.get(key, default)
+
+    def pop(self, key, default=None):
+        return self._values.pop(key, default)
+
+
 class GeminiClient:
     DEFAULT_MODEL = 'gemini-1.5-pro'
     DEFAULT_TIMEOUT = 60
@@ -28,6 +47,7 @@ class GeminiClient:
 
     def __init__(self, env):
         self.env = env
+        self.diagnostic = env.context.get('gemini_diagnostic', {})
         self.last_request_payload = None
         self.last_raw_response = None
         self.last_raw_text = None
@@ -110,6 +130,7 @@ class GeminiClient:
         try:
             self.diagnostic_stage = 'text_extraction'
             self.last_raw_text = self._extract_text(final_response)
+            self.diagnostic['stage'] = 'parse'
             self._augment_last_raw_response({
                 'extracted_text_for_json_parse': self.last_raw_text,
             })
@@ -281,6 +302,9 @@ class GeminiClient:
 
     def _execute_request(self, config, endpoint, payload, attempt):
         self.diagnostic_stage = 'request'
+        self.diagnostic['stage'] = 'request'
+        self.diagnostic.pop('http_status', None)
+        self.diagnostic.pop('api_code', None)
         try:
             response = requests.post(
                 endpoint,
@@ -289,6 +313,7 @@ class GeminiClient:
                 timeout=config['timeout'],
             )
         except requests.Timeout as error:
+            self.diagnostic['reason'] = 'timeout'
             return {
                 'attempt': attempt,
                 'status_code': None,
@@ -299,6 +324,7 @@ class GeminiClient:
                 },
             }
         except requests.RequestException as error:
+            self.diagnostic['reason'] = 'connection_error'
             return {
                 'attempt': attempt,
                 'status_code': None,
@@ -309,6 +335,8 @@ class GeminiClient:
             }
 
         self.diagnostic_stage = 'http_response'
+        self.diagnostic['stage'] = 'receive'
+        self.diagnostic['http_status'] = response.status_code
         response_capture = {
             'attempt': attempt,
             'status_code': response.status_code,
@@ -320,6 +348,12 @@ class GeminiClient:
             return response_capture
         try:
             response_capture['response_json'] = response.json()
+            data = response_capture['response_json']
+            error = data.get('error') if isinstance(data, dict) else None
+            if isinstance(error, dict):
+                code = error.get('code')
+                if type(code) is int and 100 <= code <= 599:
+                    self.diagnostic['api_code'] = code
         except ValueError:
             response_capture['response_text'] = response.text
         return response_capture
@@ -347,6 +381,7 @@ class GeminiClient:
             'text_part_count': 0,
         }
         if not response_json:
+            self.diagnostic['reason'] = 'response_is_not_json'
             diagnostics['empty_reason'] = 'response_is_not_json'
             diagnostics['status_code'] = response_capture.get('status_code')
             diagnostics['response_text_present'] = bool(response_capture.get('response_text'))
@@ -362,6 +397,7 @@ class GeminiClient:
         diagnostics['prompt_feedback'] = response_json.get('promptFeedback')
         candidates = response_json.get('candidates') or []
         if not candidates:
+            self.diagnostic['reason'] = 'no_candidates'
             diagnostics['empty_reason'] = 'no_candidates'
             self._augment_last_raw_response({
                 'extracted_text_for_json_parse': '',
@@ -388,6 +424,7 @@ class GeminiClient:
 
         text = '\n'.join(text_parts).strip()
         if not text:
+            self.diagnostic['reason'] = 'no_text_parts'
             diagnostics['empty_reason'] = 'no_text_parts'
             self._augment_last_raw_response({
                 'extracted_text_for_json_parse': '',
@@ -409,6 +446,7 @@ class GeminiClient:
         try:
             data = json.loads(json_text)
         except json.JSONDecodeError as error:
+            self.diagnostic['reason'] = 'invalid_json'
             self._augment_last_raw_response({
                 'json_parse_error': {
                     'message': self.sanitize_diagnostics(str(error)),
@@ -421,6 +459,7 @@ class GeminiClient:
                 'Gemini повернув невалідний JSON. Деталі збережено у вкладці Raw JSON.'
             ))
         if not isinstance(data, dict):
+            self.diagnostic['reason'] = 'invalid_json_root'
             self._augment_last_raw_response({
                 'json_parse_error': 'Parsed JSON root is not an object.',
             })
@@ -713,6 +752,7 @@ Do not create purchase order lines.
             job.write({'raw_response_json': self.sanitize_diagnostics(self.last_raw_response)})
 
     def _set_preflight_error(self, code, message, details=None):
+        self.diagnostic['reason'] = code
         self.last_raw_response = {
             'preflight_error': {
                 'code': code,

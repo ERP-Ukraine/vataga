@@ -1,7 +1,7 @@
 {
     'name': 'Account Gemini Digitization',
     'summary': 'Prepare supplier bill and purchase order digitization with Gemini',
-    'version': '17.0.1.0.0',
+    'version': '17.0.1.0.1',
     'category': 'Accounting/Accounting',
     'author': 'ERP Ukraine LLC',
     'website': 'https://erp.co.ua',

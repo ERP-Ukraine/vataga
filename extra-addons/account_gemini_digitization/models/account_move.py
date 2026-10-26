@@ -92,7 +92,7 @@ class AccountMove(models.Model):
 
         attachment = self._get_latest_gemini_digitization_attachment()
         if not attachment:
-            raise UserError(_(
+            return self._gemini_preparation_failure(_(
                 'Не знайдено придатного файлу для оцифрування. Прикріпіть PDF або зображення PNG/JPEG.'
             ))
         _logger.info(
@@ -108,7 +108,7 @@ class AccountMove(models.Model):
             name_template = _('Gemini OCR: Partial Vendor Bill %s')
         else:
             if not self.partner_id:
-                raise UserError(_('Спочатку оберіть постачальника в рахунку.'))
+                return self._gemini_preparation_failure(_('Спочатку оберіть постачальника в рахунку.'))
             mode = 'full_bill'
             name_template = _('Gemini OCR: Full Vendor Bill %s')
 
@@ -125,13 +125,26 @@ class AccountMove(models.Model):
             'currency_id': self.currency_id.id,
             'attachment_id': attachment.id,
         })
-        result = job.run_automatic_pipeline()
-        if result.get('status') != 'error':
+        try:
+            result = job.run_automatic_pipeline()
+        finally:
             job._unlink_temporary_job()
         return self._get_gemini_digitization_notification_action(
             result['message'],
             notification_type=result.get('notification_type', 'info'),
             sticky=result.get('sticky', False),
+        )
+
+    def _gemini_preparation_failure(self, message):
+        # Callers supply only local, fixed messages, never exception/API text.
+        self.message_post(
+            body='Gemini OCR — %s UTC. %s %s' % (
+                fields.Datetime.now(), _('Підготовка документа.'), message,
+            ),
+            subtype_xmlid='mail.mt_note',
+        )
+        return self._get_gemini_digitization_notification_action(
+            message, notification_type='danger', sticky=True,
         )
 
     def _get_gemini_digitization_product_lines(self):
