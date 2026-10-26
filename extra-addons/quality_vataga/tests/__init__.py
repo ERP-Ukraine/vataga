@@ -15,6 +15,9 @@ from . import test_quality_release_access
 from . import test_stock_release_plan_utils
 from . import test_stock_release_diagnostics
 from . import test_stock_release_native_contract
+from . import test_stock_posting_core
+from . import test_stock_cost_allocator
+from . import test_quality_stock_posting_integration
 from . import test_quality_stage14
 from . import test_quality_check_alert_action
 from . import test_quality_technical_board

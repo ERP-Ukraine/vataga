@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="stock_cost_scope_company_rule" model="ir.rule">
+        <field name="name">Розподіл витрат: дозволені компанії</field>
+        <field name="model_id" ref="model_quality_stock_cost_scope"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="stock_posting_company_rule" model="ir.rule">
+        <field name="name">Реєстр випусків: дозволені компанії</field>
+        <field name="model_id" ref="model_quality_stock_posting"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="stock_posting_line_company_rule" model="ir.rule">
+        <field name="name">Фактичні компоненти: дозволені компанії</field>
+        <field name="model_id" ref="model_quality_stock_posting_line"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="stock_cost_allocation_company_rule" model="ir.rule">
+        <field name="name">Поглинуті витрати: дозволені компанії</field>
+        <field name="model_id" ref="model_quality_stock_cost_allocation"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+</odoo>

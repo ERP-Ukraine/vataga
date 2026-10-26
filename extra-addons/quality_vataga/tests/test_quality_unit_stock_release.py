@@ -15,7 +15,7 @@ from . import test_quality_unit_execution as execution_tests
 
 
 @tagged('post_install', '-at_install')
-class TestQualityUnitStockReleasePreparation(QualityCheckInProcessCase):
+class QualityUnitStockReleaseCase(QualityCheckInProcessCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -90,6 +90,9 @@ class TestQualityUnitStockReleasePreparation(QualityCheckInProcessCase):
                 self.env['stock.quant'].search([('product_id', 'in', products.ids)]).read(),
                 self.env['stock.move'].search([('product_id', 'in', products.ids)]).ids)
 
+
+@tagged('post_install', '-at_install')
+class TestQualityUnitStockReleasePreparation(QualityUnitStockReleaseCase):
     def test_one_of_five_proposes_one_fifth_of_all_five_components(self):
         check, source, last, units, target, permission = self._authorized()
         before = self._stock_snapshot(check.production_id)
@@ -117,9 +120,9 @@ class TestQualityUnitStockReleasePreparation(QualityCheckInProcessCase):
         self._wizard(check.production_id, units[1]).action_prepare()
         plan = self._plans(check.production_id)
         costing = json.loads(plan.evidence_snapshot)['costing']
-        self.assertIn('posting_journal_missing', costing['blockers'])
-        self.assertIn('interval_allocation_missing', costing['blockers'])
-        self.assertIn('native_genealogy_overwrite', costing['blockers'])
+        self.assertIn('enterprise_bridge_pending', costing['blockers'])
+        self.assertIn('interval_scope_required', costing['blockers'])
+        self.assertIn('native_post_inventory_forbidden', costing['blockers'])
         self.assertIn('enterprise_validation_pending', costing['blockers'])
         self.assertTrue(all('has_execution_batch' in timer for timer in costing['timers']))
         self.assertIn('consume_line_ids', plan.posting_diagnostic)

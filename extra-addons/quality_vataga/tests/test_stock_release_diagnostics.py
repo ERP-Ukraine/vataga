@@ -15,8 +15,8 @@ spec.loader.exec_module(diagnostics)
 class TestStockReleaseDiagnostics(unittest.TestCase):
     def test_no_timers_does_not_enable_posting(self):
         self.assertEqual(diagnostics.posting_blocker_codes([]), [
-            'posting_journal_missing', 'interval_allocation_missing',
-            'native_genealogy_overwrite', 'enterprise_validation_pending',
+            'enterprise_bridge_pending', 'interval_scope_required',
+            'native_post_inventory_forbidden', 'enterprise_validation_pending',
         ])
 
     def test_closed_named_timer_is_not_an_allocation_or_posting_permission(self):

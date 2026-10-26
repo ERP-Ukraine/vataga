@@ -29,7 +29,7 @@ from odoo.tests import TransactionCase, tagged
 
 
 @tagged('post_install', '-at_install')
-class TestStockReleaseNativeContract(TransactionCase):
+class StockReleaseNativeCase(TransactionCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -119,6 +119,9 @@ class TestStockReleaseNativeContract(TransactionCase):
                     ('company_id', '=', self.env.company.id),
                 ]).read())
 
+
+@tagged('post_install', '-at_install')
+class TestStockReleaseNativeContract(StockReleaseNativeCase):
     def test_one_of_five_moves_only_two_components_and_keeps_mo_open(self):
         production = self._production()
         self.assertEqual(self._stock(), (20, 0))

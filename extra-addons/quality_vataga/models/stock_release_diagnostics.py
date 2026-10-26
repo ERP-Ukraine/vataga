@@ -1,14 +1,14 @@
-"""Read-only posting blockers, never permission to call a stock API.
+"""Enterprise bridge blockers, never permission to call a stock API.
 
 A closed, batch-linked timer alone is NOT a costing allocation. The missing
-journal/allocator and integration validation remain unconditional blockers.
+integration bridge and validation remain unconditional blockers.
 """
 
 
 def posting_blocker_codes(timers):
     codes = [
-        'posting_journal_missing', 'interval_allocation_missing',
-        'native_genealogy_overwrite', 'enterprise_validation_pending',
+        'enterprise_bridge_pending', 'interval_scope_required',
+        'native_post_inventory_forbidden', 'enterprise_validation_pending',
     ]
     if any(not timer.get('end') for timer in timers):
         codes.append('open_intervals')
