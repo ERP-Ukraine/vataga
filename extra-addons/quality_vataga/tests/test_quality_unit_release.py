@@ -109,6 +109,25 @@ class TestQualityUnitRelease(QualityCheckInProcessCase):
         with self.assertRaises(ValidationError):
             self._release(check.production_id, units[1]).action_apply()
 
+    def test_open_wizard_rechecks_admission_revoked_before_confirmation(self):
+        check, source, last, units, target = self._scenario()
+        production = check.production_id
+        wizard = self._release(production, units[1])
+        self.assertTrue(wizard.line_ids.eligible)
+        before = (production.product_qty, production.qty_producing, production.qty_produced,
+                  production.move_raw_ids.read(), production.move_finished_ids.read(),
+                  self.env['stock.quant'].search([('product_id', '=', self.product.id)]).read())
+
+        self._decision(target, mode='revoke', reason='Допуск відкликано після відкриття майстра').action_apply()
+        with self.assertRaises(ValidationError):
+            wizard.action_apply()
+
+        self.assertFalse(self._lines(units[1]))
+        self.assertFalse(self.env['quality.unit.release.batch'].search([('production_id', '=', production.id)]))
+        self.assertEqual(before, (production.product_qty, production.qty_producing, production.qty_produced,
+                                 production.move_raw_ids.read(), production.move_finished_ids.read(),
+                                 self.env['stock.quant'].search([('product_id', '=', self.product.id)]).read()))
+
     def test_direct_create_write_unlink_and_context_defaults_are_protected(self):
         check, source, last, units, target = self._scenario()
         for name in ('quality.unit.release.batch', 'quality.unit.release.line', 'quality.unit.release.event'):
