@@ -87,7 +87,7 @@
                 <page name="quality_unit_release" string="Поштучний випуск" invisible="not quality_transfer_controlled">
                     <field name="quality_transfer_controlled" invisible="1"/>
                     <div class="alert alert-info">Підготовка та дозвіл випуску конкретних QUNIT. Складські рухи, виробничі кількості й собівартість не змінюються.</div>
-                    <widget name="quality_unit_release_buttons" groups="quality_vataga.group_quality_unit_release"/>
+                    <widget name="quality_unit_release_buttons" groups="quality_vataga.group_quality_board_approval"/>
                     <group>
                         <group>
                             <field name="quality_release_total" readonly="1"/>

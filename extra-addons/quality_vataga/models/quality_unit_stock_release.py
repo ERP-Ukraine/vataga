@@ -6,12 +6,12 @@ from odoo import _, api, Command, fields, models
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tools import float_compare
 
+from .quality_release_access import check_stock_release_roles, has_stock_release_roles
 from .stock_release_plan_utils import (
     StockReleasePlanError, allocate_reserved_quantity, exact_quantity, proportional_quantity,
 )
 
 
-STOCK_RELEASE_GROUP = 'quality_vataga.group_quality_unit_stock_release'
 PLAN_CONTEXT = 'quality_vataga_stock_release_plan'
 PLAN_TOKEN = object()
 POSTING_UNAVAILABLE = (
@@ -55,7 +55,14 @@ class QualityUnitStockReleasePlan(models.Model):
         for plan in self:
             plan.posting_note = _(POSTING_UNAVAILABLE)
 
+    @api.model
+    def check_access_rights(self, operation, raise_exception=True):
+        if not check_stock_release_roles(self.env.user, raise_exception=raise_exception):
+            return False
+        return super().check_access_rights(operation, raise_exception=raise_exception)
+
     def check_access_rule(self, operation):
+        check_stock_release_roles(self.env.user)
         result = super().check_access_rule(operation)
         if self.ids:
             # Read protective relation IDs directly: normal M2M reads could
@@ -182,26 +189,41 @@ class MrpProductionStockReleasePlan(models.Model):
 
     quality_stock_release_plan_ids = fields.One2many(
         'quality.unit.stock.release.plan', 'production_id', string='Плани складського випуску',
-        readonly=True, groups=STOCK_RELEASE_GROUP,
+        compute='_compute_stock_release_plans', compute_sudo=False, readonly=True, groups='mrp.group_mrp_user',
     )
+    can_prepare_unit_stock_release = fields.Boolean(compute='_compute_stock_release_role')
+
+    @api.depends_context('uid')
+    def _compute_stock_release_role(self):
+        allowed = has_stock_release_roles(self.env.user)
+        for production in self:
+            production.can_prepare_unit_stock_release = allowed
+
+    @api.depends('quality_transfer_revision')
+    @api.depends_context('uid', 'allowed_company_ids')
+    def _compute_stock_release_plans(self):
+        allowed = has_stock_release_roles(self.env.user)
+        plans = self.env['quality.unit.stock.release.plan']
+        for production in self:
+            production.quality_stock_release_plan_ids = plans.search([('production_id', '=', production.id)]) if allowed else plans
 
     @api.model_create_multi
     def create(self, vals_list):
-        if any('quality_stock_release_plan_ids' in vals for vals in vals_list):
+        if any({'quality_stock_release_plan_ids', 'can_prepare_unit_stock_release'}.intersection(vals) for vals in vals_list):
             raise UserError(_('Історію планів встановлює система.'))
         context = dict(self.env.context)
         context.pop('default_quality_stock_release_plan_ids', None)
+        context.pop('default_can_prepare_unit_stock_release', None)
         return super(MrpProductionStockReleasePlan, self.with_context(context)).create(vals_list)
 
     def write(self, vals):
-        if 'quality_stock_release_plan_ids' in vals:
+        if {'quality_stock_release_plan_ids', 'can_prepare_unit_stock_release'}.intersection(vals):
             raise UserError(_('Історію планів встановлює система.'))
         return super().write(vals)
 
     def _check_unit_stock_release_access(self):
         self.ensure_one()
-        if not self.env.user.has_group(STOCK_RELEASE_GROUP):
-            raise AccessError(_('Потрібне окреме право «Підготовка складського випуску QUNIT». Права інспектора недостатньо.'))
+        check_stock_release_roles(self.env.user)
         self.check_access_rights('write')
         self.check_access_rule('write')
         if not self.quality_transfer_controlled or self.company_id not in self.env.companies:
@@ -353,7 +375,7 @@ class QualityReleasePermissionStockPlans(models.Model):
 
     stock_release_plan_ids = fields.Many2many(
         'quality.unit.stock.release.plan', 'quality_stock_plan_permission_rel', 'permission_id', 'plan_id',
-        string='Підготовлені плани', readonly=True, groups=STOCK_RELEASE_GROUP,
+        string='Підготовлені плани', readonly=True, groups='mrp.group_mrp_user',
     )
 
 
@@ -362,11 +384,16 @@ class QualityUnitStockReleaseHistory(models.Model):
 
     stock_release_plan_ids = fields.Many2many(
         'quality.unit.stock.release.plan', string='Підготовка складського випуску',
-        compute='_compute_stock_release_plans', compute_sudo=False, groups=STOCK_RELEASE_GROUP,
+        compute='_compute_stock_release_plans', compute_sudo=False, groups='mrp.group_mrp_user',
+    )
+    can_prepare_unit_stock_release = fields.Boolean(
+        related='production_id.can_prepare_unit_stock_release', compute_sudo=False,
     )
 
     @api.depends('quality_release_line_ids.stock_release_plan_ids')
     @api.depends_context('uid', 'allowed_company_ids')
     def _compute_stock_release_plans(self):
+        allowed = has_stock_release_roles(self.env.user)
+        plans = self.env['quality.unit.stock.release.plan']
         for unit in self:
-            unit.stock_release_plan_ids = self.env['quality.unit.stock.release.plan'].search([('permission_ids.unit_id', '=', unit.id)])
+            unit.stock_release_plan_ids = plans.search([('permission_ids.unit_id', '=', unit.id)]) if allowed else plans

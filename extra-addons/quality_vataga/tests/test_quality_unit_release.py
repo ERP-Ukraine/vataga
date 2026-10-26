@@ -15,7 +15,7 @@ from . import test_quality_unit_execution as execution_tests
 class TestQualityUnitRelease(QualityCheckInProcessCase):
     def setUp(self):
         super().setUp()
-        self.env.user.groups_id = [Command.link(self.env.ref('quality_vataga.group_quality_unit_release').id)]
+        self.env.user.groups_id = [Command.link(self.env.ref('quality_vataga.group_quality_board_approval').id)]
 
     _workorder = execution_tests.TestQualityUnitExecution._workorder
     _identify = execution_tests.TestQualityUnitExecution._identify
@@ -128,22 +128,61 @@ class TestQualityUnitRelease(QualityCheckInProcessCase):
         with self.assertRaises(UserError):
             line.write({'state': 'released'})
 
-    def test_separate_right_required_even_for_quality_or_mrp_user(self):
+    def test_quality_user_and_mrp_user_cannot_authorize_release(self):
         check, source, last, units, target = self._scenario()
-        for groups in (['mrp.group_mrp_user'], ['mrp.group_mrp_user', 'quality.group_quality_manager']):
-            user = self._user('release_denied_' + str(len(groups)), groups)
+        for index, groups in enumerate((['mrp.group_mrp_user'], ['quality.group_quality_user'],
+                                        ['mrp.group_mrp_user', 'quality.group_quality_user'])):
+            user = self._user('release_denied_' + str(index), groups)
             with self.assertRaises(AccessError):
                 check.production_id.with_user(user).action_open_unit_release_wizard()
-        approver = self._user('release_authorized', ['quality_vataga.group_quality_unit_release'])
+            with self.assertRaises(AccessError):
+                self.env['quality.unit.release.batch'].with_user(user)._authorize(check.production_id.with_user(user), units[1].with_user(user), 'denied')
+        approver = self._user('release_authorized', ['quality_vataga.group_quality_board_approval', 'mrp.group_mrp_user'])
         self.env['quality.unit.release.batch'].with_user(approver)._authorize(check.production_id.with_user(approver), units[1].with_user(approver), 'authorized-user')
         self.assertEqual(self._lines(units[1]).authorized_by_id, approver)
+
+    def test_quality_manager_inherits_board_release_role(self):
+        check, source, last, units, target = self._scenario()
+        manager = self._user('release_quality_manager', ['quality.group_quality_manager', 'mrp.group_mrp_user'])
+        self.assertTrue(manager.has_group('quality_vataga.group_quality_board_approval'))
+        self.env['quality.unit.release.batch'].with_user(manager)._authorize(check.production_id.with_user(manager), units[1].with_user(manager), 'manager-release')
+        self.assertEqual(self._lines(units[1]).authorized_by_id, manager)
+
+    def test_board_approver_can_confirm_and_cancel_through_wizard(self):
+        check, source, last, units, target = self._scenario()
+        approver = self._user('release_board_wizard', ['quality_vataga.group_quality_board_approval', 'mrp.group_mrp_user'])
+        wizards = self.env['quality.unit.release.wizard'].with_user(approver)
+        wizards.create({
+            'production_id': check.production_id.id, 'mode': 'authorize',
+            'line_ids': [Command.create({'unit_id': units[1].id, 'selected': True})],
+        }).action_apply()
+        line = self._lines(units[1])
+        self.assertEqual(line.authorized_by_id, approver)
+        wizards.create({
+            'production_id': check.production_id.id, 'mode': 'cancel', 'reason': 'Явне скасування уповноваженим користувачем',
+            'line_ids': [Command.create({'permission_id': line.id, 'selected': True})],
+        }).action_apply()
+        self.assertEqual(line.state, 'cancelled')
+        self.assertEqual(line.cancelled_by_id, approver)
+
+    def test_board_approver_still_needs_mo_write_access(self):
+        check, source, last, units, target = self._scenario()
+        approver = self._user('release_mo_denied', ['quality_vataga.group_quality_board_approval', 'mrp.group_mrp_user'])
+        self.env['ir.rule'].create({
+            'name': 'Заборона запису тестового MO дозволу',
+            'model_id': self.env.ref('mrp.model_mrp_production').id,
+            'domain_force': repr([('id', '!=', check.production_id.id)]),
+            'perm_read': False, 'perm_write': True, 'perm_create': False, 'perm_unlink': False,
+        })
+        with self.assertRaises(AccessError):
+            check.production_id.with_user(approver).action_open_unit_release_wizard()
 
     def test_foreign_mo_or_company_cannot_be_selected(self):
         check, source, last, units, target = self._scenario()
         foreign = self._production()
         with self.assertRaises(ValidationError):
             self._release(foreign, units[1]).action_apply()
-        user = self._user('release_company', ['quality_vataga.group_quality_unit_release'])
+        user = self._user('release_company', ['quality_vataga.group_quality_board_approval', 'mrp.group_mrp_user'])
         company = self.env['res.company'].create({'name': 'Інша компанія дозволів'})
         user.company_ids = [Command.link(company.id)]
         with self.assertRaises((AccessError, ValidationError)):

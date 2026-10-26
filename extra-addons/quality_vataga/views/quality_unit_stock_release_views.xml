@@ -51,13 +51,14 @@
         <field name="inherit_id" ref="quality_vataga.mrp_production_quality_unit_release"/>
         <field name="arch" type="xml">
             <xpath expr="//page[@name='quality_unit_release']/widget[@name='quality_unit_release_buttons']" position="after">
-                <div groups="quality_vataga.group_quality_unit_stock_release">
+                <field name="can_prepare_unit_stock_release" invisible="1"/>
+                <div groups="mrp.group_mrp_user" invisible="not can_prepare_unit_stock_release">
                     <button name="action_open_unit_stock_release_wizard" type="object" string="Випустити дозволені вироби" class="btn-secondary"/>
                     <span class="ms-2 text-muted">Доступна підготовка плану. Складське проведення заблоковано до інтеграційної перевірки.</span>
                 </div>
             </xpath>
             <xpath expr="//page[@name='quality_unit_release']" position="inside">
-                <group groups="quality_vataga.group_quality_unit_stock_release" col="1">
+                <group groups="mrp.group_mrp_user" invisible="not can_prepare_unit_stock_release" col="1">
                     <separator string="Плани підготовки — без складського проведення"/>
                     <field name="quality_stock_release_plan_ids" readonly="1" nolabel="1">
                         <tree create="0" edit="0" delete="0">
@@ -77,7 +78,8 @@
         <field name="inherit_id" ref="quality_vataga.quality_production_unit_form"/>
         <field name="arch" type="xml">
             <xpath expr="/form/sheet/notebook" position="inside">
-                <page name="quality_stock_release_preparation" string="Підготовка складського випуску" groups="quality_vataga.group_quality_unit_stock_release">
+                <page name="quality_stock_release_preparation" string="Підготовка складського випуску" groups="mrp.group_mrp_user" invisible="not can_prepare_unit_stock_release">
+                    <field name="can_prepare_unit_stock_release" invisible="1"/>
                     <div class="alert alert-warning">Це історія підготовки. Плани не підтверджують надходження продукції на склад.</div>
                     <field name="stock_release_plan_ids" readonly="1">
                         <tree create="0" edit="0" delete="0">

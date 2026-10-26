@@ -4,6 +4,7 @@ from odoo import _, api, Command, fields, models
 from odoo.exceptions import AccessError, UserError, ValidationError
 
 from ..models.quality_unit_stock_release import POSTING_UNAVAILABLE
+from ..models.quality_release_access import check_stock_release_roles
 
 
 class QualityUnitStockReleaseWizard(models.TransientModel):
@@ -14,6 +15,12 @@ class QualityUnitStockReleaseWizard(models.TransientModel):
     request_key = fields.Char(required=True, readonly=True)
     line_ids = fields.One2many('quality.unit.stock.release.wizard.line', 'wizard_id', string='Конкретні вироби')
     posting_note = fields.Text(compute='_compute_posting_note')
+
+    @api.model
+    def check_access_rights(self, operation, raise_exception=True):
+        if not check_stock_release_roles(self.env.user, raise_exception=raise_exception):
+            return False
+        return super().check_access_rights(operation, raise_exception=raise_exception)
 
     def _compute_posting_note(self):
         for wizard in self:
@@ -93,6 +100,12 @@ class QualityUnitStockReleaseWizardLine(models.TransientModel):
     stock_status = fields.Char(string='Фактичний випуск', compute='_compute_availability')
 
     _sql_constraints = [('unit_unique', 'unique(wizard_id, unit_id)', 'QUNIT вже є в майстрі.')]
+
+    @api.model
+    def check_access_rights(self, operation, raise_exception=True):
+        if not check_stock_release_roles(self.env.user, raise_exception=raise_exception):
+            return False
+        return super().check_access_rights(operation, raise_exception=raise_exception)
 
     @api.model_create_multi
     def create(self, vals_list):

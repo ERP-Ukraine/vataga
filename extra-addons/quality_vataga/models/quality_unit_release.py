@@ -5,7 +5,7 @@ from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.osv import expression
 
 
-RELEASE_GROUP = 'quality_vataga.group_quality_unit_release'
+RELEASE_GROUP = 'quality_vataga.group_quality_board_approval'
 RELEASE_CONTEXT = 'quality_vataga_release_authorization'
 RELEASE_TOKEN = object()
 
@@ -325,7 +325,7 @@ class MrpProductionUnitRelease(models.Model):
     def _check_unit_release_access(self):
         self.ensure_one()
         if not self.env.user.has_group(RELEASE_GROUP):
-            raise AccessError(_('Потрібне окреме право «Дозвіл поштучного випуску QUNIT».'))
+            raise AccessError(_('Дозвіл випуску QUNIT потребує ролі «Затвердження рішень технічної ради».'))
         self.check_access_rights('write')
         self.check_access_rule('write')
         if not self.quality_transfer_controlled or self.company_id not in self.env.companies:

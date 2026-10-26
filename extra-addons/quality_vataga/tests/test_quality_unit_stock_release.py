@@ -37,7 +37,7 @@ class TestQualityUnitStockReleasePreparation(QualityCheckInProcessCase):
     def setUp(self):
         super().setUp()
         self.env.user.groups_id = [Command.link(self.env.ref(group).id) for group in (
-            'quality_vataga.group_quality_unit_release', 'quality_vataga.group_quality_unit_stock_release',
+            'quality_vataga.group_quality_board_approval', 'mrp.group_mrp_user', 'stock.group_stock_user',
         )]
 
     _workorder = release_tests.TestQualityUnitRelease._workorder
@@ -171,9 +171,11 @@ class TestQualityUnitStockReleasePreparation(QualityCheckInProcessCase):
         with self.assertRaises(ValidationError):
             self._plans(check.production_id).action_check_current()
 
-    def test_separate_stock_role_required_even_for_release_approver(self):
+    def test_board_role_does_not_replace_stock_and_mrp_roles(self):
         check, source, last, units, target, permission = self._authorized()
-        user = self._user('stock_plan_denied', ['quality_vataga.group_quality_unit_release'])
+        user = self._user('stock_plan_denied', ['quality_vataga.group_quality_board_approval'])
+        for group in ('mrp.group_mrp_user', 'stock.group_stock_user'):
+            self.env.ref(group).write({'users': [Command.unlink(user.id)]})
         with self.assertRaises(AccessError):
             check.production_id.with_user(user).action_open_unit_stock_release_wizard()
         with self.assertRaises(AccessError):
@@ -181,8 +183,8 @@ class TestQualityUnitStockReleasePreparation(QualityCheckInProcessCase):
 
     def test_stock_preparer_does_not_gain_authorization_right(self):
         check, source, last, units, target, permission = self._authorized()
-        user = self._user('stock_plan_allowed', ['quality_vataga.group_quality_unit_stock_release'])
-        self.assertFalse(user.has_group('quality_vataga.group_quality_unit_release'))
+        user = self._user('stock_plan_allowed', ['mrp.group_mrp_user', 'stock.group_stock_user', 'quality.group_quality_user'])
+        self.assertFalse(user.has_group('quality_vataga.group_quality_board_approval'))
         plan = self.env['quality.unit.stock.release.plan'].with_user(user)._prepare(
             check.production_id.with_user(user), permission.with_user(user), 'stock-only-preparation',
         )
@@ -190,10 +192,48 @@ class TestQualityUnitStockReleasePreparation(QualityCheckInProcessCase):
         with self.assertRaises(AccessError):
             check.production_id.with_user(user).action_open_unit_release_wizard()
 
+    def test_either_missing_native_role_blocks_actions_and_snapshot_reads(self):
+        check, source, last, units, target, permission = self._authorized()
+        self._wizard(check.production_id, units[1]).action_prepare()
+        plan = self._plans(check.production_id)
+        for index, missing in enumerate(('mrp.group_mrp_user', 'stock.group_stock_user')):
+            user = self._user('stock_missing_role_' + str(index), ['mrp.group_mrp_user', 'stock.group_stock_user', 'quality.group_quality_user'])
+            self.env.ref(missing).write({'users': [Command.unlink(user.id)]})
+            self.assertFalse(user.has_group(missing))
+            self.assertFalse(check.production_id.with_user(user).can_prepare_unit_stock_release)
+            for model in ('quality.unit.stock.release.plan', 'quality.unit.stock.release.wizard', 'quality.unit.stock.release.wizard.line'):
+                self.assertFalse(self.env[model].with_user(user).check_access_rights('read', raise_exception=False))
+            with self.assertRaises(AccessError):
+                check.production_id.with_user(user).action_open_unit_stock_release_wizard()
+            with self.assertRaises(AccessError):
+                plan.with_user(user).read(['evidence_snapshot'])
+            with self.assertRaises(AccessError):
+                self.env['quality.unit.stock.release.plan'].with_user(user)._prepare(check.production_id.with_user(user), permission.with_user(user), 'missing-role')
+
+    def test_role_revoked_after_wizard_open_blocks_existing_wizard(self):
+        check, source, last, units, target, permission = self._authorized()
+        user = self._user('stock_role_revoked', ['mrp.group_mrp_user', 'stock.group_stock_user', 'quality.group_quality_user'])
+        wizard = self.env['quality.unit.stock.release.wizard'].with_user(user).create({
+            'production_id': check.production_id.id,
+            'line_ids': [Command.create({'unit_id': units[1].id, 'selected': True})],
+        })
+        self.env.ref('stock.group_stock_user').write({'users': [Command.unlink(user.id)]})
+        with self.assertRaises(AccessError):
+            wizard.action_prepare()
+        self.assertFalse(self._plans(check.production_id))
+
+    def test_mrp_user_without_stock_does_not_break_empty_history_fields(self):
+        check, source, last, units, target, permission = self._authorized()
+        self._wizard(check.production_id, units[1]).action_prepare()
+        user = self._user('stock_history_denied', ['mrp.group_mrp_user', 'stock.group_stock_user', 'quality.group_quality_user'])
+        self.env.ref('stock.group_stock_user').write({'users': [Command.unlink(user.id)]})
+        self.assertFalse(check.production_id.with_user(user).quality_stock_release_plan_ids)
+        self.assertFalse(units[1].with_user(user).stock_release_plan_ids)
+
     def test_plan_snapshot_respects_record_rules_on_underlying_permission(self):
         check, source, last, units, target, permission = self._authorized()
         self._wizard(check.production_id, units[1]).action_prepare()
-        user = self._user('stock_plan_hidden_permission', ['quality_vataga.group_quality_unit_stock_release'])
+        user = self._user('stock_plan_hidden_permission', ['mrp.group_mrp_user', 'stock.group_stock_user', 'quality.group_quality_user'])
         self.env['ir.rule'].create({
             'name': 'Прихований дозвіл тестового плану',
             'model_id': self.env.ref('quality_vataga.model_quality_unit_release_line').id,
@@ -205,12 +245,24 @@ class TestQualityUnitStockReleasePreparation(QualityCheckInProcessCase):
     def test_plan_snapshot_respects_record_rules_on_underlying_stock_lines(self):
         check, source, last, units, target, permission = self._authorized()
         self._wizard(check.production_id, units[1]).action_prepare()
-        user = self._user('stock_plan_hidden_stock', ['quality_vataga.group_quality_unit_stock_release'])
+        user = self._user('stock_plan_hidden_stock', ['mrp.group_mrp_user', 'stock.group_stock_user', 'quality.group_quality_user'])
         hidden = check.production_id.move_raw_ids.move_line_ids[0]
         self.env['ir.rule'].create({
             'name': 'Прихований складський рядок тестового плану',
             'model_id': self.env.ref('stock.model_stock_move_line').id,
             'domain_force': repr([('id', '!=', hidden.id)]),
+        })
+        with self.assertRaises(AccessError):
+            self._plans(check.production_id).with_user(user).read(['evidence_snapshot'])
+
+    def test_native_roles_do_not_bypass_source_quality_check_rules(self):
+        check, source, last, units, target, permission = self._authorized()
+        self._wizard(check.production_id, units[1]).action_prepare()
+        user = self._user('stock_plan_hidden_qc', ['mrp.group_mrp_user', 'stock.group_stock_user', 'quality.group_quality_user'])
+        self.env['ir.rule'].create({
+            'name': 'Прихований вихідний QC тестового плану',
+            'model_id': self.env['ir.model']._get('quality.check').id,
+            'domain_force': repr([('id', '!=', target.id)]),
         })
         with self.assertRaises(AccessError):
             self._plans(check.production_id).with_user(user).read(['evidence_snapshot'])
@@ -253,7 +305,7 @@ class TestQualityUnitStockReleasePreparation(QualityCheckInProcessCase):
     def test_wrong_allowed_company_cannot_open_or_read_plan(self):
         check, source, last, units, target, permission = self._authorized()
         self._wizard(check.production_id, units[1]).action_prepare()
-        user = self._user('stock_plan_company', ['quality_vataga.group_quality_unit_stock_release'])
+        user = self._user('stock_plan_company', ['mrp.group_mrp_user', 'stock.group_stock_user', 'quality.group_quality_user'])
         other = self.env['res.company'].create({'name': 'Інша компанія плану'})
         user.company_ids = [Command.link(other.id)]
         with self.assertRaises((AccessError, ValidationError)):
