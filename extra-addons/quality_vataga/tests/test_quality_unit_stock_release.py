@@ -190,6 +190,31 @@ class TestQualityUnitStockReleasePreparation(QualityCheckInProcessCase):
         with self.assertRaises(AccessError):
             check.production_id.with_user(user).action_open_unit_release_wizard()
 
+    def test_plan_snapshot_respects_record_rules_on_underlying_permission(self):
+        check, source, last, units, target, permission = self._authorized()
+        self._wizard(check.production_id, units[1]).action_prepare()
+        user = self._user('stock_plan_hidden_permission', ['quality_vataga.group_quality_unit_stock_release'])
+        self.env['ir.rule'].create({
+            'name': 'Прихований дозвіл тестового плану',
+            'model_id': self.env.ref('quality_vataga.model_quality_unit_release_line').id,
+            'domain_force': repr([('id', '!=', permission.id)]),
+        })
+        with self.assertRaises(AccessError):
+            self._plans(check.production_id).with_user(user).read(['evidence_snapshot'])
+
+    def test_plan_snapshot_respects_record_rules_on_underlying_stock_lines(self):
+        check, source, last, units, target, permission = self._authorized()
+        self._wizard(check.production_id, units[1]).action_prepare()
+        user = self._user('stock_plan_hidden_stock', ['quality_vataga.group_quality_unit_stock_release'])
+        hidden = check.production_id.move_raw_ids.move_line_ids[0]
+        self.env['ir.rule'].create({
+            'name': 'Прихований складський рядок тестового плану',
+            'model_id': self.env.ref('stock.model_stock_move_line').id,
+            'domain_force': repr([('id', '!=', hidden.id)]),
+        })
+        with self.assertRaises(AccessError):
+            self._plans(check.production_id).with_user(user).read(['evidence_snapshot'])
+
     def test_direct_create_write_unlink_and_context_forgery_are_rejected(self):
         check, source, last, units, target, permission = self._authorized()
         plans = self.env['quality.unit.stock.release.plan']

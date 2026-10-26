@@ -55,6 +55,39 @@ class QualityUnitStockReleasePlan(models.Model):
         for plan in self:
             plan.posting_note = _(POSTING_UNAVAILABLE)
 
+    def check_access_rule(self, operation):
+        result = super().check_access_rule(operation)
+        if self.ids:
+            # Read protective relation IDs directly: normal M2M reads could
+            # omit hidden children. This confers no access to those records.
+            self.env.cr.execute('SELECT DISTINCT permission_id FROM quality_stock_plan_permission_rel WHERE plan_id IN %s', [tuple(self.ids)])
+            permissions = self.env['quality.unit.release.line'].browse([row[0] for row in self.env.cr.fetchall()])
+            permissions.check_access_rights('read')
+            permissions.check_access_rule('read')
+            # Extract only protective identities from the immutable snapshot.
+            # The snapshot itself is never returned before the normal rules
+            # on all source documents have allowed access.
+            sources = {name: set() for name in (
+                'stock.move', 'stock.move.line', 'mrp.workorder', 'mrp.workcenter.productivity',
+            )}
+            self.env.cr.execute('SELECT evidence_snapshot FROM quality_unit_stock_release_plan WHERE id IN %s', [tuple(self.ids)])
+            for (snapshot,) in self.env.cr.fetchall():
+                try:
+                    data = json.loads(snapshot)
+                    sources['stock.move'].update(row['move_id'] for row in data['components'])
+                    sources['stock.move'].add(data['finished']['move'])
+                    sources['stock.move.line'].update(line['id'] for row in data['components'] for line in row['source_lines'])
+                    sources['stock.move.line'].update(line['id'] for line in data['finished']['source_lines'])
+                    sources['mrp.workorder'].update(row['id'] for row in data['costing']['workorders'])
+                    sources['mrp.workcenter.productivity'].update(row['id'] for row in data['costing']['timers'])
+                except (KeyError, ValueError, TypeError):
+                    raise AccessError(_('Неможливо перевірити доступ до джерел збереженого плану.')) from None
+            for model, record_ids in sources.items():
+                records = self.env[model].browse(sorted(record_ids))
+                records.check_access_rights('read')
+                records.check_access_rule('read')
+        return result
+
     @api.model_create_multi
     def create(self, vals_list):
         if self.env.context.get(PLAN_CONTEXT) is not PLAN_TOKEN:
