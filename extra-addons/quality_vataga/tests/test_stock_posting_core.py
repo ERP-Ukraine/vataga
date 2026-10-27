@@ -320,7 +320,7 @@ class TestStockPostingKernel(StockReleaseNativeCase):
             )
         self.assertEqual(before, self._snapshot(production))
 
-    def test_real_time_accounting_is_explicitly_outside_validated_kernel_contract(self):
+    def test_fifo_real_time_accounting_is_outside_supported_profiles(self):
         production = self._production(timed=True)
         scope = self._scope(production)
         self.product.categ_id.property_valuation = 'real_time'

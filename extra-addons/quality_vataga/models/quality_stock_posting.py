@@ -227,15 +227,22 @@ class QualitySharedTimerBinding(models.Model):
 
     @api.model
     def _bind_shared_timer(self, timer, units, reason):
-        access(timer); access(units)
+        access(timer, 'write'); access(units)
         production = timer.workorder_id.production_id
         production._check_unit_stock_release_access()
         with self.env.cr.savepoint():
             production._lock_quality_transfer_scope()
+            if self._for_production(production).filtered(lambda row: row.timer_id == timer):
+                raise ValidationError(_('Склад цього спільного інтервалу вже підтверджено.'))
             if (not units or units.production_id != production or units.company_id != production.company_id
-                    or units.product_id != production.product_id or not reason.strip() or timer.quality_execution_batch_id):
-                raise ValidationError(_('Потрібні справжній спільний інтервал, явні QUNIT цього MO та причина.'))
+                    or units.product_id != production.product_id or not reason.strip() or timer.quality_execution_batch_id
+                    or not timer.date_end or timer.date_end <= timer.date_start
+                    or timer.company_id != production.company_id):
+                raise ValidationError(_('Потрібні закритий спільний інтервал, явні QUNIT цього MO та причина.'))
             units._assert_not_stock_posted()
-            return self.with_context(**{CORE_CONTEXT: CORE_TOKEN}).create(dict(
+            binding = self.with_context(**{CORE_CONTEXT: CORE_TOKEN}).create(dict(
                 production_id=production.id, timer_id=timer.id, unit_ids=[Command.set(units.ids)],
                 reason=reason.strip(), actor_id=self.env.uid, bound_at=fields.Datetime.now())).with_env(self.env)
+            production.message_post(body=_('Підтверджено склад спільного інтервалу %(timer)s: %(units)s. Підстава: %(reason)s',
+                timer=timer.id, units=', '.join(units.mapped('name')), reason=reason.strip()), subtype_xmlid='mail.mt_note')
+            return binding

@@ -17,10 +17,12 @@ from . import test_stock_release_diagnostics
 from . import test_stock_release_native_contract
 from . import test_stock_posting_core
 from . import test_stock_posting_incremental
+from . import test_stock_posting_valuation
 from . import test_stock_bridge_authority
 from . import test_stock_cost_allocator
 from . import test_quality_stock_posting_integration
 from . import test_quality_stock_lifecycle
+from . import test_quality_stock_cost_preparation
 from . import test_quality_stage14
 from . import test_quality_check_alert_action
 from . import test_quality_technical_board

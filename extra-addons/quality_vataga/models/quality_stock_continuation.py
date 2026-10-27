@@ -43,7 +43,9 @@ class QualityStockHistory(models.Model):
                         SELECT SUM(v.value) FROM stock_valuation_layer v WHERE v.id IN (
                             SELECT l.valuation_layer_id FROM quality_stock_posting_line l
                             WHERE l.posting_id=p.id AND l.kind='component')), 0)) >= %s
-                    OR ABS(p.component_cost+p.labour_cost-COALESCE((
+                    OR ABS(CASE WHEN p.valuation_snapshot->>'profile'='standard_real_time_v1'
+                        THEN (p.valuation_snapshot->>'standard_price')::numeric
+                        ELSE p.component_cost+p.labour_cost END-COALESCE((
                         SELECT SUM(v.value) FROM stock_valuation_layer v WHERE v.stock_move_id=m.id), 0)) >= %s
                 ))
         ''', [self.id, self.product_id.id, self.company_id.id,

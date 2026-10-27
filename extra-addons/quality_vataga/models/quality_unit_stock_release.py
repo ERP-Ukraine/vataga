@@ -70,7 +70,16 @@ class QualityUnitStockReleasePlan(models.Model):
                 if not isinstance(timers, list) or any(not isinstance(timer, dict) for timer in timers):
                     raise ValueError('Invalid timer snapshot')
                 codes = posting_blocker_codes(timers)
-            except (ValueError, TypeError, AttributeError):
+                contract = costing.get('native_contract', {})
+                if contract:
+                    codes = [code for code in codes if code != 'unmapped_intervals']
+                    if any(timer['missing_scope'] for timer in contract['timers']):
+                        codes.append('unmapped_intervals')
+                    if any(timer['employee_costing'] for timer in contract['timers']):
+                        codes.append('employee_contract_pending')
+                    if contract['profile'] == 'standard_real_time_v1':
+                        codes.append('standard_real_time')
+            except (ValueError, TypeError, AttributeError, KeyError):
                 codes = posting_blocker_codes([]) + ['legacy_snapshot']
             labels = {
                 'enterprise_bridge_pending': _('Реєстр quality.stock.posting реалізовано. Enterprise-міст QUNIT → дозвіл 13.4А → план залишається серверно заблокованим до інтеграційної перевірки.'),
@@ -80,6 +89,8 @@ class QualityUnitStockReleasePlan(models.Model):
                 'open_intervals': _('У знімку є відкриті робочі інтервали. Вартість окремого завершеного виробу ще не зафіксована.'),
                 'unmapped_intervals': _('У знімку є інтервали без поіменного робочого запуску QUNIT або старий знімок без такої прив’язки. Належність часу виробам не визначена.'),
                 'legacy_snapshot': _('Знімок не містить придатних даних діагностики. Його значення не змінено.'),
+                'employee_contract_pending': _('Інтервали містять працівників. Формулу штатного Enterprise-обліку праці та її поштучний розподіл ще не підтверджено; підміна тарифом робочого центру заборонена.'),
+                'standard_real_time': _('Профіль Standard + автоматична оцінка: готовий SVL за нормативом, проводки лише штатні. Різниця фактичних витрат і нормативу є окремим показником, а не автоматичною додатковою проводкою.'),
             }
             plan.posting_diagnostic = '\n\n'.join(labels[code] for code in codes)
 

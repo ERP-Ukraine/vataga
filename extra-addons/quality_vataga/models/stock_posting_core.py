@@ -265,8 +265,23 @@ class StockPosting(models.Model):
                     or not component_layers or receipt.component_cost < 0
                     or not currency.is_zero(receipt.component_cost + sum(component_layers.mapped('value')))
                     or not currency.is_zero(receipt.labour_cost - sum(receipt.allocation_ids.mapped('amount')))
-                    or not currency.is_zero(finished.valuation_layer_id.value - receipt.component_cost - receipt.labour_cost)):
+                    or not currency.is_zero(finished.valuation_layer_id.value - receipt._expected_finished_value())):
                 raise ValidationError(_('Кількості та фактична вартість реєстру не узгоджені.'))
+
+    def _expected_finished_value(self):
+        self.ensure_one()
+        return self.component_cost + self.labour_cost
+
+    @api.model
+    def _valuation_profile(self, production):
+        product = production.product_id.with_company(production.company_id)
+        if product.cost_method not in ('fifo', 'average') or product.valuation != 'manual_periodic':
+            raise ValidationError(_('Метод оцінки не відповідає перевіреному складському профілю.'))
+        return {'raw_valuation': 'manual_periodic'}
+
+    @api.model
+    def _valuation_values(self, production, produced, consumed, profile):
+        return {}
 
     @api.model
     def _check_integration_contract(self, scope):
@@ -351,14 +366,13 @@ class StockPosting(models.Model):
             self._before_unit_post(scope, unit_key)
             identities = self._posting_identity_values(scope, unit_key, permission_key, plan)
             data = scope.snapshot
+            profile = self._valuation_profile(production)
             if (unit_key not in data['keys'] or production.product_qty != data['quantity']
                     or production.product_id.id != data['product'] or production.bom_id.id != data['bom']
                     or production.product_uom_id.id != data['uom'] or production.state not in ('confirmed', 'progress')
                     or production.company_id.id != data['company'] or production.company_id.currency_id.id != data['currency']
                     or production.company_id.currency_id.rounding != data['rounding']
-                    or production.extra_cost or production.product_id.tracking != 'none'
-                    or production.product_id.cost_method not in ('fifo', 'average')
-                    or production.product_id.valuation != 'manual_periodic'):
+                    or production.extra_cost or production.product_id.tracking != 'none'):
                 raise ValidationError(_('Поточний MO, облік або ідентифікація не відповідають перевіреному обмеженому контракту.'))
             unit_uom = self.env.ref('uom.product_uom_unit')
             if production.product_uom_id != unit_uom:
@@ -390,7 +404,7 @@ class StockPosting(models.Model):
                         or move.product_uom_qty != exact_quantity(fact['per_unit'] * (len(data['keys']) - len(receipts)), move.product_uom.rounding)
                         or move.state != 'assigned' or move.manual_consumption or move.product_id.tracking != 'none'
                         or move.product_id.type != 'product' or move.company_id != production.company_id
-                        or move.product_id.valuation != 'manual_periodic'
+                        or move.product_id.with_company(production.company_id).valuation != profile['raw_valuation']
                         or move.location_id != production.location_src_id or move.location_dest_id != production.production_location_id
                         or any(line.lot_id or line.owner_id or line.package_id or line.result_package_id
                                or line.location_id != move.location_id or line.location_dest_id != move.location_dest_id
@@ -407,7 +421,7 @@ class StockPosting(models.Model):
             component_cost = -sum(component_layers.mapped('value'))
             shares = [row for row in data['shares'] if row['unit_key'] == unit_key]
             labour = sum(row['amount'] for row in shares)
-            finished.write({'quantity': 1, 'picked': True, 'price_unit': component_cost + labour})
+            finished.write({'quantity': 1, 'picked': True, 'price_unit': profile.get('standard_price', component_cost + labour)})
             produced = finished.with_context(**{CORE_CONTEXT: CORE_TOKEN})._action_done(cancel_backorder=False)
             if len(produced) != 1 or len(produced.move_line_ids) != 1:
                 raise ValidationError(_('Очікується одна проведена готова одиниця.'))
@@ -417,8 +431,9 @@ class StockPosting(models.Model):
             move_sources(produced, 'stock.valuation.layer', 'stock_move_id')
             if (len(produced.stock_valuation_layer_ids) != 1
                     or not production.company_id.currency_id.is_zero(
-                        sum(produced.stock_valuation_layer_ids.mapped('value')) - component_cost - labour)):
+                        sum(produced.stock_valuation_layer_ids.mapped('value')) - profile.get('standard_price', component_cost + labour))):
                 raise ValidationError(_('Фактична оцінка готового виробу не відповідає витратам.'))
+            valuation_values = self._valuation_values(production, produced, consumed, profile)
             lines = []
             for kind, moves in [('component', consumed), ('finished', produced)]:
                 for move in moves:
@@ -434,7 +449,7 @@ class StockPosting(models.Model):
                 component_cost=component_cost, labour_cost=labour, posted_by_id=self.env.uid, posted_at=fields.Datetime.now(),
                 line_ids=lines, allocation_ids=[Command.create(dict(scope_id=scope.id, timer_id=row['timer'],
                                                                   unit_key=unit_key, amount=row['amount'])) for row in shares],
-                **identities,
+                **identities, **valuation_values,
             ))
             self._reconcile(scope)
             if len(receipts) + 1 == len(data['keys']):

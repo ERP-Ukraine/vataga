@@ -44,3 +44,4 @@ access_quality_release_wizard_line,quality.unit.release.wizard.line,model_qualit
 access_quality_stock_release_plan,quality.unit.stock.release.plan,model_quality_unit_stock_release_plan,mrp.group_mrp_user,1,0,1,0
 access_quality_stock_release_wizard,quality.unit.stock.release.wizard,model_quality_unit_stock_release_wizard,mrp.group_mrp_user,1,1,1,1
 access_quality_stock_release_wizard_line,quality.unit.stock.release.wizard.line,model_quality_unit_stock_release_wizard_line,mrp.group_mrp_user,1,1,1,1
+access_quality_stock_timer_binding_wizard,quality.stock.timer.binding.wizard,model_quality_stock_timer_binding_wizard,mrp.group_mrp_user,1,1,1,1
