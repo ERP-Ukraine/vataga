@@ -10,7 +10,7 @@ import math
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
 
-from .stock_posting_core import access, move_sources
+from .stock_posting_core import access, journal_has, move_sources
 
 
 class StockPostingValuation(models.Model):
@@ -30,8 +30,8 @@ class StockPostingValuation(models.Model):
     def _valuation_profile(self, production):
         product = production.product_id.with_company(production.company_id)
         if product.cost_method == 'standard' and product.valuation == 'real_time':
-            if not math.isfinite(product.standard_price) or product.standard_price <= 0:
-                raise ValidationError(_('Для цього профілю потрібна додатна нормативна вартість. Зміну вартості товару адаптер не виконує.'))
+            if not math.isfinite(product.standard_price) or product.standard_price < 0:
+                raise ValidationError(_('Для цього профілю потрібна скінченна невід’ємна нормативна вартість. Зміну вартості товару адаптер не виконує.'))
             return dict(raw_valuation='real_time', standard_price=product.standard_price,
                         profile='standard_real_time_v1')
         return super()._valuation_profile(production)
@@ -47,16 +47,38 @@ class StockPostingValuation(models.Model):
     @api.model
     def _native_accounting_facts(self, moves):
         layers = move_sources(moves, 'stock.valuation.layer', 'stock_move_id')
+        # Discover ALL entries, including draft/cancelled or hidden entries
+        # not reachable through SVL.account_move_id. Ordinary ACLs still apply.
+        related_entries = move_sources(moves, 'account.move', 'stock_move_id')
         entries = layers.account_move_id
         access(entries); access(entries.line_ids)
         facts = []
         for move in moves.sorted('id'):
             layer = layers.filtered(lambda row: row.stock_move_id == move)
             entry = layer.account_move_id
+            if (len(layer) != 1 or layer.company_id != move.company_id
+                    or layer.product_id != move.product_id or move.state != 'done'
+                    or move.product_id.with_company(move.company_id).valuation != 'real_time'):
+                raise ValidationError(_('Нативна SVL не відповідає проведеному руху.'))
+            move_entries = related_entries.filtered(lambda row: row.stock_move_id == move)
+            if layer.currency_id.is_zero(layer.value):
+                # stock_account.stock.valuation.layer._validate_accounting_entries
+                # skips currency-zero layers. This exception is deliberately
+                # limited to Standard finished production, never missing GL
+                # on a nonzero component issue or an arbitrary stock move.
+                if (not move.production_id or move.product_id != move.production_id.product_id
+                        or move.product_id.with_company(move.company_id).cost_method != 'standard'
+                        or entry or move_entries or layer.account_move_line_id):
+                    raise ValidationError(_('Нульова SVL готового виробу повинна відповідати штатному пропуску бухгалтерської проводки.'))
+                # Native code does not resolve GL accounts for this layer.
+                facts.append(dict(move=move.id, layer=layer.id, entry=False, journal=False,
+                    source=False, destination=False, asset=False, company=move.company_id.id,
+                    date=False, lines=[], absence_policy='odoo17_currency_zero_finished'))
+                continue
             journal, source, destination, asset = move.with_company(move.company_id)._get_accounting_data_for_valuation()
             access(self.env['account.journal'].browse(journal))
             access(self.env['account.account'].browse([source, destination, asset]))
-            if (len(layer) != 1 or not entry or entry.state != 'posted'
+            if (not entry or move_entries != entry or entry.state != 'posted'
                     or entry.company_id != move.company_id or entry.journal_id.id != journal
                     or entry.stock_move_id != move or layer.company_id != move.company_id
                     or not move.company_id.currency_id.is_zero(sum(entry.line_ids.mapped('balance')))
@@ -95,7 +117,8 @@ class StockPostingValuation(models.Model):
         if self.ids:
             self.flush_recordset(['valuation_snapshot'])
             self.env.cr.execute('SELECT valuation_snapshot FROM quality_stock_posting WHERE id IN %s', [tuple(self.ids)])
-            ids = [entry['entry'] for (snapshot,) in self.env.cr.fetchall() if snapshot for entry in snapshot['entries']]
+            ids = [entry['entry'] for (snapshot,) in self.env.cr.fetchall() if snapshot
+                   for entry in snapshot['entries'] if entry['entry']]
             if ids:
                 entries = self.env['account.move'].browse(ids)
                 access(entries); access(entries.line_ids)
@@ -117,11 +140,20 @@ def assert_unregistered_entries(env, ids):
 class StockPostingAccountMove(models.Model):
     _inherit = 'account.move'
 
+    @api.model_create_multi
+    def create(self, vals_list):
+        moves = [vals.get('stock_move_id', self.env.context.get('default_stock_move_id')) for vals in vals_list]
+        if journal_has(self.env, 'move_id', [move for move in moves if move]):
+            raise UserError(_('Нові бухгалтерські записи не приєднують до рухів незмінного реєстру.'))
+        return super().create(vals_list)
+
     def _reverse_moves(self, default_values_list=None, cancel=False):
         assert_unregistered_entries(self.env, self.ids)
         return super()._reverse_moves(default_values_list=default_values_list, cancel=cancel)
 
     def write(self, vals):
+        if vals.get('stock_move_id') and journal_has(self.env, 'move_id', [vals['stock_move_id']]):
+            raise UserError(_('Бухгалтерську прив’язку рухів незмінного реєстру не змінюють.'))
         if {'state', 'date', 'journal_id', 'company_id', 'line_ids', 'stock_move_id', 'stock_valuation_layer_ids'}.intersection(vals):
             assert_unregistered_entries(self.env, self.ids)
         return super().write(vals)

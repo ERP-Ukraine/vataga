@@ -45,7 +45,7 @@ def main():
             (addon / 'tests').mkdir()
             (addon / 'security').mkdir()
             (addon / '__manifest__.py').write_text(repr({
-                'name': 'Disposable native QUNIT kernel probe', 'version': '17.0.2.42',
+                'name': 'Disposable native QUNIT kernel probe', 'version': '17.0.2.43',
                 'depends': ['mrp_account'], 'license': 'LGPL-3',
                 'data': ['security/stock_posting.xml', 'security/ir.model.access.csv'],
             }), encoding='utf-8')

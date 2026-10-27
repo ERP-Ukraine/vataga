@@ -14,7 +14,7 @@ from . import test_stock_posting_incremental as incremental_tests
 
 
 @tagged('post_install', '-at_install')
-class TestStockPostingValuation(StockReleaseNativeCase):
+class StockPostingValuationCase(StockReleaseNativeCase):
     _keys = kernel_tests.TestStockPostingKernel._keys
     _scope = kernel_tests.TestStockPostingKernel._scope
     _post = kernel_tests.TestStockPostingKernel._post
@@ -52,6 +52,9 @@ class TestStockPostingValuation(StockReleaseNativeCase):
             self.skipTest('Community kernel probe; the actual Enterprise entry remains blocked.')
         self.env.user.groups_id = [Command.link(self.env.ref(name).id) for name in ('mrp.group_mrp_user', 'stock.group_stock_user')]
 
+
+@tagged('post_install', '-at_install')
+class TestStockPostingValuation(StockPostingValuationCase):
     def test_first_unit_has_native_standard_svl_and_actual_posted_journals(self):
         production = self._production(timed=True)
         row = self._post(self._scope(production), 0)
@@ -219,3 +222,183 @@ class TestStockPostingValuation(StockReleaseNativeCase):
         self.assertEqual(row.posted_by_id, user)
         self.assertEqual(row.valuation_cost, 40)
         self.assertEqual(set(row.line_ids.valuation_layer_id.account_move_id.mapped('state')), {'posted'})
+
+@tagged('post_install', '-at_install')
+class TestStockPostingZeroValuation(StockPostingValuationCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # Isolated fixtures only. The finished product has no on-hand stock.
+        cls.product.standard_price = 0
+        original = cls.component.categ_id
+        category = cls.env['product.category'].create({'name': 'Actual FIFO perpetual components',
+            'property_cost_method': 'fifo', 'property_valuation': 'real_time',
+            'property_stock_account_input_categ_id': original.property_stock_account_input_categ_id.id,
+            'property_stock_account_output_categ_id': original.property_stock_account_output_categ_id.id,
+            'property_stock_valuation_account_id': cls.asset.id, 'property_stock_journal': original.property_stock_journal.id})
+        cls.component = cls.env['product.product'].create({'name': 'FIFO component for zero-standard FG',
+            'type': 'product', 'categ_id': category.id, 'standard_price': 7})
+        cls.bom.bom_line_ids.product_id = cls.component
+        cls.incoming = cls.env['stock.move']
+        for quantity, price in ((4, 7), (16, 11)):
+            move = cls.env['stock.move'].create({'name': 'Real FIFO receipt', 'product_id': cls.component.id,
+                'product_uom': cls.component.uom_id.id, 'product_uom_qty': quantity, 'price_unit': price,
+                'location_id': cls.env.ref('stock.stock_location_suppliers').id, 'location_dest_id': cls.location.id})
+            move._action_confirm(merge=False)
+            move.write({'quantity': quantity, 'picked': True})
+            move._action_done()
+            cls.incoming |= move
+
+    def test_zero_finished_layer_without_gl_and_nonzero_fifo_components_with_gl(self):
+        production = self._production(timed=True)
+        row = self._post(self._scope(production), 0)
+        finished = row.finished_move_id.stock_valuation_layer_ids
+        raw = row.line_ids.filtered(lambda line: line.kind == 'component').valuation_layer_id
+        self.assertEqual((finished.quantity, finished.value, finished.unit_cost), (1, 0, 0))
+        self.assertFalse(finished.account_move_id)
+        self.assertFalse(self.env['account.move'].search([('stock_move_id', '=', row.finished_move_id.id)]))
+        self.assertEqual(raw.value, -14)
+        self.assertEqual(raw.account_move_id.state, 'posted')
+        self.assertEqual(sum(raw.account_move_id.line_ids.filtered(lambda line: line.account_id == self.asset).mapped('balance')), -14)
+        self.assertEqual(sum(raw.account_move_id.line_ids.filtered(lambda line: line.account_id == self.wip).mapped('balance')), 14)
+        self.assertEqual((row.component_cost, row.labour_cost, row.valuation_cost, row.cost_variance), (14, 12, 0, 26))
+        fact = next(fact for fact in row.valuation_snapshot['entries'] if fact['move'] == row.finished_move_id.id)
+        self.assertFalse(fact['entry'])
+        self.assertEqual(fact['lines'], [])
+        self.assertEqual(fact['absence_policy'], 'odoo17_currency_zero_finished')
+        self.assertEqual(self.product.standard_price, 0)
+        self.assertEqual(self._stock(), (18, 1))
+        self.assertNotEqual(production.state, 'done')
+        row._check_accounting_snapshot()
+        self.env['quality.stock.posting']._reconcile(row.scope_id)
+
+    def test_five_zero_value_units_conserve_fifo_cost_and_historical_evidence(self):
+        production = self._production(timed=True)
+        scope = self._scope(production)
+        rows = self.env['quality.stock.posting']
+        first_facts = None
+        first_links = None
+        for index in range(5):
+            rows |= self._post(scope, index)
+            if index == 0:
+                first_facts = rows.valuation_snapshot
+                first_links = rows.finished_line_id.consume_line_ids.ids
+            self.assertEqual(rows[:1].valuation_snapshot, first_facts)
+            self.assertEqual(rows[:1].finished_line_id.consume_line_ids.ids, first_links)
+            self.assertEqual(self._stock(), (20 - 2 * (index + 1), index + 1))
+            self.assertEqual(production.state == 'done', index == 4)
+        self.assertEqual(rows.mapped('component_cost'), [14, 14, 22, 22, 22])
+        self.assertEqual(sum(rows.mapped('labour_cost')), 60)
+        self.assertEqual(sum(rows.mapped('valuation_cost')), 0)
+        self.assertEqual(sum(rows.mapped('cost_variance')), 154)
+        self.assertEqual(len(rows.line_ids.valuation_layer_id.account_move_id), 5)
+        self.assertFalse(rows.finished_move_id.stock_valuation_layer_ids.account_move_id)
+        self.assertEqual(set(production.workorder_ids.mapped('state')), {'done'})
+        self.assertEqual(self.product.standard_price, 0)
+        self.env['quality.stock.posting']._reconcile(scope)
+
+    def test_zero_value_retry_does_not_repeat_stock_cost_or_gl(self):
+        production = self._production(timed=True)
+        scope = self._scope(production)
+        row = self._post(scope, 0)
+        before = self._snapshot(production)
+        entries = self.env['account.move'].search_count([])
+        self.assertEqual(self._post(scope, 0), row)
+        with self.assertRaises(ValidationError):
+            self._post(scope, 0, request='duplicate-zero')
+        self.assertEqual(self._snapshot(production), before)
+        self.assertEqual(self.env['account.move'].search_count([]), entries)
+
+    def test_missing_required_nonzero_fifo_gl_rolls_back_actual_posting(self):
+        production = self._production(timed=True)
+        scope = self._scope(production)
+        before = self._snapshot(production)
+        entries = self.env['account.move'].search_count([])
+        layer_class = type(self.env['stock.valuation.layer'])
+        native = layer_class._validate_accounting_entries
+
+        def omit_component_gl(layers):
+            return native(layers.filtered(lambda layer: not layer.stock_move_id.raw_material_production_id))
+
+        # A missing native GL is the injected fault, not a replacement of
+        # stock, SVLs, costs or accounting with successful mocked values.
+        with patch.object(layer_class, '_validate_accounting_entries', new=omit_component_gl):
+            with self.assertRaises(ValidationError):
+                self._post(scope, 0)
+        self.env.invalidate_all()
+        self.assertEqual(self._snapshot(production), before)
+        self.assertEqual(self.env['account.move'].search_count([]), entries)
+
+    def test_untracked_gl_for_zero_layer_is_detected_and_rolled_back(self):
+        production = self._production(timed=True)
+        scope = self._scope(production)
+        before = self._snapshot(production)
+        model = self.env['quality.stock.posting']
+        native = type(model)._valuation_values
+        incoming_entry = self.incoming[:1].stock_valuation_layer_ids.account_move_id
+        original_source = incoming_entry.stock_move_id
+
+        def mislink_existing_native_entry(records, production, produced, consumed, profile):
+            # Corrupt only a source link before registering the receipt. The
+            # journal itself is a real posted FIFO receipt, never a fake GL.
+            incoming_entry.write({'stock_move_id': produced.id})
+            return native(records, production, produced, consumed, profile)
+
+        with patch.object(type(model), '_valuation_values', new=mislink_existing_native_entry):
+            with self.assertRaisesRegex(ValidationError, 'Нульова SVL'):
+                self._post(scope, 0)
+        self.env.invalidate_all()
+        self.assertEqual(incoming_entry.stock_move_id, original_source)
+        self.assertEqual(self._snapshot(production), before)
+
+    def test_zero_layer_and_nonzero_gl_history_cannot_be_rewritten_or_extended(self):
+        production = self._production(timed=True)
+        row = self._post(self._scope(production), 0)
+        layer = row.finished_move_id.stock_valuation_layer_ids
+        raw_entry = row.line_ids.filtered(lambda line: line.kind == 'component').valuation_layer_id.account_move_id
+        other_entry = self.incoming[:1].stock_valuation_layer_ids.account_move_id
+        for action in (lambda: layer.write({'value': 1}),
+                       lambda: layer.write({'account_move_id': raw_entry.id}),
+                       raw_entry.button_draft, raw_entry._reverse_moves,
+                       lambda: other_entry.write({'stock_move_id': row.finished_move_id.id}),
+                       lambda: self.env['account.move'].with_context(default_stock_move_id=row.finished_move_id.id).create({})):
+            with self.assertRaises(UserError), self.env.cr.savepoint():
+                action()
+        self.env['quality.stock.posting']._reconcile(row.scope_id)
+
+    def test_zero_value_receipt_insert_failure_rolls_back_native_stock_and_gl(self):
+        production = self._production(timed=True)
+        scope = self._scope(production)
+        before = self._snapshot(production)
+        entries = self.env['account.move'].search_count([])
+        with patch.object(type(self.env['quality.stock.posting']), '_check_accounting_snapshot', side_effect=ValidationError('audit rejected')):
+            with self.assertRaises(ValidationError):
+                self._post(scope, 0)
+        self.env.invalidate_all()
+        self.assertEqual(self._snapshot(production), before)
+        self.assertEqual(self.env['account.move'].search_count([]), entries)
+
+    def test_negative_and_nonfinite_standard_prices_remain_forbidden(self):
+        production = self._production(timed=True)
+        for price in (-1, float('nan'), float('inf'), float('-inf')):
+            with self.subTest(price=price):
+                # Native price writes reject NaN/Inf in float_round before
+                # reaching the adapter. Exercise its independent guard via
+                # the ORM cache, without writing invalid prices, SVLs or GL.
+                self.env.cache.set(self.product, self.product._fields['standard_price'], price)
+                with self.assertRaises(ValidationError):
+                    self.env['quality.stock.posting']._valuation_profile(production)
+                self.product.invalidate_recordset(['standard_price'], flush=False)
+
+    def test_zero_snapshot_read_respects_native_operator_access_without_false_gl_id(self):
+        production = self._production(timed=True)
+        row = self._post(self._scope(production), 0)
+        user = self.env['res.users'].with_context(no_reset_password=True).create({
+            'name': 'Zero valuation reader', 'login': 'qunit-zero-reader', 'email': 'zero@example.test',
+            'company_id': self.env.company.id, 'company_ids': [Command.set(self.env.company.ids)],
+            'groups_id': [Command.set([self.env.ref(name).id for name in (
+                'base.group_user', 'mrp.group_mrp_user', 'stock.group_stock_manager', 'account.group_account_readonly')])],
+        })
+        snapshot = row.with_user(user).read(['valuation_snapshot'])[0]['valuation_snapshot']
+        self.assertIn(False, [entry['entry'] for entry in snapshot['entries']])
+        row.with_user(user)._check_accounting_snapshot()

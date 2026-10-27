@@ -17,6 +17,11 @@ class QualityStockCostPreparation(models.Model):
         for move in moves.filtered(lambda row: row.state not in ('done', 'cancel')):
             current = move.product_id.with_company(self.company_id)
             if current.valuation == 'real_time':
+                if (move.production_id == self and current == product
+                        and current.cost_method == 'standard' and self.company_id.currency_id.is_zero(current.standard_price)):
+                    accounts.append(dict(move=move.id, journal=False, source=False, destination=False,
+                                         asset=False, absence_policy='odoo17_currency_zero_finished'))
+                    continue
                 journal, source, destination, asset = move._get_accounting_data_for_valuation()
                 access(self.env['account.journal'].browse(journal))
                 access(self.env['account.account'].browse([source, destination, asset]))
