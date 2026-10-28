@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="matrix_failure_scope_wizard_form" model="ir.ui.view">
+        <field name="name">quality.matrix.failure.scope.wizard.form</field>
+        <field name="model">quality.matrix.failure.scope.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Уточнити вироби Alert">
+                <div class="alert alert-warning">Для старого Alert оберіть зразки за первинними доказами невідповідності. Поточний PASS не доводить відсутність попереднього браку. Уточнення незмінне та записується в Chatter.</div>
+                <group>
+                    <field name="alert_id"/>
+                    <field name="check_id"/>
+                    <field name="reason"/>
+                </group>
+                <field name="sample_ids" domain="[('quality_check_id', '=', check_id)]" options="{'no_create': True}">
+                    <tree create="0" edit="0" delete="0">
+                        <field name="sample_number"/>
+                        <field name="controlled_unit_id"/>
+                        <field name="sample_result"/>
+                    </tree>
+                </field>
+                <footer>
+                    <button name="action_apply" type="object" string="Підтвердити сферу" class="btn-primary"/>
+                    <button special="cancel" string="Закрити" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+    <record id="quality_alert_matrix_scope_form" model="ir.ui.view">
+        <field name="name">quality.alert.matrix.scope</field>
+        <field name="model">quality.alert</field>
+        <field name="inherit_id" ref="quality_vataga.quality_alert_board_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//group[@name='vataga_sorting_parameters']" position="inside">
+                <field name="can_bind_matrix_failure_scope" invisible="1"/>
+                <field name="vataga_failure_sample_ids" readonly="1" colspan="2" invisible="not vataga_failure_sample_ids">
+                    <tree create="0" edit="0" delete="0">
+                        <field name="sample_number"/>
+                        <field name="controlled_unit_id"/>
+                        <field name="sample_result"/>
+                    </tree>
+                </field>
+                <button name="action_open_matrix_failure_scope" type="object" string="Уточнити вироби Alert"
+                        groups="quality.group_quality_manager" invisible="not can_bind_matrix_failure_scope"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>

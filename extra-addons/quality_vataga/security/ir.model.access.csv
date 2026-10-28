@@ -45,3 +45,4 @@ access_quality_stock_release_plan,quality.unit.stock.release.plan,model_quality_
 access_quality_stock_release_wizard,quality.unit.stock.release.wizard,model_quality_unit_stock_release_wizard,mrp.group_mrp_user,1,1,1,1
 access_quality_stock_release_wizard_line,quality.unit.stock.release.wizard.line,model_quality_unit_stock_release_wizard_line,mrp.group_mrp_user,1,1,1,1
 access_quality_stock_timer_binding_wizard,quality.stock.timer.binding.wizard,model_quality_stock_timer_binding_wizard,mrp.group_mrp_user,1,1,1,1
+access_quality_matrix_failure_scope_wizard,quality.matrix.failure.scope.wizard,model_quality_matrix_failure_scope_wizard,quality.group_quality_manager,1,1,1,1

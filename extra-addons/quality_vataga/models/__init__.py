@@ -30,3 +30,4 @@ from . import stock_posting_valuation
 from . import quality_stock_posting
 from . import quality_stock_continuation
 from . import quality_stock_cost_preparation
+from . import quality_matrix_hold

@@ -190,3 +190,53 @@ class TestStockReleaseNativeContract(StockReleaseNativeCase):
             raise UserError('Simulated journal failure')
         self.env.invalidate_all()
         self.assertEqual(before, self._snapshot(production))
+
+
+@tagged('post_install', '-at_install')
+class TestNativePartialProduction(StockReleaseNativeCase):
+    """Public native Community baseline, not Enterprise Quality integration."""
+
+    def _prepare_native(self, quantity):
+        production = self._production()
+        production.picking_type_id.create_backorder = 'ask'
+        production.qty_producing = quantity
+        production.move_raw_ids.write({'quantity': quantity * 2, 'picked': True})
+        # Public completion fills finished quantities itself. Pre-picking
+        # them changes native qty_produced before inventory is posted.
+        return production
+
+    def test_public_full_quantity_completes_native_mo_without_backorder(self):
+        production = self._prepare_native(5)
+        ids = self.env['mrp.production'].search([]).ids
+        production.button_mark_done()
+        self.assertEqual((production.state, production.qty_produced), ('done', 5))
+        self.assertEqual(self._stock(), (10, 5))
+        self.assertEqual(self.env['mrp.production'].search([]).ids, ids)
+
+    def test_public_partial_quantity_requires_backorder_instead_of_same_open_mo(self):
+        production = self._prepare_native(4)
+        ids = self.env['mrp.production'].search([]).ids
+        action = production.button_mark_done()
+        self.assertEqual(action['res_model'], 'mrp.production.backorder')
+        self.assertEqual(production.qty_produced, 0)
+        self.assertEqual(self._stock(), (20, 0))
+        self.assertEqual(self.env['mrp.production'].search([]).ids, ids)
+        wizard = self.env['mrp.production.backorder'].with_context(action['context']).create({})
+        wizard.action_backorder()
+        remaining = self.env['mrp.production'].search([('id', 'not in', ids)])
+        self.assertEqual(len(remaining), 1)
+        self.assertEqual(remaining.product_qty, 1)
+        self.assertNotIn(remaining.state, ('done', 'cancel'))
+        self.assertEqual((production.state, production.qty_produced), ('done', 4))
+        self.assertEqual(self._stock(), (12, 4))
+
+    def test_repeated_native_completion_does_not_duplicate_stock_or_documents(self):
+        production = self._prepare_native(5)
+        production.button_mark_done()
+        ids = self.env['mrp.production'].search([]).ids
+        moves = (production.move_raw_ids | production.move_finished_ids).ids
+        production.button_mark_done()
+        self.assertEqual(self.env['mrp.production'].search([]).ids, ids)
+        self.assertEqual((production.move_raw_ids | production.move_finished_ids).ids, moves)
+        self.assertEqual(self._stock(), (10, 5))
+        self.assertEqual(production.qty_produced, 5)

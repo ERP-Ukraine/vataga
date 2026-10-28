@@ -23,6 +23,7 @@ from . import test_stock_cost_allocator
 from . import test_quality_stock_posting_integration
 from . import test_quality_stock_lifecycle
 from . import test_quality_stock_cost_preparation
+from . import test_quality_matrix_hold
 from . import test_quality_stage14
 from . import test_quality_check_alert_action
 from . import test_quality_technical_board

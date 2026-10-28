@@ -58,6 +58,8 @@ class MrpProductionTransfer(models.Model):
         return super(MrpProductionTransfer, self.with_context(context)).create(vals_list)
 
     def write(self, vals):
+        if vals.get('state') == 'done':
+            self._check_matrix_native_completion()
         if {'quality_transfer_controlled', 'quality_transfer_revision'}.intersection(vals):
             raise UserError(_('Службові поля маршруту передач захищені.'))
         if {
@@ -73,18 +75,22 @@ class MrpProductionTransfer(models.Model):
         return super().unlink()
 
     def pre_button_mark_done(self):
+        self._check_matrix_native_completion()
         self._check_quality_transfer_boundary()
         return super().pre_button_mark_done()
 
     def button_mark_done(self):
+        self._check_matrix_native_completion()
         self._check_quality_transfer_boundary()
         return super().button_mark_done()
 
     def _post_inventory(self, cancel_backorder=False):
+        self._check_matrix_native_completion()
         self._check_quality_transfer_boundary()
         return super()._post_inventory(cancel_backorder=cancel_backorder)
 
     def _split_productions(self, amounts=False, cancel_remaining_qty=False, set_consumed_qty=False):
+        self._check_matrix_native_completion()
         self._check_quality_transfer_boundary()
         return super()._split_productions(amounts=amounts, cancel_remaining_qty=cancel_remaining_qty, set_consumed_qty=set_consumed_qty)
 
@@ -126,6 +132,8 @@ class MrpWorkorderTransferBoundary(models.Model):
         return super().create(vals_list)
 
     def write(self, vals):
+        if vals.get('state') == 'done':
+            self.production_id._check_matrix_native_completion()
         if {
             'production_id', 'product_id', 'company_id', 'product_uom_id', 'workcenter_id',
             'qty_producing', 'qty_produced', 'qty_reported_from_previous_wo',
@@ -144,6 +152,7 @@ class MrpWorkorderTransferBoundary(models.Model):
         return super().button_start()
 
     def button_finish(self):
+        self.production_id._check_matrix_native_completion()
         self.production_id._check_quality_transfer_boundary()
         return super().button_finish()
 
@@ -158,10 +167,12 @@ class MrpWorkorderTransferBoundary(models.Model):
         return result
 
     def button_done(self):
+        self.production_id._check_matrix_native_completion()
         self.production_id._check_quality_transfer_boundary()
         return super().button_done()
 
     def action_mark_as_done(self):
+        self.production_id._check_matrix_native_completion()
         self.production_id._check_quality_transfer_boundary()
         return super().action_mark_as_done()
 
@@ -214,10 +225,14 @@ class StockMoveTransferBoundary(models.Model):
     def create(self, vals_list):
         for vals in vals_list:
             defaults = {name: self.env.context.get('default_' + name) for name in ('production_id', 'raw_material_production_id', 'workorder_id')}
+            if vals.get('state') == 'done':
+                self.browse()._quality_transfer_productions(dict(defaults, **vals))._check_matrix_native_completion()
             self.browse()._quality_transfer_productions(dict(defaults, **vals))._check_quality_transfer_boundary(purpose='stock_move')
         return super().create(vals_list)
 
     def write(self, vals):
+        if vals.get('state') == 'done':
+            self._quality_transfer_productions(vals)._check_matrix_native_completion()
         if {
             'quantity', 'product_uom_qty', 'product_uom', 'move_line_ids', 'picked',
             'production_id', 'raw_material_production_id', 'workorder_id', 'product_id',
@@ -231,6 +246,7 @@ class StockMoveTransferBoundary(models.Model):
         return super().unlink()
 
     def _action_done(self, cancel_backorder=False):
+        self._quality_transfer_productions()._check_matrix_native_completion()
         self._quality_transfer_productions()._check_quality_transfer_boundary(purpose='stock_move')
         return super()._action_done(cancel_backorder=cancel_backorder)
 
@@ -265,6 +281,7 @@ class StockScrapTransferBoundary(models.Model):
     _inherit = 'stock.scrap'
 
     def do_scrap(self):
+        (self.production_id | self.workorder_id.production_id)._check_matrix_native_completion()
         (self.production_id | self.workorder_id.production_id)._check_quality_transfer_boundary()
         return super().do_scrap()
 
