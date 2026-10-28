@@ -67,8 +67,11 @@ class QualityMatrixHoldAlert(models.Model):
 
     def _matrix_hold_is_open(self):
         self.ensure_one()
-        # Folded/archived/board-approved does not prove resolution. An unknown
-        # Enterprise stage contract must keep the hold, never guess closure.
+        # Our five workflow stages never infer closure from Enterprise
+        # `done`, folding or board approval. Keep the previous semantics of
+        # historical native stages, without guessing if `done` is absent.
+        if self.stage_id in self._board_stages():
+            return not self._is_managed_closed()
         return 'done' not in self.stage_id._fields or not self.stage_id.done
 
     def _bind_matrix_failure_scope(self, samples, reason):

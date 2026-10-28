@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo noupdate="1">
-    <!-- Append a separate board flow after the standard stages. Their names,
-         relative order and initial/default stage remain unchanged. -->
+    <!-- Existing noupdate stages and historical alerts retain their values. -->
     <record id="quality_alert_stage_board_analysis" model="quality.alert.stage">
         <field name="name">Аналіз та обговорення</field>
         <field name="sequence" model="quality.alert.stage"
@@ -16,5 +15,15 @@
         <field name="name">Виконання рішення</field>
         <field name="sequence" model="quality.alert.stage"
                eval="obj(ref('quality_vataga.quality_alert_stage_board_approval')).sequence + 10"/>
+    </record>
+    <record id="quality_alert_stage_new" model="quality.alert.stage">
+        <field name="name">Нове</field>
+        <field name="sequence" model="quality.alert.stage"
+               eval="obj(ref('quality_vataga.quality_alert_stage_board_analysis')).sequence - 10"/>
+    </record>
+    <record id="quality_alert_stage_closed" model="quality.alert.stage">
+        <field name="name">Закрито</field>
+        <field name="sequence" model="quality.alert.stage"
+               eval="obj(ref('quality_vataga.quality_alert_stage_board_execution')).sequence + 10"/>
     </record>
 </odoo>

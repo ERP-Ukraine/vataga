@@ -216,7 +216,7 @@ class TestQualityStage14(QualityCheckInProcessCase):
         self.assertIn('візуальний контроль', snapshot)
         self.assertIn('Нотатка інспектора', alert.description)
         self.assertEqual(alert.description.count('Виявлені невідповідності'), 1)
-        self.assertEqual(alert.stage_id, self.env.ref('quality_vataga.quality_alert_stage_board_analysis'))
+        self.assertEqual(alert.stage_id, self.env.ref('quality_vataga.quality_alert_stage_new'))
         self.assertFalse(alert.is_approved)
         original = alert.description
         for _ in range(2):
@@ -315,6 +315,7 @@ class TestQualityStage14(QualityCheckInProcessCase):
         snapshot = alert.vataga_matrix_failure_snapshot
         with self.assertRaises(UserError):
             alert.write({'stage_id': self.env.ref('quality_vataga.quality_alert_stage_board_execution').id})
+        alert.action_send_to_analysis()
         alert.action_send_for_board_approval()
         alert.with_user(approver).action_approve_technical_board()
         self.assertTrue(alert.is_approved)

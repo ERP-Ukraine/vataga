@@ -1,7 +1,7 @@
 import math
 
 from odoo import _, api, fields, models
-from odoo.exceptions import ValidationError
+from odoo.exceptions import UserError, ValidationError
 from odoo.tools.float_utils import float_compare
 
 
@@ -36,6 +36,10 @@ class QualityAlertFullControlLine(models.Model):
     def _check_alert_access(self, alerts, operation):
         alerts.check_access_rights(operation)
         alerts.check_access_rule(operation)
+        if operation == 'write' and alerts:
+            alerts._lock_board_records()
+            if any(alert.vataga_closed_at for alert in alerts):
+                raise UserError(_('Результати закритого сповіщення не змінюють.'))
 
     def check_access_rule(self, operation):
         result = super().check_access_rule(operation)

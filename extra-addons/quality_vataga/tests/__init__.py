@@ -27,3 +27,5 @@ from . import test_quality_matrix_hold
 from . import test_quality_stage14
 from . import test_quality_check_alert_action
 from . import test_quality_technical_board
+from . import test_quality_alert_lifecycle
+from . import test_quality_alert_view_contract

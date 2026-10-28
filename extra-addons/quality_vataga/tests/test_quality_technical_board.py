@@ -19,9 +19,11 @@ class TestQualityTechnicalBoard(TransactionCase):
         cls.manager = cls._new_user('manager', cls.manager_group)
         cls.team = cls.env['quality.alert.team'].create({'name': 'Technical board tests'})
         cls.stages = {
+            'new_stage': cls.env.ref('quality_vataga.quality_alert_stage_new'),
             'analysis_stage': cls.env.ref('quality_vataga.quality_alert_stage_board_analysis'),
             'approval_stage': cls.env.ref('quality_vataga.quality_alert_stage_board_approval'),
             'execution_stage': cls.env.ref('quality_vataga.quality_alert_stage_board_execution'),
+            'closed_stage': cls.env.ref('quality_vataga.quality_alert_stage_closed'),
         }
 
     @classmethod
@@ -47,11 +49,16 @@ class TestQualityTechnicalBoard(TransactionCase):
         if vals['stage_id'] == self.stages['approval_stage'].id:
             # Reach approval through the public action, then arrange invalid
             # decision/assignee states where a test specifically needs them.
-            setup = dict(vals, stage_id=self.stages['analysis_stage'].id,
+            setup = dict(vals, stage_id=self.stages['new_stage'].id,
                          decision_type='accept_as_is', approval_user_id=self.approver.id)
             alert = self.env['quality.alert'].create(setup)
+            alert.action_send_to_analysis()
             alert.action_send_for_board_approval()
             alert.write({key: vals[key] for key in ('decision_type', 'approval_user_id')})
+            return alert
+        if vals['stage_id'] == self.stages['analysis_stage'].id:
+            alert = self.env['quality.alert'].create(dict(vals, stage_id=self.stages['new_stage'].id))
+            alert.action_send_to_analysis()
             return alert
         return self.env['quality.alert'].create(vals)
 
@@ -161,7 +168,7 @@ class TestQualityTechnicalBoard(TransactionCase):
         defaults = self.env['quality.alert'].with_context(
             default_is_approved=True, default_approved_by_id=self.approver.id,
             default_approved_at=fields.Datetime.now(),
-        ).create({'team_id': self.team.id, 'stage_id': self.stages['analysis_stage'].id})
+        ).create({'team_id': self.team.id})
         self.assertFalse(defaults.is_approved)
         self.assertFalse(defaults.approved_by_id)
         self.assertFalse(defaults.approved_at)
@@ -169,12 +176,12 @@ class TestQualityTechnicalBoard(TransactionCase):
     def test_cannot_skip_approval_by_stage_write_or_create(self):
         with self.assertRaises(UserError):
             self._alert().write({'stage_id': self.stages['execution_stage'].id})
-        with self.assertRaises(UserError):
-            self._alert(stage_id=self.stages['execution_stage'].id)
-        with self.assertRaises(UserError):
-            self.env['quality.alert'].create({
-                'team_id': self.team.id, 'stage_id': self.stages['approval_stage'].id,
+        for stage in ('approval_stage', 'execution_stage', 'closed_stage'):
+            created = self.env['quality.alert'].create({
+                'team_id': self.team.id, 'stage_id': self.stages[stage].id,
             })
+            self.assertEqual(created.stage_id, self.stages['new_stage'])
+            self.assertFalse(created.is_approved)
 
     def test_approved_decision_and_assignee_are_immutable(self):
         alert = self._alert().with_user(self.approver)
@@ -199,9 +206,128 @@ class TestQualityTechnicalBoard(TransactionCase):
         self.assertIn(self.manager, allowed)
         self.assertNotIn(self.regular, allowed)
 
-    def test_default_stage_is_board_analysis(self):
+    def test_default_stage_is_new(self):
         alert = self.env['quality.alert'].create({'team_id': self.team.id})
+        self.assertEqual(alert.stage_id, self.stages['new_stage'])
+
+    def test_create_and_context_cannot_skip_new_stage(self):
+        alerts = self.env['quality.alert']
+        for stage in self.stages.values():
+            defaults = alerts.with_context(default_stage_id=stage.id).default_get(['stage_id'])
+            self.assertEqual(defaults['stage_id'], self.stages['new_stage'].id)
+            created = alerts.with_context(default_stage_id=stage.id).create({'team_id': self.team.id})
+            self.assertEqual(created.stage_id, self.stages['new_stage'])
+            explicit = alerts.create({'team_id': self.team.id, 'stage_id': stage.id})
+            self.assertEqual(explicit.stage_id, self.stages['new_stage'])
+        batch = alerts.create([{'team_id': self.team.id},
+                               {'team_id': self.team.id, 'stage_id': self.stages['closed_stage'].id}])
+        self.assertEqual(batch.stage_id, self.stages['new_stage'])
+
+    def test_send_to_analysis_requires_new_and_does_not_require_decision(self):
+        alert = self.env['quality.alert'].create({'team_id': self.team.id}).with_user(self.regular)
+        with self.assertRaises(UserError):
+            alert.action_send_for_board_approval()
+        alert.action_send_to_analysis()
         self.assertEqual(alert.stage_id, self.stages['analysis_stage'])
+        self.assertFalse(alert.is_approved)
+        self.assertFalse(alert.vataga_closed_at)
+        self.assertFalse(alert.decision_type)
+        with self.assertRaises(UserError):
+            alert.action_send_to_analysis()
+
+    def test_close_is_explicit_manager_action_with_immutable_idempotent_audit(self):
+        alert = self._alert()
+        alert.with_user(self.approver).action_approve_technical_board()
+        self.assertEqual(alert.stage_id, self.stages['execution_stage'])
+        self.assertFalse(alert._is_managed_closed())
+        self.assertTrue(alert._matrix_hold_is_open())
+        with self.assertRaises(UserError):
+            alert.write({'stage_id': self.stages['closed_stage'].id})
+        with self.assertRaises(AccessError):
+            alert.with_user(self.approver).action_close_alert()
+        with self.assertRaises(AccessError):
+            alert.with_user(self.regular).action_close_alert()
+        before = alert.message_ids
+        alert.with_user(self.manager).action_close_alert()
+        self.assertEqual(alert.stage_id, self.stages['closed_stage'])
+        self.assertEqual(alert.vataga_closed_by_id, self.manager)
+        self.assertTrue(alert.vataga_closed_at)
+        self.assertFalse(alert._matrix_hold_is_open())
+        self.assertEqual(len((alert.message_ids - before).filtered(
+            lambda message: 'Сповіщення закрито' in (message.body or ''))), 1)
+        audit = alert.vataga_closed_by_id, alert.vataga_closed_at, alert.message_ids
+        alert.with_user(self.manager).action_close_alert()
+        self.assertEqual(audit, (alert.vataga_closed_by_id, alert.vataga_closed_at, alert.message_ids))
+        with self.assertRaises(UserError):
+            alert.unlink()
+        for vals in ({'vataga_closed_at': False}, {'vataga_closed_by_id': self.regular.id},
+                     {'stage_id': self.stages['new_stage'].id}, {'check_id': 999999}):
+            with self.assertRaises((UserError, AccessError)):
+                alert.with_user(self.manager).write(vals)
+        copied = alert.copy()
+        self.assertEqual(copied.stage_id, self.stages['new_stage'])
+        self.assertFalse(copied.vataga_closed_at)
+        self.assertFalse(copied.is_approved)
+
+    def test_close_requires_execution_and_verified_disposition(self):
+        for key in ('new_stage', 'analysis_stage', 'approval_stage'):
+            alert = self._alert(stage_id=self.stages[key].id)
+            with self.assertRaises(UserError):
+                alert.with_user(self.manager).action_close_alert()
+            self.assertFalse(alert.vataga_closed_at)
+        for decision in ('return_supplier', 'full_control'):
+            alert = self._alert(decision_type=decision)
+            alert.with_user(self.approver).action_approve_technical_board()
+            with self.assertRaises(UserError):
+                alert.with_user(self.manager).action_close_alert()
+            self.assertEqual(alert.stage_id, self.stages['execution_stage'])
+
+    def test_closure_defaults_cannot_forge_audit(self):
+        values = dict(vataga_closed_by_id=self.manager.id, vataga_closed_at=fields.Datetime.now())
+        with self.assertRaises(AccessError):
+            self.env['quality.alert'].create(dict(values, team_id=self.team.id))
+        alert = self.env['quality.alert'].with_context(**{
+            'default_' + key: value for key, value in values.items()
+        }).create({'team_id': self.team.id})
+        self.assertFalse(alert.vataga_closed_by_id)
+        self.assertFalse(alert.vataga_closed_at)
+        self.assertTrue(alert._matrix_hold_is_open())
+
+    def test_fold_done_and_approval_do_not_release_hold_or_forge_closure(self):
+        alert = self._alert()
+        alert.with_user(self.approver).action_approve_technical_board()
+        for name in ('fold', 'done'):
+            if name in alert.stage_id._fields:
+                alert.stage_id[name] = True
+                self.assertTrue(alert._matrix_hold_is_open())
+        # Even a closed-looking legacy/imported row has no managed audit.
+        self.cr.execute('UPDATE quality_alert SET stage_id=%s WHERE id=%s',
+                        [self.stages['closed_stage'].id, alert.id])
+        alert.invalidate_recordset(['stage_id'])
+        self.assertTrue(alert._matrix_hold_is_open())
+
+    def test_historical_native_stage_keeps_its_existing_closure_semantics(self):
+        stage = self.env.ref('quality.quality_alert_stage_3')
+        alert = self.env['quality.alert'].create({'team_id': self.team.id})
+        self.cr.execute('UPDATE quality_alert SET stage_id=%s WHERE id=%s', [stage.id, alert.id])
+        alert.invalidate_recordset(['stage_id'])
+        before = stage.read()
+        expected_open = 'done' not in stage._fields or not stage.done
+        self.assertEqual(alert._matrix_hold_is_open(), expected_open)
+        self.assertEqual(alert.stage_id, stage)
+        self.assertEqual(stage.read(), before)
+
+    def test_close_respects_record_rule(self):
+        alert = self._alert()
+        alert.with_user(self.approver).action_approve_technical_board()
+        self.env['ir.rule'].create({
+            'name': 'Deny closure of this alert',
+            'model_id': self.env['ir.model']._get_id('quality.alert'),
+            'domain_force': "[('id', '!=', %s)]" % alert.id,
+        })
+        with self.assertRaises(AccessError):
+            alert.with_user(self.manager).action_close_alert()
+        self.assertFalse(alert.vataga_closed_at)
 
     def test_stage_domain_contains_only_board_stages(self):
         alerts = self.env['quality.alert']
@@ -214,7 +340,10 @@ class TestQualityTechnicalBoard(TransactionCase):
     def test_kanban_excludes_populated_legacy_stages_without_moving_alerts(self):
         standard = self.env.ref('quality.quality_alert_stage_0')
         before = standard.read(['name', 'sequence'])
-        legacy = self._alert(stage_id=standard.id)
+        # A historical fixture, not a permitted new-alert API path.
+        legacy = self.env['quality.alert'].create({'team_id': self.team.id})
+        self.cr.execute('UPDATE quality_alert SET stage_id=%s WHERE id=%s', [standard.id, legacy.id])
+        legacy.invalidate_recordset(['stage_id'])
         alert = self._alert(stage_id=self.stages['analysis_stage'].id)
         groups = self.env['quality.alert'].read_group(
             [('id', 'in', (legacy | alert).ids)], ['stage_id'], ['stage_id'],
@@ -232,13 +361,13 @@ class TestQualityTechnicalBoard(TransactionCase):
 
     def test_stages_are_ordered_and_standard_stages_are_preserved(self):
         stages = [self.stages[key] for key in
-                  ('analysis_stage', 'approval_stage', 'execution_stage')]
-        self.assertEqual(len(set(stage.id for stage in stages)), 3)
-        self.assertLess(stages[0].sequence, stages[1].sequence)
-        self.assertLess(stages[1].sequence, stages[2].sequence)
+                  ('new_stage', 'analysis_stage', 'approval_stage', 'execution_stage', 'closed_stage')]
+        self.assertEqual(len(set(stage.id for stage in stages)), 5)
+        for first, second in zip(stages, stages[1:]):
+            self.assertLess(first.sequence, second.sequence)
         standard = [self.env.ref('quality.quality_alert_stage_%s' % i) for i in range(4)]
         self.assertFalse(set(s.id for s in standard) & set(s.id for s in stages))
-        self.assertEqual(stages[1].with_context(lang=None).name, 'На затвердженні')
+        self.assertEqual(stages[2].with_context(lang=None).name, 'На затвердженні')
 
     def test_upgrade_renames_only_board_approval_stage(self):
         import os
@@ -271,15 +400,20 @@ class TestQualityTechnicalBoard(TransactionCase):
         from odoo.tools.safe_eval import safe_eval
         stage_node = tree.xpath("//field[@name='stage_id']")[0]
         self.assertEqual(stage_node.get('widget'), 'statusbar')
-        self.assertEqual(stage_node.get('readonly'), '0')
+        self.assertEqual(stage_node.get('readonly'), '1')
         self.assertFalse(safe_eval(stage_node.get('options'))['clickable'])
         allowed = self.env['quality.alert.stage'].search(safe_eval(stage_node.get('domain')))
         self.assertEqual(set(allowed.ids), {stage.id for stage in self.stages.values()})
         self.assertTrue(tree.xpath("//button[@name='action_approve_technical_board']"))
+        self.assertTrue(tree.xpath("//button[@name='action_send_to_analysis']"))
         self.assertTrue(tree.xpath("//field[@name='full_control_line_ids']"))
         regular_arch = self.env['quality.alert'].with_user(self.regular).get_view(
             view_id=view.inherit_id.id, view_type='form')['arch']
         self.assertNotIn('action_approve_technical_board', regular_arch)
+        self.assertNotIn('action_close_alert', regular_arch)
+        manager_arch = self.env['quality.alert'].with_user(self.manager).get_view(
+            view_id=view.inherit_id.id, view_type='form')['arch']
+        self.assertIn('action_close_alert', manager_arch)
 
     def test_full_control_incremental_totals_and_defaults(self):
         alert = self._alert(decision_type='full_control')

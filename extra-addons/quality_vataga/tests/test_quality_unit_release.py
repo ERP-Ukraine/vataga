@@ -266,10 +266,12 @@ class TestQualityUnitRelease(QualityCheckInProcessCase):
         alert = self.env['quality.alert'].create({'name': 'Поіменна невідповідність', 'check_id': target.id, 'team_id': self.team.id})
         self.assertNotEqual(units[1]._get_release_readiness()['state'], 'ready')
         alert.write({'decision_type': 'accept_as_is', 'approval_user_id': self.env.uid})
+        alert.action_send_to_analysis()
         alert.action_send_for_board_approval()
         alert.action_approve_technical_board()
         self.assertEqual(alert.quality_release_scope_unit_id, units[1])
-        self.assertEqual(units[1].quality_release_state, 'ready')
+        self.assertNotEqual(units[1].quality_release_state, 'ready')
+        self.assertTrue(alert._matrix_hold_is_open())
         with self.assertRaises(UserError):
             alert.write({'quality_release_scope_unit_id': units[2].id})
 

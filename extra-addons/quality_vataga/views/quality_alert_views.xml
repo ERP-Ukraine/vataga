@@ -7,9 +7,9 @@
         <field name="arch" type="xml">
             <xpath expr="//field[@name='stage_id']" position="attributes">
                 <attribute name="widget">statusbar</attribute>
-                <attribute name="domain">[('id', 'in', [%(quality_vataga.quality_alert_stage_board_analysis)d, %(quality_vataga.quality_alert_stage_board_approval)d, %(quality_vataga.quality_alert_stage_board_execution)d])]</attribute>
+                <attribute name="domain">[('id', 'in', [%(quality_vataga.quality_alert_stage_new)d, %(quality_vataga.quality_alert_stage_board_analysis)d, %(quality_vataga.quality_alert_stage_board_approval)d, %(quality_vataga.quality_alert_stage_board_execution)d, %(quality_vataga.quality_alert_stage_closed)d])]</attribute>
                 <attribute name="options">{'clickable': False, 'no_create': True, 'no_open': True}</attribute>
-                <attribute name="readonly">0</attribute>
+                <attribute name="readonly">1</attribute>
             </xpath>
             <xpath expr="//page[@name='miscellaneous']" position="after">
                 <page name="vataga_matrix_failure_history" string="Історія невідповідностей"
@@ -25,8 +25,13 @@
                     <field name="x_sorting_parameter" nolabel="1" colspan="2" class="w-100 text-break"/>
                 </group>
                 <group name="technical_board_action">
+                    <field name="is_new_stage" invisible="1"/>
                     <field name="is_board_analysis_stage" invisible="1"/>
                     <field name="is_board_approval_stage" invisible="1"/>
+                    <field name="is_board_execution_stage" invisible="1"/>
+                    <button name="action_send_to_analysis" type="object"
+                            string="Передати на аналіз" class="oe_highlight"
+                            invisible="not is_new_stage"/>
                     <button name="action_send_for_board_approval" type="object"
                             string="Передати на затвердження" class="oe_highlight"
                             invisible="is_approved or not is_board_analysis_stage"/>
@@ -34,6 +39,9 @@
                             string="Затвердити рішення" class="oe_highlight"
                             groups="quality_vataga.group_quality_board_approval"
                             invisible="is_approved or not is_board_approval_stage or approval_user_id != uid"/>
+                    <button name="action_close_alert" type="object" string="Закрити сповіщення"
+                            groups="quality.group_quality_manager"
+                            invisible="not is_board_execution_stage"/>
                 </group>
                 <group string="Рішення Технічної ради">
                     <group>
@@ -44,11 +52,13 @@
                         <field name="is_approved" readonly="1"/>
                         <field name="approved_by_id" readonly="1" invisible="not is_approved"/>
                         <field name="approved_at" readonly="1" invisible="not is_approved"/>
+                        <field name="vataga_closed_by_id" readonly="1" invisible="not vataga_closed_at"/>
+                        <field name="vataga_closed_at" readonly="1" invisible="not vataga_closed_at"/>
                     </group>
                 </group>
                 <notebook name="technical_board_notebook" invisible="decision_type != 'full_control'">
                     <page string="Суцільний контроль" name="technical_board_full_control">
-                        <field name="full_control_line_ids">
+                        <field name="full_control_line_ids" readonly="vataga_closed_at">
                             <tree editable="bottom">
                                 <field name="date"/>
                                 <field name="checked_qty"/>
