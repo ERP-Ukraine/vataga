@@ -6,7 +6,7 @@
         <field name="arch" type="xml">
             <form create="0" edit="0" delete="0" string="Дозвіл випуску QUNIT">
                 <sheet>
-                    <div class="alert alert-info">Це дозвіл. Складський випуск не виконувався.</div>
+                    <div class="alert alert-info">Архів 13.4А. Нові дозволи не створюються; цей документ не дозволяє складський випуск.</div>
                     <group>
                         <group>
                             <field name="unit_id"/>
@@ -84,33 +84,9 @@
         <field name="inherit_id" ref="mrp.mrp_production_form_view"/>
         <field name="arch" type="xml">
             <xpath expr="/form/sheet/notebook" position="inside">
-                <page name="quality_unit_release" string="Поштучний випуск" invisible="not quality_transfer_controlled">
+                <page name="quality_unit_release" string="Архів 13.4А/Б" invisible="not quality_release_batch_ids">
                     <field name="quality_transfer_controlled" invisible="1"/>
-                    <div class="alert alert-info">Підготовка та дозвіл випуску конкретних QUNIT. Складські рухи, виробничі кількості й собівартість не змінюються.</div>
-                    <widget name="quality_unit_release_buttons" groups="quality_vataga.group_quality_board_approval"/>
-                    <group>
-                        <group>
-                            <field name="quality_release_total" readonly="1"/>
-                            <field name="quality_release_ready" readonly="1"/>
-                            <field name="quality_release_authorized" readonly="1"/>
-                        </group>
-                        <group>
-                            <field name="quality_release_not_ready" readonly="1"/>
-                            <field name="quality_release_blocked" readonly="1"/>
-                            <field name="quality_release_produced" readonly="1"/>
-                        </group>
-                    </group>
-                    <field name="quality_release_unit_ids" readonly="1">
-                        <tree create="0" edit="0" delete="0">
-                            <field name="name"/>
-                            <field name="quality_release_last_workorder_id"/>
-                            <field name="quality_release_execution_done"/>
-                            <field name="quality_release_quality_result"/>
-                            <field name="quality_release_admission_id"/>
-                            <field name="quality_release_state"/>
-                            <field name="quality_release_reason"/>
-                        </tree>
-                    </field>
+                    <div class="alert alert-info">Архів попередніх дозволів та планів. Для операцій використовуються допуски інспектора й поштучні передачі.</div>
                     <separator string="Пакети підтверджених дозволів"/>
                     <field name="quality_release_batch_ids" readonly="1"/>
                 </page>
@@ -123,9 +99,7 @@
         <field name="inherit_id" ref="quality_vataga.quality_production_unit_form"/>
         <field name="arch" type="xml">
             <xpath expr="/form/sheet/notebook" position="inside">
-                <page name="quality_unit_release_history" string="Дозволи випуску">
-                    <field name="quality_release_state" readonly="1"/>
-                    <field name="quality_release_reason" readonly="1"/>
+                <page name="quality_unit_release_history" string="Архів дозволів 13.4А" invisible="not quality_release_line_ids">
                     <field name="quality_release_line_ids" readonly="1">
                         <tree create="0" edit="0" delete="0">
                             <field name="batch_id"/>

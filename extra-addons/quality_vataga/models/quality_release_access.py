@@ -1,4 +1,4 @@
-"""Role checks shared by stock preparation models and their UI flags."""
+"""Existing AND-role restriction retained for reading historical stock data."""
 
 from odoo import _
 from odoo.exceptions import AccessError
@@ -16,5 +16,5 @@ def check_stock_release_roles(user, raise_exception=True):
     if has_stock_release_roles(user):
         return True
     if raise_exception:
-        raise AccessError(_('Для підготовки складського випуску потрібні обидві ролі: «Виробництво / Користувач» та «Склад / Користувач».'))
+        raise AccessError(_('Для читання складського архіву потрібні обидві ролі: «Виробництво / Користувач» та «Склад / Користувач».'))
     return False

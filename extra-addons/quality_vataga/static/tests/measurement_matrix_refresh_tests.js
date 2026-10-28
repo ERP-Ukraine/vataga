@@ -2,7 +2,7 @@
 
 import { Component, EventBus, markRaw, reactive, useState, xml } from "@odoo/owl";
 import { QualityMeasurementMatrix } from "@quality_vataga/components/measurement_matrix/measurement_matrix";
-import { QualityUnitAdmissionButtons, QualityUnitTransferWorkorderButtons, QualityUnitExecutionButtons, QualityUnitReleaseButtons, QUALITY_CHECK_MATRIX_REFRESH } from "@quality_vataga/components/measurement_matrix/admission_buttons";
+import { QualityUnitAdmissionButtons, QualityUnitTransferWorkorderButtons, QualityUnitExecutionButtons, QUALITY_CHECK_MATRIX_REFRESH } from "@quality_vataga/components/measurement_matrix/admission_buttons";
 import { click, findChildren, getFixture, makeDeferred, mount, nextTick } from "@web/../tests/helpers/utils";
 
 // Real OWL components and useRecordObserver, with deterministic server replies.
@@ -61,28 +61,12 @@ QUnit.module("quality_vataga matrix refresh", () => {
             </div>`;
     }
 
-    class ReleaseForm extends CheckForm {
-        static components = { QualityUnitReleaseButtons };
-        static template = xml`
-            <div>
-                <QualityUnitReleaseButtons record="state.record"/>
-                <span class="release-authorized" t-esc="state.record.data.releaseAuthorized"/>
-                <span class="release-ready" t-esc="state.record.data.releaseReady"/>
-                <span class="stock-produced">0</span>
-                <span class="planned">5</span>
-                <span class="note" t-esc="state.record.data.note"/>
-                <span class="history" t-esc="state.record.data.history.length"/>
-                <span class="chatter" t-esc="state.record.data.messages.length"/>
-                <span t-foreach="state.record.data.releaseRows" t-as="unit" t-key="unit.name" class="release-unit" t-esc="unit.name + ': ' + unit.state"/>
-            </div>`;
-    }
-
     async function settle() {
         await nextTick();
         await nextTick();
     }
 
-    async function fixture({ approved = [], sent = [], received = [], model = "quality.check", execution = false, release = false, unformed = false, staleQuantity = false, dirty = false, stage = "in_process" } = {}) {
+    async function fixture({ approved = [], sent = [], received = [], model = "quality.check", execution = false, unformed = false, staleQuantity = false, dirty = false, stage = "in_process" } = {}) {
         const target = getFixture();
         const calls = [];
         const servers = new Map();
@@ -99,7 +83,6 @@ QUnit.module("quality_vataga matrix refresh", () => {
                     formed: !unformed, approved: new Set(approved), history: [], messages: [], note: "saved",
                     sent: new Set(sent), received: new Set(received), returned: new Set(),
                     processing: new Set(), processed: new Set(),
-                    releaseAuthorized: new Set(),
                 });
             }
             return servers.get(id);
@@ -132,9 +115,6 @@ QUnit.module("quality_vataga matrix refresh", () => {
                 awaiting: source.approved.size - source.sent.size, quality_transfer_has_run: true,
                 receipts: [...source.received].map((i) => `QUNIT/${id}/${i + 1}`),
                 processing: source.processing.size, processed: source.processed.size,
-                releaseAuthorized: source.releaseAuthorized.size,
-                releaseReady: source.releaseAuthorized.has(1) ? 0 : 1,
-                releaseRows: Array.from({ length: 5 }, (_, i) => ({ name: `QUNIT/${id}/${i + 1}`, state: source.releaseAuthorized.has(i) ? 'Дозволено до випуску' : i === 1 ? 'Готовий до випуску' : 'Утримано' })),
                 executions: [...source.received].map((i) => ({ name: `QUNIT/${id}/${i + 1}`, state: source.processed.has(i) ? 'Оброблено' : source.processing.has(i) ? 'В процесі' : 'Очікує обробки' })),
             };
         }
@@ -184,11 +164,7 @@ QUnit.module("quality_vataga matrix refresh", () => {
                     }
                     for (const unit of units) {
                         const source = server(id);
-                        if (mode === "authorize") {
-                            source.releaseAuthorized.add(unit);
-                        } else if (mode === "cancelRelease") {
-                            source.releaseAuthorized.delete(unit);
-                        } else if (mode === "start") {
+                        if (mode === "start") {
                             source.processing.add(unit);
                         } else if (mode === "finish" || mode === "stop") {
                             source.processing.delete(unit);
@@ -209,14 +185,11 @@ QUnit.module("quality_vataga matrix refresh", () => {
                     server(id).messages.push(mode);
                     return {
                         type: "ir.actions.act_window_close",
-                        infos: model === "mrp.production" ? { quality_vataga_production_id: id } : model === "mrp.workorder" ? { quality_vataga_workorder_id: id } : { quality_vataga_check_id: id },
+                        infos: model === "mrp.workorder" ? { quality_vataga_workorder_id: id } : { quality_vataga_check_id: id },
                     };
                 }
                 if (method.startsWith("action_open_quality_execution_")) {
                     return { type: "ir.actions.act_window", res_model: "quality.unit.execution.wizard", target: "new", view_mode: "form", views: [[789, "form"]] };
-                }
-                if (method.startsWith("action_open_unit_release_")) {
-                    return { type: "ir.actions.act_window", res_model: "quality.unit.release.wizard", target: "new", view_mode: "form", views: [[890, "form"]] };
                 }
                 throw new Error(`Unexpected RPC: ${rpcModel}.${method}`);
             },
@@ -266,7 +239,7 @@ QUnit.module("quality_vataga matrix refresh", () => {
                 },
             },
         };
-        const form = await mount(release ? ReleaseForm : execution ? ExecutionForm : model === "mrp.workorder" ? WorkorderForm : CheckForm, target, { env, props: { record: first } });
+        const form = await mount(execution ? ExecutionForm : model === "mrp.workorder" ? WorkorderForm : CheckForm, target, { env, props: { record: first } });
         await settle();
         return {
             target, form, first, bus, calls, server, matrix, record,
@@ -279,7 +252,6 @@ QUnit.module("quality_vataga matrix refresh", () => {
                     transfer: ".o_quality_send_units", send: ".o_quality_send_units",
                     receive: ".o_quality_receive_units", return: ".o_quality_return_units",
                     start: ".o_quality_execution_start", finish: ".o_quality_execution_finish", stop: ".o_quality_execution_stop", control: ".o_quality_execution_control",
-                    authorize: ".o_quality_release_authorize", cancelRelease: ".o_quality_release_cancel",
                 }[mode];
                 await click(target, selector);
             },
@@ -606,59 +578,4 @@ QUnit.module("quality_vataga matrix refresh", () => {
         assert.strictEqual(ctx.rootLoads, 1);
     });
 
-    QUnit.test("release authorization refreshes exactly one QUNIT, MO counts, audit and chatter", async (assert) => {
-        const ctx = await fixture({ model: "mrp.production", release: true });
-        let mail = 0;
-        ctx.bus.addEventListener("MAIL:RELOAD-THREAD", () => mail++);
-        await ctx.open("authorize");
-        assert.deepEqual(ctx.openedAction.views, [[890, "form"]]);
-        await ctx.apply("authorize", [1]);
-        assert.strictEqual(text(ctx, ".release-authorized"), "1");
-        assert.strictEqual(text(ctx, ".release-ready"), "0");
-        assert.strictEqual(ctx.target.querySelectorAll(".release-unit").length, 5);
-        assert.ok(ctx.target.querySelectorAll(".release-unit")[1].textContent.includes("Дозволено до випуску"));
-        assert.strictEqual(text(ctx, ".stock-produced"), "0");
-        assert.strictEqual(text(ctx, ".planned"), "5");
-        assert.strictEqual(text(ctx, ".history"), "1");
-        assert.strictEqual(text(ctx, ".chatter"), "1");
-        assert.strictEqual(mail, 1);
-        assert.strictEqual(ctx.first.resId, 1);
-        await ctx.open("cancelRelease");
-        await ctx.apply("cancelRelease", [1]);
-        assert.strictEqual(text(ctx, ".release-authorized"), "0");
-        assert.strictEqual(text(ctx, ".history"), "2");
-    });
-
-    QUnit.test("release cancel/X and server rejection do not reload or show an authorization", async (assert) => {
-        const ctx = await fixture({ model: "mrp.production", release: true });
-        for (const infos of [undefined, { special: true }]) {
-            await ctx.open("authorize");
-            await ctx.cancel(infos);
-        }
-        await ctx.open("authorize");
-        try { await ctx.apply("authorize", [0], true); } catch (error) { assert.ok(error); }
-        assert.strictEqual(ctx.rootLoads, 0);
-        assert.strictEqual(text(ctx, ".release-authorized"), "0");
-        assert.ok(ctx.dialogOpen);
-    });
-
-    QUnit.test("release callback preserves dirty MO values and cannot refresh a different MO", async (assert) => {
-        const ctx = await fixture({ model: "mrp.production", release: true });
-        await ctx.open("authorize");
-        ctx.first.data.note = "unsaved production note";
-        ctx.first.dirty = true;
-        await ctx.apply("authorize", [1]);
-        assert.strictEqual(ctx.rootLoads, 0);
-        assert.strictEqual(text(ctx, ".note"), "unsaved production note");
-        await ctx.first.save();
-        await settle();
-        assert.strictEqual(text(ctx, ".release-authorized"), "1");
-        assert.strictEqual(text(ctx, ".note"), "unsaved production note");
-        await ctx.open("cancelRelease");
-        ctx.form.state.record = ctx.record(2);
-        await settle();
-        await ctx.apply("cancelRelease", [1]);
-        assert.strictEqual(ctx.rootLoads, 1);
-        assert.strictEqual(text(ctx, ".release-authorized"), "0");
-    });
 });

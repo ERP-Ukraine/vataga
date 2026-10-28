@@ -1,16 +1,9 @@
-"""Standard/perpetual native valuation; never create SVLs or GL entries here.
-
-Actual component/labour allocations are managerial cost. They do not replace
-standard inventory value and their difference is NOT an invented GL posting.
-Enterprise execution remains gated by quality_stock_posting.
-"""
-
-import math
+"""Read-only historical valuation display and native accounting guards."""
 
 from odoo import _, api, fields, models
-from odoo.exceptions import UserError, ValidationError
+from odoo.exceptions import UserError
 
-from .stock_posting_core import access, journal_has, move_sources
+from .stock_posting_core import access, journal_has
 
 
 class StockPostingValuation(models.Model):
@@ -26,91 +19,6 @@ class StockPostingValuation(models.Model):
             row.valuation_cost = sum(row.line_ids.filtered(lambda line: line.kind == 'finished').valuation_layer_id.mapped('value'))
             row.cost_variance = row.component_cost + row.labour_cost - row.valuation_cost
 
-    @api.model
-    def _valuation_profile(self, production):
-        product = production.product_id.with_company(production.company_id)
-        if product.cost_method == 'standard' and product.valuation == 'real_time':
-            if not math.isfinite(product.standard_price) or product.standard_price < 0:
-                raise ValidationError(_('Для цього профілю потрібна скінченна невід’ємна нормативна вартість. Зміну вартості товару адаптер не виконує.'))
-            return dict(raw_valuation='real_time', standard_price=product.standard_price,
-                        profile='standard_real_time_v1')
-        return super()._valuation_profile(production)
-
-    def _expected_finished_value(self):
-        self.ensure_one()
-        if self.valuation_snapshot:
-            if self.valuation_snapshot.get('profile') != 'standard_real_time_v1':
-                raise ValidationError(_('Невідома політика складської оцінки.'))
-            return self.valuation_snapshot['standard_price']
-        return super()._expected_finished_value()
-
-    @api.model
-    def _native_accounting_facts(self, moves):
-        layers = move_sources(moves, 'stock.valuation.layer', 'stock_move_id')
-        # Discover ALL entries, including draft/cancelled or hidden entries
-        # not reachable through SVL.account_move_id. Ordinary ACLs still apply.
-        related_entries = move_sources(moves, 'account.move', 'stock_move_id')
-        entries = layers.account_move_id
-        access(entries); access(entries.line_ids)
-        facts = []
-        for move in moves.sorted('id'):
-            layer = layers.filtered(lambda row: row.stock_move_id == move)
-            entry = layer.account_move_id
-            if (len(layer) != 1 or layer.company_id != move.company_id
-                    or layer.product_id != move.product_id or move.state != 'done'
-                    or move.product_id.with_company(move.company_id).valuation != 'real_time'):
-                raise ValidationError(_('Нативна SVL не відповідає проведеному руху.'))
-            move_entries = related_entries.filtered(lambda row: row.stock_move_id == move)
-            if layer.currency_id.is_zero(layer.value):
-                # stock_account.stock.valuation.layer._validate_accounting_entries
-                # skips currency-zero layers. This exception is deliberately
-                # limited to Standard finished production, never missing GL
-                # on a nonzero component issue or an arbitrary stock move.
-                if (not move.production_id or move.product_id != move.production_id.product_id
-                        or move.product_id.with_company(move.company_id).cost_method != 'standard'
-                        or entry or move_entries or layer.account_move_line_id):
-                    raise ValidationError(_('Нульова SVL готового виробу повинна відповідати штатному пропуску бухгалтерської проводки.'))
-                # Native code does not resolve GL accounts for this layer.
-                facts.append(dict(move=move.id, layer=layer.id, entry=False, journal=False,
-                    source=False, destination=False, asset=False, company=move.company_id.id,
-                    date=False, lines=[], absence_policy='odoo17_currency_zero_finished'))
-                continue
-            journal, source, destination, asset = move.with_company(move.company_id)._get_accounting_data_for_valuation()
-            access(self.env['account.journal'].browse(journal))
-            access(self.env['account.account'].browse([source, destination, asset]))
-            if (not entry or move_entries != entry or entry.state != 'posted'
-                    or entry.company_id != move.company_id or entry.journal_id.id != journal
-                    or entry.stock_move_id != move or layer.company_id != move.company_id
-                    or not move.company_id.currency_id.is_zero(sum(entry.line_ids.mapped('balance')))
-                    or not move.company_id.currency_id.is_zero(
-                        sum(entry.line_ids.filtered(lambda line: line.account_id.id == asset).mapped('balance')) - layer.value)):
-                raise ValidationError(_('Нативні проведені SVL та бухгалтерські записи не узгоджені.'))
-            facts.append(dict(move=move.id, layer=layer.id, entry=entry.id, journal=journal,
-                              source=source, destination=destination, asset=asset,
-                              company=entry.company_id.id, date=str(entry.date),
-                              lines=[dict(id=line.id, account=line.account_id.id, balance=line.balance,
-                                          currency=line.currency_id.id, amount_currency=line.amount_currency)
-                                     for line in entry.line_ids.sorted('id')]))
-        return facts
-
-    @api.model
-    def _valuation_values(self, production, produced, consumed, profile):
-        if profile.get('profile') != 'standard_real_time_v1':
-            return super()._valuation_values(production, produced, consumed, profile)
-        return {'valuation_snapshot': dict(profile=profile['profile'], standard_price=profile['standard_price'],
-                                           entries=self._native_accounting_facts(consumed | produced))}
-
-    @api.constrains('valuation_snapshot', 'line_ids')
-    def _check_accounting_snapshot(self):
-        for row in self.filtered('valuation_snapshot'):
-            if row._native_accounting_facts(row.line_ids.move_id) != row.valuation_snapshot['entries']:
-                raise ValidationError(_('Історичні бухгалтерські записи поштучного випуску змінилися.'))
-
-    @api.model
-    def _reconcile(self, scope):
-        receipts = super()._reconcile(scope)
-        receipts._check_accounting_snapshot()
-        return receipts
 
     def check_access_rule(self, operation):
         result = super().check_access_rule(operation)

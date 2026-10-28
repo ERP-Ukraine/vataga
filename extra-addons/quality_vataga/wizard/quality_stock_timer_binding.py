@@ -1,9 +1,9 @@
-from odoo import _, api, fields, models
-from odoo.exceptions import ValidationError
+from odoo import api, fields, models
+from ..models.quality_archive import RetiredDialog, archive_disabled
 from ..models.quality_release_access import check_stock_release_roles
 
 
-class QualityStockTimerBindingWizard(models.TransientModel):
+class QualityStockTimerBindingWizard(RetiredDialog, models.TransientModel):
     _name = 'quality.stock.timer.binding.wizard'
     _description = 'Явне підтвердження QUNIT спільного робочого часу'
 
@@ -19,9 +19,4 @@ class QualityStockTimerBindingWizard(models.TransientModel):
         return super().check_access_rights(operation, raise_exception=raise_exception)
 
     def action_apply(self):
-        self.ensure_one()
-        self.production_id._check_unit_stock_release_access()
-        if self.timer_id.workorder_id.production_id != self.production_id:
-            raise ValidationError(_('Інтервал має належати вибраному MO.'))
-        self.env['quality.stock.timer.binding']._bind_shared_timer(self.timer_id, self.unit_ids, self.reason or '')
-        return {'type': 'ir.actions.act_window_close'}
+        archive_disabled()

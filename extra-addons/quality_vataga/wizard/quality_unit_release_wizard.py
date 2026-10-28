@@ -1,10 +1,8 @@
-from uuid import uuid4
-
-from odoo import _, api, Command, fields, models
-from odoo.exceptions import UserError, ValidationError
+from odoo import _, api, fields, models
+from ..models.quality_archive import ARCHIVE_MESSAGE, RetiredDialog, archive_disabled
 
 
-class QualityUnitReleaseWizard(models.TransientModel):
+class QualityUnitReleaseWizard(RetiredDialog, models.TransientModel):
     _name = 'quality.unit.release.wizard'
     _description = 'Явний дозвіл випуску конкретних QUNIT'
 
@@ -16,49 +14,8 @@ class QualityUnitReleaseWizard(models.TransientModel):
 
     @api.model
     def _open_action(self, production, mode):
-        production._check_unit_release_access()
-        if mode not in ('authorize', 'cancel'):
-            raise ValidationError(_('Невідома дія дозволу випуску.'))
-        return {'type': 'ir.actions.act_window', 'name': _('Дозволити випуск виробів') if mode == 'authorize' else _('Скасувати дозвіл випуску'),
-                'res_model': self._name, 'target': 'new', 'view_mode': 'form',
-                'views': [(self.env.ref('quality_vataga.quality_unit_release_wizard_form').id, 'form')],
-                'context': {'default_production_id': production.id, 'default_mode': mode}}
+        archive_disabled()
 
-    @api.model
-    def default_get(self, names):
-        values = super().default_get(names)
-        if values.get('production_id') and values.get('mode'):
-            production = self.env['mrp.production'].browse(values['production_id'])
-            production._check_unit_release_access()
-            if values['mode'] not in ('authorize', 'cancel'):
-                raise ValidationError(_('Невідома дія.'))
-            if 'line_ids' in names:
-                if values['mode'] == 'authorize':
-                    rows = [{'unit_id': unit.id} for unit in production.quality_release_unit_ids.sorted('id')]
-                else:
-                    rows = [{'permission_id': line.id} for line in self.env['quality.unit.release.line'].search([('production_id', '=', production.id), ('state', '=', 'confirmed')])]
-                values['line_ids'] = [Command.create(dict(row, selected=False)) for row in rows]
-        return values
-
-    @api.model_create_multi
-    def create(self, vals_list):
-        prepared = []
-        for vals in vals_list:
-            if set(vals) - {'production_id', 'mode', 'reason', 'line_ids'}:
-                raise UserError(_('Реквізити та ключ майстра встановлює система.'))
-            values = dict(self.default_get(['production_id', 'mode']), **vals)
-            self.env['mrp.production'].browse(values.get('production_id'))._check_unit_release_access()
-            if values.get('mode') not in ('authorize', 'cancel'):
-                raise ValidationError(_('Невідома дія.'))
-            prepared.append(dict(values, request_key=str(uuid4())))
-        context = dict(self.env.context)
-        context.pop('default_request_key', None)
-        return super(QualityUnitReleaseWizard, self.with_context(context)).create(prepared)
-
-    def write(self, vals):
-        if set(vals) - {'reason', 'line_ids'}:
-            raise UserError(_('MO, дію та ключ підтвердження змінювати не можна.'))
-        return super().write(vals)
 
     def check_access_rule(self, operation):
         result = super().check_access_rule(operation)
@@ -68,26 +25,8 @@ class QualityUnitReleaseWizard(models.TransientModel):
                 production._check_unit_release_access()
         return result
 
-    def action_apply(self):
-        self.ensure_one()
-        self.check_access_rights('write')
-        self.check_access_rule('write')
-        self.production_id._check_unit_release_access()
-        selected = self.line_ids.filtered('selected')
-        if not selected:
-            raise ValidationError(_('Явно оберіть конкретні QUNIT.'))
-        if self.mode == 'authorize':
-            if selected.permission_id or len(selected.unit_id) != len(selected):
-                raise ValidationError(_('Оберіть різні QUNIT для дозволу.'))
-            self.env['quality.unit.release.batch']._authorize(self.production_id, selected.unit_id, self.request_key)
-        else:
-            if selected.unit_id or len(selected.permission_id) != len(selected):
-                raise ValidationError(_('Оберіть різні чинні записи дозволу.'))
-            selected.permission_id._cancel(self.production_id, self.reason or '')
-        return {'type': 'ir.actions.act_window_close', 'infos': {'quality_vataga_production_id': self.production_id.id}}
 
-
-class QualityUnitReleaseWizardLine(models.TransientModel):
+class QualityUnitReleaseWizardLine(RetiredDialog, models.TransientModel):
     _name = 'quality.unit.release.wizard.line'
     _description = 'Вибір QUNIT для дозволу випуску'
 
@@ -108,38 +47,22 @@ class QualityUnitReleaseWizardLine(models.TransientModel):
                         ('unit_unique', 'unique(wizard_id, unit_id)', 'QUNIT вже є у майстрі.'),
                         ('permission_unique', 'unique(wizard_id, permission_id)', 'Дозвіл вже є у майстрі.')]
 
-    @api.model_create_multi
-    def create(self, vals_list):
-        if any(set(vals) - {'wizard_id', 'unit_id', 'permission_id', 'selected'} for vals in vals_list):
-            raise UserError(_('Реквізити рядка встановлює система.'))
-        for vals in vals_list:
-            wizard = self.env['quality.unit.release.wizard'].browse(vals.get('wizard_id'))
-            wizard.check_access_rule('write')
-        return super().create(vals_list)
-
-    def write(self, vals):
-        if set(vals) - {'selected'}:
-            raise UserError(_('Виріб та дозвіл у рядку незмінні.'))
-        return super().write(vals)
 
     def check_access_rule(self, operation):
         result = super().check_access_rule(operation)
         if self.ids:
             self.env.cr.execute('SELECT DISTINCT wizard_id FROM quality_unit_release_wizard_line WHERE id IN %s', [tuple(self.ids)])
-            self.env['quality.unit.release.wizard'].browse([row[0] for row in self.env.cr.fetchall()]).check_access_rule('write')
+            self.env['quality.unit.release.wizard'].browse([row[0] for row in self.env.cr.fetchall()]).check_access_rule('read')
         return result
 
     @api.depends('unit_id', 'permission_id', 'wizard_id.mode', 'wizard_id.production_id')
     def _compute_availability(self):
-        labels = dict(self.env['quality.production.unit']._fields['quality_release_state'].selection)
         for line in self:
-            unit = line.unit_id or line.permission_id.unit_id
-            line.controlled_unit_id = unit
-            line.last_workorder_id = unit.quality_release_last_workorder_id
-            line.execution_done = unit.quality_release_execution_done
-            line.quality_result = unit.quality_release_quality_result
-            line.admission_id = unit.quality_release_admission_id
-            line.readiness = labels.get(unit.quality_release_state, '')
-            scope = unit.production_id == line.wizard_id.production_id
-            line.eligible = scope and (unit.quality_release_state == 'ready' if line.wizard_id.mode == 'authorize' else line.permission_id.state == 'confirmed')
-            line.unavailable_reason = '' if line.eligible else unit.quality_release_reason or _('Виріб або дозвіл не належить цьому MO чи вже змінив стан.')
+            line.controlled_unit_id = line.unit_id or line.permission_id.unit_id
+            line.last_workorder_id = False
+            line.execution_done = False
+            line.quality_result = False
+            line.admission_id = False
+            line.readiness = _(ARCHIVE_MESSAGE)
+            line.eligible = False
+            line.unavailable_reason = _(ARCHIVE_MESSAGE)

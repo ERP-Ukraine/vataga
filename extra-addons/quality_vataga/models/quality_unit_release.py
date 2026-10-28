@@ -1,18 +1,22 @@
-from markupsafe import escape
-
 from odoo import _, api, fields, models
-from odoo.exceptions import AccessError, UserError, ValidationError
+from odoo.exceptions import AccessError, UserError
 from odoo.osv import expression
-
-
-RELEASE_GROUP = 'quality_vataga.group_quality_board_approval'
-RELEASE_CONTEXT = 'quality_vataga_release_authorization'
-RELEASE_TOKEN = object()
+from .quality_archive import ARCHIVE_MESSAGE, archive_disabled
 
 
 class QualityReleaseAccess(models.AbstractModel):
     _name = 'quality.release.access'
     _description = 'Доступ до дозволів через MO'
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        archive_disabled()
+
+    def write(self, vals):
+        archive_disabled()
+
+    def unlink(self):
+        archive_disabled()
 
     @api.model
     def _search(self, domain, offset=0, limit=None, order=None, access_rights_uid=None):
@@ -69,19 +73,7 @@ class QualityUnitReleaseBatch(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
-        if self.env.context.get(RELEASE_CONTEXT) is not RELEASE_TOKEN:
-            raise UserError(_('Пакети створюються лише через «Дозволити випуск виробів».'))
-        prepared = []
-        for vals in vals_list:
-            if set(vals) != {'production_id', 'request_key'} or not vals['request_key']:
-                raise UserError(_('Реквізити пакета встановлює система.'))
-            production = self.env['mrp.production'].browse(vals['production_id'])
-            production._check_unit_release_access()
-            prepared.append(dict(vals, name=self.env.ref('quality_vataga.sequence_quality_unit_release').next_by_id(),
-                                 company_id=production.company_id.id, authorized_by_id=self.env.uid,
-                                 authorized_at=fields.Datetime.now(), line_ids=[]))
-        context = {key: value for key, value in self.env.context.items() if not key.startswith('default_')}
-        return super(QualityUnitReleaseBatch, self.with_context(context)).create(prepared)
+        archive_disabled()
 
     def write(self, vals):
         raise UserError(_('Реквізити підтвердженого пакета незмінні.'))
@@ -91,40 +83,7 @@ class QualityUnitReleaseBatch(models.Model):
 
     @api.model
     def _authorize(self, production, units, request_key):
-        production._check_unit_release_access()
-        self.check_access_rights('create')
-        units.check_access_rights('read')
-        units.check_access_rule('read')
-        if not units or not request_key or units.production_id != production or units.company_id != production.company_id or units.product_id != production.product_id:
-            raise ValidationError(_('Явно оберіть різні QUNIT тільки цього MO, товару та компанії.'))
-        runs = units.run_ids
-        checks = runs.check_ids
-        if any(run.production_id != production or run.company_id != production.company_id or run.product_id != production.product_id for run in runs) or any(check._identity_production() != production for check in checks):
-            raise ValidationError(_('Історія виробів містить посилання на інший MO, товар або компанію.'))
-        with self.env.cr.savepoint():
-            production._lock_quality_transfer_scope()
-            # The existing evidence lock also revises each QRUN. This detects
-            # changes to admissions/results under REPEATABLE READ, even when
-            # an evidence editor only took SELECT FOR UPDATE on the MO.
-            for check in checks.sorted('id'):
-                check._lock_unit_admission_scope()
-            self.env.flush_all()
-            self.env.invalidate_all(flush=False)
-            previous = self.search([('production_id', '=', production.id), ('request_key', '=', request_key)])
-            if previous:
-                if previous.authorized_by_id != self.env.user or set(previous.line_ids.unit_id.ids) != set(units.ids) or any(line.state != 'confirmed' for line in previous.line_ids):
-                    raise ValidationError(_('Склад або стан попереднього підтвердження змінився. Відкрийте новий майстер.'))
-                return previous
-            # Validate the entire selection before creating any package.
-            for unit in units:
-                data = unit._get_release_readiness()
-                if data['state'] != 'ready':
-                    raise ValidationError(_('%(unit)s: %(reason)s', unit=unit.name, reason=data['reason']))
-            batch = self.with_context(**{RELEASE_CONTEXT: RELEASE_TOKEN}).create({'production_id': production.id, 'request_key': request_key})
-            self.env['quality.unit.release.line'].with_context(**{RELEASE_CONTEXT: RELEASE_TOKEN}).create([
-                {'batch_id': batch.id, 'unit_id': unit.id} for unit in units.sorted('id')
-            ])
-            return batch
+        archive_disabled()
 
 
 class QualityUnitReleaseLine(models.Model):
@@ -170,38 +129,10 @@ class QualityUnitReleaseLine(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
-        if self.env.context.get(RELEASE_CONTEXT) is not RELEASE_TOKEN:
-            raise UserError(_('Дозвіл створюється лише захищеним підтвердженням готовності.'))
-        prepared = []
-        for vals in vals_list:
-            if set(vals) != {'batch_id', 'unit_id'}:
-                raise UserError(_('Докази та реквізити дозволу встановлює система.'))
-            batch = self.env['quality.unit.release.batch'].browse(vals['batch_id'])
-            batch.production_id._check_unit_release_access()
-            batch.check_access_rights('read')
-            batch.check_access_rule('read')
-            unit = self.env['quality.production.unit'].browse(vals['unit_id'])
-            if unit.production_id != batch.production_id or unit.company_id != batch.company_id:
-                raise ValidationError(_('Виріб належить іншому MO або компанії.'))
-            data = unit._get_release_readiness()
-            if data['state'] != 'ready':
-                raise ValidationError(data['reason'])
-            prepared.append(dict(vals, product_id=unit.product_id.id, last_workorder_id=data['last_workorder'].id,
-                                 last_run_id=data['run'].id, check_id=data['check'].id, admission_id=data['admission'].id,
-                                 state='confirmed', evidence_snapshot=data['snapshot'], cancelled_by_id=False,
-                                 cancelled_at=False, cancellation_reason=False, event_ids=[],
-                                 execution_ids=[(6, 0, data['executions'].ids)], transfer_ids=[(6, 0, data['transfers'].ids)],
-                                 admission_ids=[(6, 0, data['admissions'].ids)], check_ids=[(6, 0, data['checks'].ids)]))
-        context = {key: value for key, value in self.env.context.items() if not key.startswith('default_')}
-        records = super(QualityUnitReleaseLine, self.with_context(context)).create(prepared)
-        for record in records:
-            record._log_event('confirmed')
-        return records
+        archive_disabled()
 
     def write(self, vals):
-        if self.env.context.get(RELEASE_CONTEXT) is not RELEASE_TOKEN or set(vals) != {'state', 'cancelled_by_id', 'cancelled_at', 'cancellation_reason'} or vals['state'] != 'cancelled' or any(line.state != 'confirmed' for line in self):
-            raise UserError(_('Реквізити дозволу незмінні. Використайте явне скасування з причиною.'))
-        return super().write(vals)
+        archive_disabled()
 
     def unlink(self):
         raise UserError(_('Історія дозволів випуску не видаляється.'))
@@ -214,12 +145,7 @@ class QualityUnitReleaseLine(models.Model):
             return _('Дозвіл скасовано.')
         if self._stock_permission_used():
             return _('Дозвіл використано складським випуском.')
-        data = self.unit_id._get_release_readiness(ignore_line=self)
-        if data['state'] != 'ready':
-            return data['reason']
-        if self.evidence_snapshot != data['snapshot']:
-            return _('Підстави готовності змінилися. Потрібні скасування старого дозволу та нове явне підтвердження.')
-        return False
+        return _(ARCHIVE_MESSAGE)
 
     @api.depends('state', 'unit_id.quality_release_revision', 'production_id.quality_transfer_revision')
     @api.depends_context('uid', 'allowed_company_ids')
@@ -231,34 +157,10 @@ class QualityUnitReleaseLine(models.Model):
             line.current_state = 'used' if line._stock_permission_used() else 'cancelled' if line.state == 'cancelled' else 'lapsed' if error else 'authorized'
 
     def _cancel(self, production, reason):
-        production._check_unit_release_access()
-        self.check_access_rights('write')
-        self.check_access_rule('write')
-        if not self or self.production_id != production or not reason.strip():
-            raise ValidationError(_('Оберіть дозволи цього MO та вкажіть причину скасування.'))
-        with self.env.cr.savepoint():
-            production._lock_quality_transfer_scope()
-            self.invalidate_recordset()
-            production._check_named_stock_history()
-            if self._stock_permission_used():
-                raise UserError(_('Використаний складським випуском дозвіл звичайним способом не скасовується.'))
-            for line in self.sorted('id'):
-                if line.state == 'cancelled':
-                    continue
-                line.with_context(**{RELEASE_CONTEXT: RELEASE_TOKEN}).write({
-                    'state': 'cancelled', 'cancelled_by_id': self.env.uid,
-                    'cancelled_at': fields.Datetime.now(), 'cancellation_reason': reason.strip(),
-                })
-                line._log_event('cancelled', reason.strip())
-        return True
+        archive_disabled()
 
     def _log_event(self, action, reason=''):
-        self.ensure_one()
-        self.env['quality.unit.release.event'].with_context(**{RELEASE_CONTEXT: RELEASE_TOKEN}).create({'line_id': self.id, 'action': action, 'reason': reason})
-        body = escape(_('%(action)s: %(unit)s; пакет %(batch)s; контроль %(check)s. %(reason)s Складський випуск не виконувався.',
-                        action=_('Дозволено до випуску') if action == 'confirmed' else _('Дозвіл скасовано'),
-                        unit=self.unit_id.name, batch=self.batch_id.name, check=self.check_id.display_name, reason=reason))
-        self.production_id.message_post(body=body, subtype_xmlid='mail.mt_note')
+        archive_disabled()
 
 
 class QualityUnitReleaseEvent(models.Model):
@@ -279,19 +181,7 @@ class QualityUnitReleaseEvent(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
-        if self.env.context.get(RELEASE_CONTEXT) is not RELEASE_TOKEN:
-            raise UserError(_('Події дозволів фіксує система.'))
-        prepared = []
-        for vals in vals_list:
-            if set(vals) != {'line_id', 'action', 'reason'}:
-                raise UserError(_('Службові реквізити події встановлює система.'))
-            line = self.env['quality.unit.release.line'].browse(vals['line_id'])
-            line.production_id._check_unit_release_access()
-            line.check_access_rights('read')
-            line.check_access_rule('read')
-            prepared.append(dict(vals, actor_id=self.env.uid, occurred_at=fields.Datetime.now()))
-        context = {key: value for key, value in self.env.context.items() if not key.startswith('default_')}
-        return super(QualityUnitReleaseEvent, self.with_context(context)).create(prepared)
+        archive_disabled()
 
     def write(self, vals):
         raise UserError(_('Події дозволу незмінні.'))
@@ -327,12 +217,10 @@ class MrpProductionUnitRelease(models.Model):
 
     def _check_unit_release_access(self):
         self.ensure_one()
-        if not self.env.user.has_group(RELEASE_GROUP):
-            raise AccessError(_('Дозвіл випуску QUNIT потребує ролі «Затвердження рішень технічної ради».'))
-        self.check_access_rights('write')
-        self.check_access_rule('write')
-        if not self.quality_transfer_controlled or self.company_id not in self.env.companies:
-            raise ValidationError(_('Оберіть захищений MO дозволеної компанії.'))
+        self.check_access_rights('read')
+        self.check_access_rule('read')
+        if self.company_id not in self.env.companies:
+            raise AccessError(_('Немає доступу до компанії архівного MO.'))
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -347,7 +235,7 @@ class MrpProductionUnitRelease(models.Model):
         return super().write(vals)
 
     def action_open_unit_release_wizard(self):
-        return self.env['quality.unit.release.wizard']._open_action(self, 'authorize')
+        archive_disabled()
 
     def action_open_unit_release_cancel_wizard(self):
-        return self.env['quality.unit.release.wizard']._open_action(self, 'cancel')
+        archive_disabled()

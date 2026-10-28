@@ -5,9 +5,6 @@
         <field name="model">quality.unit.stock.release.plan</field>
         <field name="arch" type="xml">
             <form string="План випуску — без складського проведення" create="0" edit="0" delete="0">
-                <header>
-                    <button name="action_check_current" type="object" string="Перевірити актуальність"/>
-                </header>
                 <sheet>
                     <div class="alert alert-warning"><field name="posting_note" nolabel="1" readonly="1" class="w-100"/></div>
                     <group>
@@ -40,10 +37,6 @@
                         <page name="snapshot" string="Знімок підстав">
                             <field name="evidence_snapshot" nolabel="1" readonly="1" class="w-100"/>
                         </page>
-                        <page name="posting_diagnostic" string="Перешкоди проведення">
-                            <div class="alert alert-warning">Діагностика знімка підготовки. Проведення залишається заблокованим незалежно від стану інтервалів.</div>
-                            <field name="posting_diagnostic" nolabel="1" readonly="1" class="w-100"/>
-                        </page>
                     </notebook>
                 </sheet>
             </form>
@@ -53,18 +46,11 @@
         <field name="name">mrp.production.quality.unit.stock.release</field>
         <field name="model">mrp.production</field>
         <field name="inherit_id" ref="quality_vataga.mrp_production_quality_unit_release"/>
+        <field name="active" eval="True"/>
         <field name="arch" type="xml">
-            <xpath expr="//page[@name='quality_unit_release']/widget[@name='quality_unit_release_buttons']" position="after">
-                <field name="can_prepare_unit_stock_release" invisible="1"/>
-                <div groups="mrp.group_mrp_user" invisible="not can_prepare_unit_stock_release">
-                    <button name="action_open_unit_stock_release_wizard" type="object" string="Випустити дозволені вироби" class="btn-secondary"/>
-                    <button name="action_open_stock_timer_binding" type="object" string="Зіставити спільний робочий час" class="btn-secondary ms-2"/>
-                    <span class="ms-2 text-muted">Доступна підготовка плану. Складське проведення заблоковано до інтеграційної перевірки.</span>
-                </div>
-            </xpath>
             <xpath expr="//page[@name='quality_unit_release']" position="inside">
-                <group groups="mrp.group_mrp_user" invisible="not can_prepare_unit_stock_release" col="1">
-                    <separator string="Плани підготовки — без складського проведення"/>
+                <group groups="mrp.group_mrp_user" col="1">
+                    <separator string="Архів планів підготовки"/>
                     <field name="quality_stock_release_plan_ids" readonly="1" nolabel="1">
                         <tree create="0" edit="0" delete="0">
                             <field name="name"/>
@@ -83,8 +69,7 @@
         <field name="inherit_id" ref="quality_vataga.quality_production_unit_form"/>
         <field name="arch" type="xml">
             <xpath expr="/form/sheet/notebook" position="inside">
-                <page name="quality_stock_release_preparation" string="Підготовка складського випуску" groups="mrp.group_mrp_user" invisible="not can_prepare_unit_stock_release">
-                    <field name="can_prepare_unit_stock_release" invisible="1"/>
+                <page name="quality_stock_release_preparation" string="Архів планів 13.4Б" groups="mrp.group_mrp_user" invisible="not stock_release_plan_ids">
                     <div class="alert alert-warning">Це історія підготовки. Плани не підтверджують надходження продукції на склад.</div>
                     <field name="stock_release_plan_ids" readonly="1">
                         <tree create="0" edit="0" delete="0">

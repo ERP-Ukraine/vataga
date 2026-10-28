@@ -1,6 +1,5 @@
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
-from .stock_bridge_authority import permits
 
 BOUNDARY_MESSAGE = 'Для цього MO активовано захищений поштучний маршрут. Використайте «Поштучне виконання» з явним вибором прийнятих QUNIT. Стандартне завершення Work Order, зміна виробничої кількості та складський випуск заблоковані.'
 TIMER_CLOSE_TOKEN = object()
@@ -35,8 +34,6 @@ class MrpProductionTransfer(models.Model):
 
     def _check_quality_transfer_boundary(self, purpose=None):
         if self._lock_quality_transfer_scope():
-            if permits(self, purpose):
-                return
             raise UserError(_(BOUNDARY_MESSAGE))
 
     def _enable_quality_transfer_control(self):
@@ -155,16 +152,6 @@ class MrpWorkorderTransferBoundary(models.Model):
         self.production_id._check_matrix_native_completion()
         self.production_id._check_quality_transfer_boundary()
         return super().button_finish()
-
-    def _finish_named_stock_workorders(self):
-        if not permits(self.production_id, 'final_workorder'):
-            raise UserError(_(BOUNDARY_MESSAGE))
-        self.check_access_rights('write')
-        self.check_access_rule('write')
-        result = super().button_finish()
-        if any(workorder.state != 'done' for workorder in self):
-            raise UserError(_('Штатні перевірки Odoo не завершили Work Orders. Спочатку виконайте потрібні дії контролю; останній випуск відкотиться.'))
-        return result
 
     def button_done(self):
         self.production_id._check_matrix_native_completion()
