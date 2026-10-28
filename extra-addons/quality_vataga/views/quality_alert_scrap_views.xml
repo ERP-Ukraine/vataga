@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="quality_alert_scrap_form" model="ir.ui.view">
+        <field name="name">quality.alert.scrap.readiness</field>
+        <field name="model">quality.alert</field>
+        <field name="inherit_id" ref="quality_vataga.quality_alert_board_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//page[@name='vataga_matrix_failure_history']" position="after">
+                <page name="vataga_scrap" string="Списання браку" invisible="decision_type != 'scrap'">
+                    <group>
+                        <field name="vataga_scrap_status" readonly="1"/>
+                    </group>
+                    <div class="alert alert-warning" role="status">
+                        <field name="vataga_scrap_block_reason" readonly="1" nolabel="1" class="w-100 text-break"/>
+                    </div>
+                    <p>Факт списання не підтверджено. Новий Scrap та дозамовлення з цього Alert не створюються. Вироби залишаються на утриманні.</p>
+                    <field name="vataga_failure_sample_ids" readonly="1" nolabel="1">
+                        <tree create="0" edit="0" delete="0">
+                            <field name="controlled_unit_id"/>
+                            <field name="sample_number"/>
+                            <field name="sample_result"/>
+                        </tree>
+                    </field>
+                </page>
+            </xpath>
+        </field>
+    </record>
+</odoo>

@@ -73,6 +73,7 @@ class QualityAlert(models.Model):
         ('accept_as_is', 'Прийняти як є'),
         ('full_control', 'Суцільний контроль'),
         ('repair', 'Ремонт/Доопрацювання'),
+        ('scrap', 'Списання браку'),
         ('return_supplier', 'Повернути постачальнику'),
     ], string='Рішення Технічної ради', tracking=True, copy=False)
     approval_user_id = fields.Many2one(

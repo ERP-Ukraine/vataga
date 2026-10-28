@@ -102,6 +102,18 @@ class TestQualityAlertViewContract(unittest.TestCase):
         self.assertEqual(wizard.xpath('//button[@special="cancel"]/@string'), ['Закрити'])
         self.assertFalse(wizard.xpath('//field[@name="quality_state"]'))
 
+    def test_scrap_waiting_page_is_addressed_readonly_and_not_an_execution_form(self):
+        scrap = etree.parse(str(ROOT / 'views/quality_alert_scrap_views.xml'))
+        self.assertFalse(scrap.xpath('//notebook|//button'))
+        page = scrap.xpath("//page[@name='vataga_scrap']")[0]
+        self.assertEqual(page.getparent().get('expr'), "//page[@name='vataga_matrix_failure_history']")
+        self.assertEqual(len(self.form.xpath(page.getparent().get('expr'))), 1)
+        self.assertEqual(page.get('invisible'), "decision_type != 'scrap'")
+        for name in ('vataga_scrap_status', 'vataga_scrap_block_reason', 'vataga_failure_sample_ids'):
+            self.assertEqual(page.xpath(".//field[@name='%s']/@readonly" % name), ['1'])
+        self.assertFalse(page.xpath('.//field[@name="scrap_qty"]|.//field[@name="product_qty"]'))
+        self.assertEqual(page.xpath('.//tree/field/@name'), ['controlled_unit_id', 'sample_number', 'sample_result'])
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -20,3 +20,5 @@ from . import test_quality_technical_board
 from . import test_quality_alert_lifecycle
 from . import test_quality_alert_view_contract
 from . import test_quality_alert_repair
+from . import test_quality_alert_scrap
+from . import test_stock_scrap_native_contract

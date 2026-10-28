@@ -88,6 +88,9 @@ class QualityAlertRepair(models.Model):
         return super()._lock_board_records()
 
     def _repair_scope(self):
+        return self._matrix_resolution_scope()
+
+    def _matrix_resolution_scope(self):
         """The frozen Alert scope, not today's FAIL set or MO.qty_producing."""
         self.ensure_one()
         self.check_access_rights('read')
@@ -99,7 +102,7 @@ class QualityAlertRepair(models.Model):
         samples.check_access_rights('read')
         samples.check_access_rule('read')
         scope_error = _(
-            'Для ремонту потрібна визначена сфера Alert: ідентифіковані QUNIT '
+            'Для виконання рішення ТР потрібна визначена сфера Alert: ідентифіковані QUNIT '
             'одного MO та зареєстрованого запуску відповідної операції. '
             'Для старого Alert спочатку уточніть проблемні зразки.')
         if not check or check.x_control_stage != 'in_process' or not samples:
