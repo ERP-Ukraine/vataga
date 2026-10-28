@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="quality_alert_repair_form" model="ir.ui.view">
+        <field name="name">quality.alert.repair</field>
+        <field name="model">quality.alert</field>
+        <field name="inherit_id" ref="quality_vataga.quality_alert_board_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//group[@name='technical_board_action']" position="inside">
+                <button name="action_open_repair_confirmation" type="object"
+                        string="Підтвердити доопрацювання" groups="quality.group_quality_user"
+                        invisible="decision_type != 'repair' or not is_approved or not is_board_execution_stage or vataga_repair_done_at"/>
+                <button name="action_create_repair_check" type="object"
+                        string="Повторний контроль ремонту" groups="quality.group_quality_user"
+                        invisible="decision_type != 'repair' or not is_board_execution_stage or not vataga_repair_done_at"/>
+            </xpath>
+            <xpath expr="//page[@name='vataga_matrix_failure_history']" position="after">
+                <page name="vataga_repair" string="Ремонт/Доопрацювання" invisible="decision_type != 'repair'">
+                    <field name="vataga_failure_sample_ids" readonly="1" nolabel="1">
+                        <tree create="0" edit="0" delete="0">
+                            <field name="controlled_unit_id"/>
+                            <field name="sample_number"/>
+                            <field name="sample_result"/>
+                        </tree>
+                    </field>
+                    <group>
+                        <field name="vataga_repair_done_by_id" readonly="1"/>
+                        <field name="vataga_repair_done_at" readonly="1"/>
+                        <field name="vataga_repair_closed_check_id" readonly="1"/>
+                    </group>
+                    <field name="vataga_repair_note" nolabel="1" readonly="1" class="w-100 text-break"/>
+                    <field name="vataga_repair_check_ids" readonly="1" nolabel="1">
+                        <tree create="0" edit="0" delete="0">
+                            <field name="name"/>
+                            <field name="operation_run_id"/>
+                            <field name="in_process_sample_quantity"/>
+                            <field name="x_passed_qty"/>
+                            <field name="x_failed_qty"/>
+                            <field name="x_pending_qty"/>
+                            <field name="quality_state"/>
+                        </tree>
+                    </field>
+                </page>
+            </xpath>
+        </field>
+    </record>
+    <record id="quality_check_repair_form" model="ir.ui.view">
+        <field name="name">quality.check.repair</field>
+        <field name="model">quality.check</field>
+        <field name="inherit_id" ref="quality_vataga.quality_check_view_form_measurement_matrix"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet" position="inside">
+                <group name="vataga_repair_origin" invisible="not vataga_repair_alert_id">
+                    <field name="vataga_repair_alert_id" readonly="1" options="{'no_create': True}"/>
+                </group>
+            </xpath>
+        </field>
+    </record>
+</odoo>

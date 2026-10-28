@@ -327,10 +327,15 @@ class MrpProductivityTransferBoundary(models.Model):
 class QualityCheckTransferIdentityBoundary(models.Model):
     _inherit = 'quality.check'
 
+    def _is_repair_identification(self, mode, mapping, run, workorder):
+        return False
+
     def _identify_samples_locked(self, mode, mapping, run, workorder, confirmed):
         # Downstream registration would otherwise let an unknown Shop Floor
         # path treat receipt as processing. Do not create a second QUNIT or
         # resize the frozen batch to simulate partial execution.
-        if not self.operation_run_id and not self._is_execution_identification(mode, mapping, run, workorder):
+        if (not self.operation_run_id
+                and not self._is_execution_identification(mode, mapping, run, workorder)
+                and not self._is_repair_identification(mode, mapping, run, workorder)):
             self._identity_production()._check_quality_transfer_boundary()
         return super()._identify_samples_locked(mode, mapping, run, workorder, confirmed)

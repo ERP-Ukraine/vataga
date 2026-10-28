@@ -72,6 +72,7 @@ class QualityAlert(models.Model):
     decision_type = fields.Selection([
         ('accept_as_is', 'Прийняти як є'),
         ('full_control', 'Суцільний контроль'),
+        ('repair', 'Ремонт/Доопрацювання'),
         ('return_supplier', 'Повернути постачальнику'),
     ], string='Рішення Технічної ради', tracking=True, copy=False)
     approval_user_id = fields.Many2one(
@@ -233,7 +234,19 @@ class QualityAlert(models.Model):
         self.ensure_one()
         closed = self.env.ref(CLOSED_STAGE_XMLID, False)
         return bool(closed and self.stage_id == closed and self.vataga_closed_by_id and self.vataga_closed_at
-                    and not self._requires_production_resolution())
+                    and self._production_resolution_complete())
+
+    def _production_resolution_complete(self):
+        self.ensure_one()
+        return not self._requires_production_resolution()
+
+    def _validate_production_resolution(self):
+        self.ensure_one()
+        raise UserError(_('Міжопераційний Alert потребує підтвердженої процедури етапу 13.4. PASS або рішення ТР не замінюють виконання ремонту / списання.'))
+
+    def _get_alert_closure_values(self):
+        self.ensure_one()
+        return {}
 
     def _requires_production_resolution(self):
         self.ensure_one()
@@ -251,10 +264,9 @@ class QualityAlert(models.Model):
         if (self.stage_id != self.env.ref(BOARD_STAGE_XMLIDS[2])
                 or not self.is_approved or not self.approved_by_id or not self.approved_at):
             raise UserError(_('Закриття можливе лише після затвердження на стадії «Виконання рішення».'))
-        # A corrected matrix or an approved decision is not execution of the
-        # still missing repair/scrap/replacement procedures of stage 13.4.
         if self._requires_production_resolution():
-            raise UserError(_('Міжопераційний Alert не закривають до реалізації та підтвердження процедур ремонту / списання етапу 13.4. PASS або рішення ТР не замінюють ці процедури.'))
+            self._validate_production_resolution()
+            return
         if self.decision_type == 'full_control':
             lines = self.full_control_line_ids
             lines._check_quantities()
@@ -278,6 +290,7 @@ class QualityAlert(models.Model):
             return True
         self._validate_alert_closure()
         super(QualityAlert, self).write({
+            **self._get_alert_closure_values(),
             'stage_id': self.env.ref(CLOSED_STAGE_XMLID).id,
             'vataga_closed_by_id': self.env.uid, 'vataga_closed_at': fields.Datetime.now(),
         })

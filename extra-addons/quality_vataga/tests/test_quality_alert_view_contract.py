@@ -66,6 +66,42 @@ class TestQualityAlertViewContract(unittest.TestCase):
             self.assertEqual(nodes[0].get('readonly'), '1')
         self.assertEqual(self.form.xpath("//field[@name='full_control_line_ids']/@readonly"), ['vataga_closed_at'])
 
+    def test_repair_page_uses_existing_main_notebook_and_protected_fields(self):
+        repair = etree.parse(str(ROOT / 'views/quality_alert_repair_views.xml'))
+        self.assertFalse(repair.xpath('//notebook'))
+        page = repair.xpath("//page[@name='vataga_repair']")[0]
+        self.assertEqual(page.getparent().get('expr'), "//page[@name='vataga_matrix_failure_history']")
+        self.assertEqual(len(self.form.xpath(page.getparent().get('expr'))), 1)
+        self.assertEqual(page.get('invisible'), "decision_type != 'repair'")
+        for name in ('vataga_repair_done_by_id', 'vataga_repair_done_at',
+                     'vataga_repair_note', 'vataga_repair_closed_check_id', 'vataga_repair_check_ids'):
+            self.assertEqual(page.xpath(".//field[@name='%s']/@readonly" % name), ['1'])
+        for tree in page.xpath('.//tree'):
+            self.assertEqual([tree.get(name) for name in ('create', 'edit', 'delete')], ['0', '0', '0'])
+
+    def test_repair_view_inheritance_anchors_match_module_views(self):
+        repair = etree.parse(str(ROOT / 'views/quality_alert_repair_views.xml'))
+        parents = {
+            'quality_vataga.quality_alert_board_form': self.form,
+            'quality_vataga.quality_check_view_form_measurement_matrix': etree.parse(str(ROOT / 'views/quality_check_views.xml')),
+        }
+        for record in repair.xpath('//record'):
+            parent = parents[record.xpath("./field[@name='inherit_id']/@ref")[0]]
+            for xpath in record.xpath("./field[@name='arch']/xpath"):
+                # The QC patch targets the actual Enterprise sheet. Its parent
+                # already uses that same anchor; Enterprise compilation is ORM-tested.
+                if xpath.get('expr') == '//sheet':
+                    self.assertTrue(parent.xpath('//xpath[@expr="//sheet"]'))
+                else:
+                    self.assertEqual(len(parent.xpath(xpath.get('expr'))), 1)
+
+    def test_repair_wizard_declares_exact_scope_and_no_manual_result_controls(self):
+        wizard = etree.parse(str(ROOT / 'wizard/quality_alert_repair_views.xml'))
+        self.assertEqual(wizard.xpath("//field[@name='sample_ids']/@readonly"), ['1'])
+        self.assertEqual(wizard.xpath('//button[@type="object"]/@name'), ['action_apply'])
+        self.assertEqual(wizard.xpath('//button[@special="cancel"]/@string'), ['Закрити'])
+        self.assertFalse(wizard.xpath('//field[@name="quality_state"]'))
+
 
 if __name__ == '__main__':
     unittest.main()

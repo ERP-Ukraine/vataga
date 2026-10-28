@@ -340,7 +340,7 @@ class QualityTransferExecution(models.Model):
         previous = self.browse([row[0] for row in self.env.cr.fetchall()])
         previous.check_access_rights('write')
         previous.check_access_rule('write')
-        executions = admission.check_id.quality_execution_ids.filtered(lambda row: row.controlled_unit_id == admission.controlled_unit_id)
+        executions = admission.check_id._get_route_execution_evidence().filtered(lambda row: row.controlled_unit_id == admission.controlled_unit_id)
         if len(previous) != 1 or previous.state != 'received' or previous.destination_workorder_id != admission.workorder_id or len(executions) != 1 or executions.state != 'processed' or executions.transfer_id != previous or executions.workorder_id != admission.workorder_id:
             raise ValidationError(_('Передача далі потребує підтвердженої обробки цього QUNIT та нового контролю цієї операції.'))
         # The factory already holds the shared MO revision lock. Keep the
@@ -407,6 +407,10 @@ class QualityCheckExecutionLock(models.Model):
     _inherit = 'quality.check'
 
     quality_execution_ids = fields.Many2many('quality.unit.execution', 'quality_check_execution_rel', 'check_id', 'execution_id', readonly=True, copy=False)
+
+    def _get_route_execution_evidence(self):
+        self.ensure_one()
+        return self.quality_execution_ids
 
     @api.model_create_multi
     def create(self, vals_list):

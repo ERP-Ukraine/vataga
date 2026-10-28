@@ -6,3 +6,4 @@ from . import quality_unit_release_wizard
 from . import quality_unit_stock_release_wizard
 from . import quality_stock_timer_binding
 from . import quality_matrix_failure_scope
+from . import quality_alert_repair
