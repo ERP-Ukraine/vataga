@@ -239,3 +239,24 @@ class MrpProductionUnitRelease(models.Model):
 
     def action_open_unit_release_cancel_wizard(self):
         archive_disabled()
+
+
+class QualityReleaseEvidenceAlert(models.Model):
+    _inherit = 'quality.alert'
+
+    quality_release_scope_unit_id = fields.Many2one('quality.production.unit', string='QUNIT рішення Технічної ради', readonly=True, copy=False, ondelete='restrict')
+    quality_release_scope_check_id = fields.Many2one('quality.check', readonly=True, copy=False, ondelete='restrict')
+
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        protected = {'quality_release_scope_unit_id', 'quality_release_scope_check_id'}
+        if any(protected.intersection(vals) for vals in vals_list):
+            raise UserError(_('Поіменну сферу затвердженого рішення фіксує система.'))
+        context = {key: value for key, value in self.env.context.items() if key not in {'default_' + name for name in protected}}
+        return super(QualityReleaseEvidenceAlert, self.with_context(context)).create(vals_list)
+
+    def write(self, vals):
+        if {'quality_release_scope_unit_id', 'quality_release_scope_check_id'}.intersection(vals):
+            raise UserError(_('Поіменна сфера затвердженого рішення незмінна.'))
+        return super().write(vals)

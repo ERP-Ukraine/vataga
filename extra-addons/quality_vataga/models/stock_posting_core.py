@@ -3,7 +3,7 @@
 import json
 
 from odoo import _, api, fields, models
-from odoo.exceptions import AccessError, UserError
+from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.osv import expression
 
 from .quality_release_access import check_stock_release_roles
@@ -21,25 +21,6 @@ def packed(value):
 def access(records, operation='read'):
     records.check_access_rights(operation)
     records.check_access_rule(operation)
-
-
-def production_sources(production, model, clause):
-    records = production.env[model]
-    records.flush_model()
-    production.env.cr.execute('SELECT id FROM "%s" WHERE %s ORDER BY id' % (records._table, clause),
-                              [production.id] * clause.count('%s'))
-    records = records.browse([row[0] for row in production.env.cr.fetchall()])
-    access(records)
-    return records
-
-
-def move_sources(moves, model, field):
-    records = moves.env[model]
-    records.flush_model()
-    moves.env.cr.execute('SELECT id FROM "%s" WHERE "%s" IN %%s ORDER BY id' % (records._table, field), [tuple(moves.ids) or (0,)])
-    records = records.browse([row[0] for row in moves.env.cr.fetchall()])
-    access(records)
-    return records
 
 
 class StockPostingProtected(models.AbstractModel):
@@ -211,6 +192,25 @@ class MrpStockKernelBoundary(models.Model):
     _inherit = 'mrp.production'
 
     quality_stock_revision = fields.Integer(readonly=True, copy=False)
+
+    def _check_no_posted_stock_history(self):
+        """Retired adapter cannot authorize continuation of a posted MO.
+
+        Empty staging history is not evidence about another database. Check
+        archived receipts and native done moves without reconciling costs or
+        granting any exception to native manufacturing guards.
+        """
+        self.ensure_one()
+        access(self)
+        self.env.flush_all()
+        self.env.cr.execute("""SELECT
+            EXISTS(SELECT 1 FROM quality_stock_posting WHERE production_id=%s)
+            OR EXISTS(SELECT 1 FROM stock_move WHERE
+                (production_id=%s OR raw_material_production_id=%s) AND state='done')
+        """, [self.id, self.id, self.id])
+        if self.env.cr.fetchone()[0] or self.qty_produced:
+            raise ValidationError(_('MO вже має складську історію або вироблену кількість. Продовження поштучного маршруту потребує перевіреної міграції; архівний адаптер вимкнено.'))
+        return True
 
     @api.model_create_multi
     def create(self, vals_list):

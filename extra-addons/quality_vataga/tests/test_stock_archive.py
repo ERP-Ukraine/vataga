@@ -8,10 +8,12 @@ import importlib.util
 from pathlib import Path
 
 from psycopg2.extras import Json
+from psycopg2.errors import ReadOnlySqlTransaction
 
 from odoo import Command
 from odoo.exceptions import AccessError, UserError
 from odoo.tests import tagged
+from odoo.tools import mute_logger
 
 from .test_stock_release_native_contract import StockReleaseNativeCase
 
@@ -165,3 +167,82 @@ class TestStockArchive(StockReleaseNativeCase):
         for name in names[1:]:
             self.assertTrue(self.env['ir.model.data'].search([('module', '=', 'quality_vataga'), ('name', '=', name)]).noupdate)
         self.assertEqual((posting.read(), posting.line_ids.read(), production.qty_produced, self._stock()), before)
+
+    def test_unposted_mo_continuation_guard_does_not_change_quantities(self):
+        production = self._production()
+        before = (production.state, production.product_qty, production.qty_producing,
+                  production.qty_produced, self._stock(), production.move_raw_ids.read(),
+                  production.move_finished_ids.read(), production.workorder_ids.mapped('state'))
+        self.assertTrue(production._check_no_posted_stock_history())
+        self.assertTrue(production._check_no_posted_stock_history())
+        self.assertEqual((production.state, production.product_qty, production.qty_producing,
+                          production.qty_produced, self._stock(), production.move_raw_ids.read(),
+                          production.move_finished_ids.read(), production.workorder_ids.mapped('state')), before)
+
+    def test_old_migration_handles_missing_scope_table_and_preserves_history(self):
+        _, posting, _, _ = self._history()
+        path = Path(__file__).resolve().parents[1] / 'migrations/17.0.2.41/pre-migration.py'
+        spec = importlib.util.spec_from_file_location('archive_scope_legacy_migration', path)
+        migration = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(migration)
+        before = posting.scope_id.read()
+        migration.migrate(self.env.cr, '17.0.2.40')
+        migration.migrate(self.env.cr, '17.0.2.40')
+        self.assertEqual(posting.scope_id.read(), before)
+        self.env.cr.execute('SHOW search_path')
+        previous_path = self.env.cr.fetchone()[0]
+        # Disposable transactional schema represents an older installation
+        # without this table. No business table is dropped or renamed.
+        with self.env.cr.savepoint():
+            self.env.cr.execute('CREATE SCHEMA quality_archive_missing_table_test')
+            try:
+                self.env.cr.execute('SET LOCAL search_path TO quality_archive_missing_table_test')
+                migration.migrate(self.env.cr, '17.0.2.37')
+                self.env.cr.execute("SELECT to_regclass('quality_stock_cost_scope')")
+                self.assertIsNone(self.env.cr.fetchone()[0])
+            finally:
+                self.env.cr.execute('SELECT set_config(%s, %s, true)', ['search_path', previous_path])
+
+    def test_legacy_receipt_cannot_authorize_continuation(self):
+        production, posting, _, _ = self._history()
+        before = (self._stock(), production.qty_produced, posting.line_ids.ids)
+        with self.assertRaises(UserError):
+            production._check_no_posted_stock_history()
+        self.assertEqual((self._stock(), production.qty_produced, posting.line_ids.ids), before)
+
+    def test_native_posting_without_legacy_receipt_also_blocks_continuation(self):
+        production = self._production(quantity=1)
+        production.qty_producing = 1
+        production.move_raw_ids.write({'quantity': 2, 'picked': True})
+        production.button_mark_done()
+        self.assertFalse(self.env['quality.stock.posting'].search([('production_id', '=', production.id)]))
+        with self.assertRaises(UserError):
+            production._check_no_posted_stock_history()
+        self.assertEqual((self._stock(), production.qty_produced), ((18, 1), 1))
+
+    def test_history_of_another_mo_does_not_block_unposted_mo(self):
+        self._history()
+        production = self._production()
+        self.assertTrue(production._check_no_posted_stock_history())
+        self.assertEqual(production.qty_produced, 0)
+
+    @mute_logger('odoo.sql_db')
+    def test_inventory_reads_real_foreign_keys_but_cannot_write(self):
+        path = Path(__file__).resolve().parents[1] / 'scripts/quality_archive_inventory.py'
+        spec = importlib.util.spec_from_file_location('quality_archive_inventory_test', path)
+        inventory = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(inventory)
+        # A separate cursor sees committed schema, never test fixture rows.
+        with self.registry.cursor() as readonly_cr:
+            readonly_cr.execute('SET TRANSACTION READ ONLY')
+            report = inventory.collect_inventory(readonly_cr, 'NO-SUCH-MO-INVENTORY-TEST')
+            self.assertTrue(report['read_only'])
+            self.assertFalse(report['destructive_cleanup_authorized'])
+            self.assertFalse(report['mo_identity_unambiguous'])
+            self.assertEqual(len(report['archive_models']), 14)
+            self.assertEqual(report['all_nine_present_and_empty'],
+                             all(row['rows'] == 0 for row in report['archive_models'] if not row['transient']))
+            self.assertTrue(any(row['source_table'] == 'quality_stock_posting' and
+                                row['target_table'] == 'quality_stock_cost_scope' for row in report['foreign_keys']))
+            with self.assertRaises(ReadOnlySqlTransaction), readonly_cr.savepoint(flush=False):
+                readonly_cr.execute('UPDATE quality_stock_posting SET component_cost=component_cost')

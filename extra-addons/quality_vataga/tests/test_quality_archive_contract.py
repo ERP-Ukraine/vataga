@@ -10,7 +10,6 @@ from lxml import etree
 ROOT = Path(__file__).resolve().parents[1]
 # Includes computed definitions too: this cleanup must not alter field schemas.
 FIELD_CONTRACTS = {
-    'models/quality_release_evidence.py': 'a89cd74754d022b16fd280b3fbddc428020891063ebdce877d31140356efa136',
     'models/quality_stock_posting.py': '44c4322a63b6eb0cfe3533134e9b10c603575d5b40ee7a3f8a497804c616f8ef',
     'models/quality_unit_release.py': '164893b5a67fee0a4c23ad2723d8898334e0afeeca1790b160076769e4161dbb',
     'models/quality_unit_release_readiness.py': '6dc26e6e33deb5b7b8cf7bc3e448a0f642961b2d0686ed4659ca164d620e5d33',
@@ -21,6 +20,7 @@ FIELD_CONTRACTS = {
     'wizard/quality_unit_release_wizard.py': '4b052c3d164d3fea6ccd2df3f91a3f30436a2cd7ecffe92d98b7f8b39ffc3edc',
     'wizard/quality_unit_stock_release_wizard.py': 'a31b2e017eb795ac5e4a0d7ef6a71ec4c73c5ddcd51209571ac8e1151ce6e62f',
 }
+MOVED_FIELDS = ('quality_release_mo_quantity_label', 'quality_release_scope_unit_id', 'quality_release_scope_check_id')
 
 
 class TestQualityArchiveSchema(unittest.TestCase):
@@ -32,8 +32,21 @@ class TestQualityArchiveSchema(unittest.TestCase):
                           if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)
                           and isinstance(node.value.func, ast.Attribute)
                           and isinstance(node.value.func.value, ast.Name)
-                          and node.value.func.value.id == 'fields']
+                          and node.value.func.value.id == 'fields'
+                          and node.targets[0].id not in MOVED_FIELDS]
                 self.assertEqual(hashlib.sha256('\n'.join(fields).encode()).hexdigest(), expected)
+
+    def test_moved_fields_keep_the_original_schema(self):
+        definitions = {}
+        for name in ('models/quality_check_identity.py', 'models/quality_unit_release.py'):
+            tree = ast.parse((ROOT / name).read_text(encoding='utf-8-sig'))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name) and node.targets[0].id in MOVED_FIELDS:
+                    self.assertNotIn(node.targets[0].id, definitions)
+                    definitions[node.targets[0].id] = ast.dump(node, include_attributes=False)
+        digest = hashlib.sha256('\n'.join(definitions[name] for name in MOVED_FIELDS).encode()).hexdigest()
+        self.assertEqual(digest, 'a89cd74754d022b16fd280b3fbddc428020891063ebdce877d31140356efa136')
+        self.assertFalse((ROOT / 'models/quality_release_evidence.py').exists())
 
     def test_archive_acl_rows_are_read_only(self):
         with (ROOT / 'security/ir.model.access.csv').open(encoding='utf-8') as stream:
@@ -53,7 +66,7 @@ class TestQualityArchiveSchema(unittest.TestCase):
 
     def test_manifest_paths_and_relative_imports_resolve(self):
         manifest = ast.literal_eval((ROOT / '__manifest__.py').read_text(encoding='utf-8'))
-        self.assertEqual(manifest['version'], '17.0.2.46')
+        self.assertEqual(manifest['version'], '17.0.2.47')
         for path in manifest['data']:
             self.assertTrue((ROOT / path).is_file(), path)
             self.assertNotIn(path, ('wizard/quality_unit_release_views.xml',
@@ -101,6 +114,24 @@ class TestQualityArchiveSchema(unittest.TestCase):
         api = definitions['_post_plan']
         self.assertEqual(len(api.body), 2)  # docstring + unconditional guard
         self.assertEqual(api.body[-1].value.func.attr, '_require_enterprise_validation')
+
+    def test_transfer_continuation_delegates_to_the_fail_closed_guard(self):
+        tree = ast.parse((ROOT / 'models/quality_stock_continuation.py').read_text(encoding='utf-8-sig'))
+        method = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == '_check_named_stock_history')
+        self.assertEqual(len(method.body), 2)
+        self.assertEqual(method.body[0].value.func.attr, '_check_no_posted_stock_history')
+        methods = {node.name for node in ast.walk(ast.parse((ROOT / 'models/stock_posting_core.py').read_text(encoding='utf-8-sig')))
+                   if isinstance(node, ast.FunctionDef)}
+        self.assertIn('_check_no_posted_stock_history', methods)
+        self.assertNotIn('production_sources', methods)
+        self.assertNotIn('move_sources', methods)
+
+    def test_inventory_has_no_schema_or_data_mutation_statements(self):
+        tree = ast.parse((ROOT / 'scripts/quality_archive_inventory.py').read_text(encoding='utf-8'))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                statement = node.value.strip().upper()
+                self.assertFalse(statement.startswith(('DROP ', 'DELETE ', 'UPDATE ', 'INSERT ', 'ALTER ', 'TRUNCATE ')), node.value)
 
     def test_migration_only_updates_ui_metadata(self):
         tree = ast.parse((ROOT / 'migrations/17.0.2.46/pre-migration.py').read_text(encoding='utf-8'))

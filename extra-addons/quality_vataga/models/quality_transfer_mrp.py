@@ -32,7 +32,7 @@ class MrpProductionTransfer(models.Model):
         self.modified(['quality_transfer_revision'])
         return controlled
 
-    def _check_quality_transfer_boundary(self, purpose=None):
+    def _check_quality_transfer_boundary(self):
         if self._lock_quality_transfer_scope():
             raise UserError(_(BOUNDARY_MESSAGE))
 
@@ -64,7 +64,7 @@ class MrpProductionTransfer(models.Model):
             'product_id', 'company_id', 'bom_id', 'workorder_ids', 'move_raw_ids',
             'move_finished_ids', 'lot_producing_id', 'backorder_sequence', 'allow_workorder_dependencies',
         }.intersection(vals):
-            self._check_quality_transfer_boundary(purpose='final_production' if set(vals) <= {'state', 'date_finished', 'is_locked'} else None)
+            self._check_quality_transfer_boundary()
         return super().write(vals)
 
     def unlink(self):
@@ -137,7 +137,7 @@ class MrpWorkorderTransferBoundary(models.Model):
             'blocked_by_workorder_ids', 'needed_by_workorder_ids', 'operation_id',
             'move_raw_ids', 'move_finished_ids', 'move_line_ids', 'finished_lot_id', 'time_ids',
         }.intersection(vals) or 'state' in vals:
-            self._quality_transfer_relation_productions(vals)._check_quality_transfer_boundary(purpose='final_workorder' if set(vals) <= {'state', 'qty_produced', 'date_finished', 'date_start', 'costs_hour'} else None)
+            self._quality_transfer_relation_productions(vals)._check_quality_transfer_boundary()
         return super().write(vals)
 
     def unlink(self):
@@ -214,7 +214,7 @@ class StockMoveTransferBoundary(models.Model):
             defaults = {name: self.env.context.get('default_' + name) for name in ('production_id', 'raw_material_production_id', 'workorder_id')}
             if vals.get('state') == 'done':
                 self.browse()._quality_transfer_productions(dict(defaults, **vals))._check_matrix_native_completion()
-            self.browse()._quality_transfer_productions(dict(defaults, **vals))._check_quality_transfer_boundary(purpose='stock_move')
+            self.browse()._quality_transfer_productions(dict(defaults, **vals))._check_quality_transfer_boundary()
         return super().create(vals_list)
 
     def write(self, vals):
@@ -225,16 +225,16 @@ class StockMoveTransferBoundary(models.Model):
             'production_id', 'raw_material_production_id', 'workorder_id', 'product_id',
             'location_id', 'location_dest_id',
         }.intersection(vals) or vals.get('state') in ('done', 'cancel'):
-            self._quality_transfer_productions(vals)._check_quality_transfer_boundary(purpose='stock_move')
+            self._quality_transfer_productions(vals)._check_quality_transfer_boundary()
         return super().write(vals)
 
     def unlink(self):
-        self._quality_transfer_productions()._check_quality_transfer_boundary(purpose='stock_move')
+        self._quality_transfer_productions()._check_quality_transfer_boundary()
         return super().unlink()
 
     def _action_done(self, cancel_backorder=False):
         self._quality_transfer_productions()._check_matrix_native_completion()
-        self._quality_transfer_productions()._check_quality_transfer_boundary(purpose='stock_move')
+        self._quality_transfer_productions()._check_quality_transfer_boundary()
         return super()._action_done(cancel_backorder=cancel_backorder)
 
 
@@ -250,17 +250,17 @@ class StockMoveLineTransferBoundary(models.Model):
     def create(self, vals_list):
         for vals in vals_list:
             defaults = {name: self.env.context.get('default_' + name) for name in ('move_id', 'production_id', 'workorder_id')}
-            self.browse()._quality_transfer_productions(dict(defaults, **vals))._check_quality_transfer_boundary(purpose='stock_line')
+            self.browse()._quality_transfer_productions(dict(defaults, **vals))._check_quality_transfer_boundary()
         return super().create(vals_list)
 
     def write(self, vals):
         # Include both old and new parent moves so detaching a line cannot
         # evade the boundary. Even a direct ORM quantity write is protected.
-        self._quality_transfer_productions(vals)._check_quality_transfer_boundary(purpose='stock_line')
+        self._quality_transfer_productions(vals)._check_quality_transfer_boundary()
         return super().write(vals)
 
     def unlink(self):
-        self._quality_transfer_productions()._check_quality_transfer_boundary(purpose='stock_line')
+        self._quality_transfer_productions()._check_quality_transfer_boundary()
         return super().unlink()
 
 

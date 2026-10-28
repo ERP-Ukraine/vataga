@@ -216,3 +216,22 @@ class QualityCheckIdentity(models.Model):
             row['controlled_unit_id'] = unit.id or False
             row['controlled_unit_name'] = unit.name or ''
         return data
+
+
+def release_quantity_dependencies(model):
+    dependencies = ['production_id', 'production_id.product_qty', 'production_id.product_uom_id']
+    if 'workorder_id' in model._fields:
+        dependencies += ['workorder_id', 'workorder_id.production_id.product_qty', 'workorder_id.production_id.product_uom_id']
+    return dependencies
+
+
+class QualityReleaseEvidenceCheck(models.Model):
+    _inherit = 'quality.check'
+
+    quality_release_mo_quantity_label = fields.Char(string='Кількість товару у виробничому замовленні', compute='_compute_release_mo_quantity_label')
+
+    @api.depends(release_quantity_dependencies)
+    def _compute_release_mo_quantity_label(self):
+        for check in self:
+            production = check._identity_production()
+            check.quality_release_mo_quantity_label = check._format_operation_product_quantity(production.product_qty, production.product_uom_id) if production else False

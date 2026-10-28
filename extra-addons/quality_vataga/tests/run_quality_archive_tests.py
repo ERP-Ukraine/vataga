@@ -46,9 +46,10 @@ def main():
             (addon / 'models').mkdir(parents=True)
             (addon / 'tests').mkdir()
             (addon / 'security').mkdir()
+            (addon / 'scripts').mkdir()
             (addon / '__manifest__.py').write_text(repr({
                 'name': 'Disposable native stock archive tests',
-                'version': '17.0.2.46',
+                'version': '17.0.2.47',
                 'depends': ['mrp_account'], 'license': 'LGPL-3',
                 'data': ['security/stock_posting.xml', 'security/ir.model.access.csv'],
             }), encoding='utf-8')
@@ -68,9 +69,11 @@ def main():
                     'access_stock_cost_scope', 'access_stock_posting', 'access_stock_posting_line', 'access_stock_cost_allocation',
                 })
             shutil.copyfile(root / 'security' / 'stock_posting.xml', addon / 'security' / 'stock_posting.xml')
-            migration = Path('migrations/17.0.2.46/pre-migration.py')
-            (addon / migration.parent).mkdir(parents=True)
-            shutil.copyfile(root / migration, addon / migration)
+            for version in ('17.0.2.41', '17.0.2.46'):
+                migration = Path('migrations') / version / 'pre-migration.py'
+                (addon / migration.parent).mkdir(parents=True)
+                shutil.copyfile(root / migration, addon / migration)
+            shutil.copyfile(root / 'scripts/quality_archive_inventory.py', addon / 'scripts/quality_archive_inventory.py')
             result = subprocess.run([
                 sys.executable, str(source / 'odoo-bin'), '-d', database,
                 '--db_host=127.0.0.1', '--db_port=' + str(args.port), '--db_user=' + os.environ['PGUSER'],
