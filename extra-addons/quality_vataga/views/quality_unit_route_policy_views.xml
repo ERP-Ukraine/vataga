@@ -10,12 +10,12 @@
                 <button name="action_require_quality_unit_route" type="object"
                     string="Вимагати поштучний маршрут" groups="quality.group_quality_manager"
                     invisible="quality_unit_route_required or state in ('done', 'cancel')"
-                    confirm="Увімкнути незворотний поштучний режим цього MO? Потрібні QRUN/QUNIT, допуски та повний маршрут. Користувацький складський випуск залишається закритим до Enterprise-перевірки."/>
+                    confirm="Увімкнути незворотний поштучний режим цього MO? Потрібні QRUN/QUNIT, допуски та повний маршрут. Повний складський випуск потребує окремого дозволу staging-тесту цього MO."/>
             </xpath>
             <xpath expr="//sheet" position="inside">
                 <div class="alert alert-warning" invisible="not quality_unit_route_required">
                     Обов’язковий поштучний маршрут. PASS матриці не замінює QRUN/QUNIT та допуск інспектора.
-                    Стандартне завершення та складський випуск заборонені; користувацький поштучний випуск ще закритий.
+                    Стандартне завершення заборонене. Готову всю партію випускають через «Повний випуск QUNIT» після окремого дозволу staging-тесту адміністратором.
                 </div>
             </xpath>
         </field>

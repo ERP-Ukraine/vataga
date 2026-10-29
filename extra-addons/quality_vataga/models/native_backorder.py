@@ -118,14 +118,14 @@ class NativeBackorderProduction(models.Model):
         original_quantity = self.product_qty
         if (self.qty_produced or self.state not in ('confirmed', 'progress', 'to_close')
                 or not 0 < operation.quantity <= original_quantity
-                or self.picking_type_id.create_backorder != 'ask'
+                or (operation.quantity < original_quantity and self.picking_type_id.create_backorder != 'ask')
                 or self.product_id.type != 'product'
                 or self.product_id.tracking != 'none'
                 or self.move_byproduct_ids
                 or self.move_raw_ids.filtered(lambda move: move.manual_consumption)):
             raise ValidationError(_(
-                'Потрібен відкритий MO без попереднього випуску, з явним Backorder '
-                '«Запитувати», без tracking/побічної продукції та ручного споживання.'))
+                'Потрібен відкритий MO без попереднього випуску, без tracking/побічної продукції '
+                'та ручного споживання. Для неповної партії потрібен Backorder «Запитувати».'))
         for move in self.move_raw_ids.filtered('picked'):
             expected = float_round(operation.quantity * move.unit_factor, precision_rounding=move.product_uom.rounding)
             if float_compare(move.quantity, expected, precision_rounding=move.product_uom.rounding):

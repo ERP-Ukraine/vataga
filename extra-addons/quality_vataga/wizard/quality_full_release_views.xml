@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="quality_full_release_wizard_form" model="ir.ui.view">
+        <field name="name">quality.full.release.wizard.form</field>
+        <field name="model">quality.full.release.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Повний випуск QUNIT — staging-тест" create="0" delete="0">
+                <div class="alert alert-warning">Ця дія реально спише компоненти та проведе всю партію на склад. Частковий випуск і Backorder не дозволені. Перевірте всі ідентифікатори.</div>
+                <group><field name="production_id"/><field name="request_key" invisible="1"/></group>
+                <field name="unit_ids" readonly="1">
+                    <tree create="0" edit="0" delete="0"><field name="name"/><field name="production_id"/><field name="company_id"/></tree>
+                </field>
+                <field name="confirmed"/>
+                <footer>
+                    <button name="action_confirm" type="object" string="Випустити всю партію на склад" class="btn-primary" invisible="not confirmed"/>
+                    <button special="cancel" string="Скасувати"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+    <record id="mrp_production_full_release_test" model="ir.ui.view">
+        <field name="name">mrp.production.full.release.test</field>
+        <field name="model">mrp.production</field>
+        <field name="inherit_id" ref="mrp.mrp_production_form_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//header" position="inside">
+                <field name="quality_full_release_test_enabled" invisible="1"/>
+                <field name="quality_transfer_controlled" invisible="1"/>
+                <field name="quality_unit_route_required" invisible="1"/>
+                <button name="action_enable_quality_full_release_test" type="object"
+                    string="Дозволити тест повного випуску" groups="base.group_system"
+                    invisible="quality_full_release_test_enabled or state not in ('confirmed', 'progress', 'to_close') or (not quality_unit_route_required and not quality_transfer_controlled)"
+                    confirm="Тільки новий тестовий MO на staging. Дозволити реальний повний складський випуск цього MO після перевірки QC, QUNIT, допусків і операцій?"/>
+                <button name="action_open_quality_native_release" type="object"
+                    string="Повний випуск QUNIT" groups="quality.group_quality_user"
+                    invisible="not quality_full_release_test_enabled or state not in ('confirmed', 'progress', 'to_close', 'done')"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>

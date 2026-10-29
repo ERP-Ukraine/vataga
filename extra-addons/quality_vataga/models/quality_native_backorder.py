@@ -195,25 +195,36 @@ class NativeQualityProduction(models.Model):
         raise ValidationError(_('Немає підтвердженої преемності робочої операції у цьому MO.'))
 
     def action_open_quality_native_release(self):
-        _require_roles(self.env)
-        self.check_access_rights('write')
-        self.check_access_rule('write')
-        raise UserError(_('Поштучний штатний випуск недоступний користувачам до успішної Enterprise-перевірки на одноразовій копії.'))
+        self.ensure_one()
+        self._check_full_release_test_access()
+        if self.state == 'done':
+            return {'type': 'ir.actions.act_window', 'res_model': 'quality.unit.stock.fact',
+                    'name': _('Фактичний випуск QUNIT'), 'view_mode': 'tree,form',
+                    'domain': [('production_id', '=', self.id)]}
+        with self.env.cr.savepoint():
+            units = self._full_release_units()
+            self._validate_quality_full_batch(units)
+            wizard = self.env['quality.full.release.wizard'].create({'production_id': self.id})
+            return {'type': 'ir.actions.act_window', 'res_model': wizard._name,
+                    'name': _('Підтвердити повний випуск QUNIT'), 'view_mode': 'form',
+                    'res_id': wizard.id, 'target': 'new'}
 
-    def _quality_native_release(self, units, request_key, confirmed=False):
+    def _quality_native_release(self, units, request_key, confirmed=False, full_only=False):
         """Private ORM integration entry, deliberately not an RPC action.
 
-        The public entry stays closed. Disposable Enterprise tests call this
-        exact validated implementation, without monkeypatching a security gate.
+        Public staging confirmation uses full_only; the legacy experimental
+        posting engine and partial public release remain closed.
         """
         self.ensure_one()
         _require_roles(self.env)
+        if full_only:
+            self._check_full_release_test_access()
         self.check_access_rights('write')
         self.check_access_rule('write')
         _read(units)
         if (not confirmed or len(set(units.ids)) != len(units)
                 or not isinstance(request_key, str) or not request_key.strip() or len(request_key) > 64):
-            raise ValidationError(_('Потрібне явне підтвердження фізичних QUNIT та штатного Backorder з унікальним запитом.'))
+            raise ValidationError(_('Потрібне явне підтвердження фізичного складу QUNIT і випуску з унікальним запитом.'))
         with self.env.cr.savepoint():
             self._lock_quality_transfer_scope()
             self.env['quality.unit.stock.fact'].flush_model()
@@ -225,12 +236,21 @@ class NativeQualityProduction(models.Model):
                 return previous
             all_units = self._quality_native_units()
             remaining = all_units - units
+            if full_only and (remaining or len(units) != self.product_qty):
+                raise ValidationError(_('Публічна дія дозволяє лише повний випуск всієї партії. Частковий випуск закрито.'))
             self._validate_quality_native_units(units, remaining)
             context = {'allowed_company_ids': self.env.companies.ids, 'lang': self.env.lang, 'tz': self.env.user.tz}
-            production = self.with_context(context)
+            production = self.with_context(context).with_company(self.company_id)
             operation = NativeBackorderOperation(production, len(units), tuple(units.ids), tuple(remaining.ids))
+            before_checks = self._full_release_checks().filtered(
+                lambda check: check.x_control_stage == 'in_process' and check.unit_admission_role == 'required') if not remaining else self.env['quality.check']
             with operation.activate():
                 children = production._native_quality_complete()
+                if not remaining:
+                    after_checks = self._full_release_checks().filtered(
+                        lambda check: check.x_control_stage == 'in_process' and check.unit_admission_role == 'required')
+                    if set(before_checks.ids) != set(after_checks.ids):
+                        raise ValidationError(_('Під час штатного проведення змінився склад обов’язкових QC. Випуск скасовано; завершіть нові перевірки.'))
                 if children:
                     self.env['quality.unit.continuation'].create([
                         {'unit_id': unit.id, 'source_production_id': self.id, 'production_id': children.id}
@@ -264,6 +284,8 @@ class NativeQualityProduction(models.Model):
 
     def _validate_quality_native_units(self, units, remaining):
         self.ensure_one()
+        if not remaining:
+            return self._validate_quality_full_batch(units)
         if (not units or self.company_id not in self.env.companies
                 or not self.quality_transfer_controlled or len(units | remaining) != self.product_qty
                 or self.product_uom_id != self.product_id.uom_id

@@ -4,7 +4,7 @@ from odoo.exceptions import AccessError, UserError, ValidationError
 
 from .native_backorder import native_operation_allows
 
-REQUIRED_ROUTE_MESSAGE = 'Для цього MO обов’язковий поштучний маршрут: потрібні QRUN/QUNIT, чинні допуски інспектора, завершені операції та відсутність відкритих Alert. PASS матриці не дозволяє стандартне завершення або складський випуск. Користувацький поштучний випуск залишається закритим до Enterprise-перевірки.'
+REQUIRED_ROUTE_MESSAGE = 'Для цього MO обов’язковий поштучний маршрут: потрібні QRUN/QUNIT, чинні допуски інспектора, завершені операції та відсутність відкритих Alert. PASS матриці не дозволяє стандартне завершення або складський випуск. Для готової всієї партії використайте «Повний випуск QUNIT» після окремого дозволу staging-тесту адміністратором.'
 
 
 def require_quality_manager(env):
@@ -19,7 +19,7 @@ class QualityPointUnitRoutePolicy(models.Model):
         string='Обов’язковий поштучний маршрут', default=False,
         help='Лише для нових міжопераційних QC. Вмикає незворотне обмеження їх MO, '
              'зокрема вже відкритого MO. Наявні QC та завершені MO не змінюються. '
-             'Складський випуск користувачам поки недоступний.')
+             'Повний складський випуск потребує окремого дозволу staging-тесту цього MO.')
 
     @api.model_create_multi
     def create(self, vals_list):
