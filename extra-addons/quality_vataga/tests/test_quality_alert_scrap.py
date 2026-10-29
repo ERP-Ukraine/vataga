@@ -166,6 +166,41 @@ class TestQualityAlertScrap(QualityCheckInProcessCase):
         self.assertEqual(alert.vataga_scrap_status, 'waiting_stock')
         self.assertEqual(self._snapshot(check, alert), before)
 
+    def test_draft_or_real_unrelated_scrap_never_creates_replacement(self):
+        self.product.type = 'product'
+        check, _, _ = self._scenario()
+        alert = self._approved(self._alert(check))
+        receipt = self.env['stock.move'].create({
+            'name': 'Disposable unrelated scrap origin', 'product_id': check.product_id.id,
+            'product_uom': check.product_id.uom_id.id, 'product_uom_qty': 1,
+            'location_id': self.env.ref('stock.stock_location_suppliers').id,
+            'location_dest_id': self.warehouse.lot_stock_id.id,
+        })
+        receipt._action_confirm(merge=False)
+        receipt.write({'quantity': 1, 'picked': True})
+        receipt._action_done()
+        scrap = self.env['stock.scrap'].create({
+            'product_id': check.product_id.id, 'product_uom_id': check.product_id.uom_id.id,
+            'scrap_qty': 1, 'location_id': self.warehouse.lot_stock_id.id,
+            'company_id': self.env.company.id, 'should_replenish': False,
+        })
+        productions = self.env['mrp.production'].search([]).ids
+        with self.assertRaises(UserError):
+            alert.action_create_scrap_replacement()
+        self.assertEqual(scrap.state, 'draft')
+        scrap.action_validate()  # Actual unrelated Scrap only in this disposable test.
+        self.assertEqual(scrap.state, 'done')
+        self.assertTrue(scrap.move_ids)
+        self.assertFalse(scrap.production_id)
+        before = self._snapshot(check, alert)
+        for attempt in range(2):
+            with self.assertRaises(UserError):
+                alert.action_create_scrap_replacement()
+        self.assertEqual(self.env['mrp.production'].search([]).ids, productions)
+        self.assertEqual(self._snapshot(check, alert), before)
+        self.assertEqual(check.production_id.qty_produced, 0)
+        self.assertTrue(alert._matrix_hold_is_open())
+
     def test_context_cannot_claim_done_scrap_or_replacement(self):
         check, _, _ = self._scenario()
         alert = self._approved(self._alert(check)).with_context(

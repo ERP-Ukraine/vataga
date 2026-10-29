@@ -94,6 +94,41 @@ class TestQualityAlertRepair(QualityCheckInProcessCase):
             alert.vataga_matrix_failure_snapshot, source.sample_ids.controlled_unit_id.ids,
             source.message_ids.ids, self._business_snapshot(source.production_id)))
 
+    def test_qrun_only_original_keeps_repair_held_until_all_alerts_close(self):
+        production = self._production(5)
+        source = self._workorder(production, 'QRUN-only repair source')
+        target = self._workorder(production, 'QRUN-only repair destination')
+        check = self._check(production)
+        if 'workorder_id' not in check._fields:
+            self.skipTest('Requires Enterprise Work Order / Quality integration')
+        self._identify(check, source)
+        self.assertFalse(check.workorder_id)
+        self._fill(check)
+        check.update_measurement_visual_result(check.sample_ids[-1].id, 'no')
+        production.write({'state': 'progress', 'allow_workorder_dependencies': True})
+        target.blocked_by_workorder_ids = [Command.set(source.ids)]
+        source.state = 'progress'
+        check.do_fail()
+        first = self._approve(self._alert(check))
+        second = self._approve(self._alert(check))
+        original = (check.quality_state, check.sample_ids.read(), check.sample_ids.measurement_value_ids.read())
+        repeat = self._repair(first)
+        self._pass(repeat)
+        self.assertTrue(repeat._get_unit_admission_error(repeat.sample_ids))
+        with self.assertRaises(ValidationError):
+            self._admit(repeat, repeat.sample_ids)
+        first.action_close_alert()
+        self.assertTrue(second._matrix_hold_is_open())
+        with self.assertRaises(ValidationError):
+            self._admit(repeat, repeat.sample_ids)
+        last = self._repair(second)
+        self._pass(last)
+        second.action_close_alert()
+        self._admit(last, last.sample_ids)
+        self.assertEqual(last.sample_ids.controlled_unit_id, check.sample_ids[-1].controlled_unit_id)
+        self.assertEqual(original, (check.quality_state, check.sample_ids.read(), check.sample_ids.measurement_value_ids.read()))
+        self.assertEqual(production.qty_produced, 0)
+
     def test_unapproved_and_other_decision_cannot_record_or_create_repair(self):
         check, _, _ = self._scenario()
         alert = self._alert(check)

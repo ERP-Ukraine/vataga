@@ -27,3 +27,4 @@ from . import test_quality_native_backorder
 from . import test_workorder_start_contract
 from . import test_quality_required_route_native
 from . import test_quality_unit_route_contract
+from . import test_quality_defect_contract

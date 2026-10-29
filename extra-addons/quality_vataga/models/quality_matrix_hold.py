@@ -132,24 +132,40 @@ class QualityMatrixHoldCheck(models.Model):
         self.check_access_rights('read')
         self.check_access_rule('read')
         unit_id = sample.controlled_unit_id.id or 0
-        if 'workorder_id' in self._fields and self.workorder_id:
-            ancestors = self.workorder_id
-            current = self.workorder_id.quality_native_parent_workorder_id
+        workorder = self.workorder_id if 'workorder_id' in self._fields else self.env['mrp.workorder']
+        if not workorder and self.operation_run_id:
+            self.operation_run_id.check_access_rights('read')
+            self.operation_run_id.check_access_rule('read')
+            workorder = self.operation_run_id.workorder_id
+        if workorder:
+            workorder.check_access_rights('read')
+            workorder.check_access_rule('read')
+            ancestors = workorder
+            current = workorder.quality_native_parent_workorder_id
             while current and current not in ancestors:
                 current.check_access_rights('read')
                 current.check_access_rule('read')
                 ancestors |= current
                 current = current.quality_native_parent_workorder_id
-            history = 'q.workorder_id IN %s'
+            # Identification accepts a QC linked to WO only through QRUN.
+            # Repeat QC must still see its original Alert in that case.
+            history = ('COALESCE(q.workorder_id, r.workorder_id) IN %s'
+                       if 'workorder_id' in self._fields else 'r.workorder_id IN %s')
             scope = tuple(ancestors.ids)
         else:
             history = 'q.point_id = %s'
             scope = self.point_id.id or 0
+        check_fields = ['point_id', 'operation_run_id']
+        if 'workorder_id' in self._fields:
+            check_fields.append('workorder_id')
+        self.env['quality.check'].flush_model(check_fields)
+        self.env['quality.production.run'].flush_model(['workorder_id'])
         self.env['quality.alert'].flush_model(['check_id', 'vataga_failure_sample_ids'])
         self.env['quality.check.sample'].flush_model(['quality_check_id', 'controlled_unit_id'])
         self.env.cr.execute('''SELECT a.id FROM quality_alert a WHERE
             (a.check_id=%s OR a.check_id IN (
                 SELECT s.quality_check_id FROM quality_check_sample s JOIN quality_check q ON q.id=s.quality_check_id
+                LEFT JOIN quality_production_run r ON r.id=q.operation_run_id
                 JOIN quality_point p ON p.id=q.point_id WHERE s.controlled_unit_id=%s
                 AND p.x_control_stage='in_process' AND ''' + history + '''))
             AND (NOT EXISTS (SELECT 1 FROM quality_alert_failure_sample_rel r WHERE r.alert_id=a.id)

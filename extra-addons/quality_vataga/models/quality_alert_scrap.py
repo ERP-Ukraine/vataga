@@ -1,10 +1,9 @@
-"""Scrap decision readiness, without claiming an unverified stock execution.
+"""Scrap readiness without an unverified defect disposition.
 
-Native stock.scrap selects stock by product/location/lot, not by QUNIT or MO
-provenance. The current named route has no posted QUNIT -> move-line evidence
-and deliberately blocks native completion and Scrap of its MO. Until that
-contract is implemented and integration-tested, neither Scrap nor replacement
-production can be executed from an Alert. No planned document is a stock fact.
+The native release bridge records posted PASS-unit facts. It does not establish
+stock provenance or a supported manufacturing disposition for an unproduced
+FAIL unit. Native Scrap's product/location/lot selection is insufficient to
+identify that physical unit. No replacement may be based on a planned document.
 """
 
 from odoo import _, api, fields, models
@@ -64,12 +63,15 @@ class QualityAlertScrap(models.Model):
         if any(sample.sample_result != 'fail' for sample in samples):
             return 'blocked', _('Сфера Alert містить PASS або pending. Не можна підмінити підтверджений брак іншими виробами або списати виправлений виріб.')
         return 'waiting_stock', _(
-            'Немає перевіреного зв’язку QUNIT з проведеною stock.move.line готової продукції. '
-            'QC, QRUN, lot/serial або залишок того самого товару самі по собі не підтверджують '
-            'складське походження конкретного виробу. Захищений MO не дозволяє штатний Scrap '
-            'та завершення партії в обхід контролю. Потрібні частковий складський випуск без '
-            'передчасного Backorder, однозначна ідентифікація випущених QUNIT та інтеграційна '
-            'перевірка Enterprise. Фактичне списання і дозамовлення не виконуються.')
+            'Списання закрито: для вибраного FAIL-QUNIT не реалізовано перевірений контракт '
+            'походження stock.move.line та доступного внутрішнього залишку. Факти штатного '
+            'випуску PASS-QUNIT не створюють залишку незавершеного бракованого виробу. '
+            'Віртуальна виробнича локація, QRUN, lot/serial або довільний залишок того самого '
+            'товару не є доказом походження. Не реалізовано та не перевірено проведення браку '
+            'з фактичним споживанням компонентів і оцінкою запасів без удаваного випуску '
+            'годної продукції та передчасного Backorder. Після цього ще потрібні фактичний '
+            'Scrap, його точне зіставлення з QUNIT і одноразове дозамовлення фактично списаної '
+            'кількості. Списання й нове MO зараз не створюються.')
 
     def action_scrap_defective_units(self):
         """Fail closed also for direct RPC; never create a draft success proxy."""

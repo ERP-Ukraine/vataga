@@ -145,6 +145,56 @@ class TestQualityNativeBackorder(QualityCheckInProcessCase):
     def _children(self, production):
         return self.env['mrp.production'].search([('quality_native_parent_id', '=', production.id)])
 
+    def test_repaired_fifth_unit_finishes_original_mo_once_without_backorder(self):
+        production, source, final, good = self._initial()
+        alert = self._approve(self._alert(source))
+        held = alert.vataga_failure_sample_ids.controlled_unit_id
+        original = (source.quality_state, source.sample_ids.read(), source.sample_ids.measurement_value_ids.read())
+        productions = self.env['mrp.production'].search([]).ids
+        # This is repair on the original open MO, not the native-child timer path.
+        repeat = repairs.TestQualityAlertRepair._repair(self, alert)
+        self._pass(repeat)
+        alert.action_close_alert()
+        self._admit(repeat, repeat.sample_ids)
+        self._send(repeat, final, repeat.sample_ids).action_apply()
+        units = good | held
+        self._finish_final(production, final, units)
+        facts = self._release(production, units, 'all-five-after-repair')
+        self.assertEqual((production.state, production.qty_produced), ('done', 5))
+        self.assertEqual(len(facts), 5)
+        self.assertFalse(self._children(production))
+        self.assertEqual(self.env['mrp.production'].search([]).ids, productions)
+        self.assertEqual(original, (source.quality_state, source.sample_ids.read(), source.sample_ids.measurement_value_ids.read()))
+        self.assertEqual(sum(production.move_raw_ids.stock_valuation_layer_ids.mapped('quantity')), -10)
+        self.assertEqual(sum(production.move_finished_ids.stock_valuation_layer_ids.mapped('quantity')), 5)
+        layers = self.env['stock.valuation.layer'].search([]).ids
+        self.assertEqual(self._release(production, units, 'all-five-after-repair'), facts)
+        self.assertEqual(self.env['stock.valuation.layer'].search([]).ids, layers)
+        with self.assertRaises(UserError):
+            self._release(production, units, 'no-second-material-consumption')
+        self.assertEqual(len(self.env['quality.unit.stock.fact'].search([('unit_id', 'in', units.ids)])), 5)
+
+    def test_repaired_fifth_unit_with_repeat_fail_cannot_close_admit_or_advance(self):
+        production, source, final, good = self._initial()
+        alert = self._approve(self._alert(source))
+        repeat = repairs.TestQualityAlertRepair._repair(self, alert)
+        self._fill(repeat)
+        repeat.update_measurement_visual_result(repeat.sample_ids.id, 'no')
+        repeat.do_fail()
+        before = (production.qty_produced, self.env['stock.valuation.layer'].search([]).ids,
+                  self.env['quality.unit.stock.fact'].search([]).ids)
+        for action in (alert.action_close_alert,
+                       lambda: self._admit(repeat, repeat.sample_ids),
+                       lambda: self._send(repeat, final, repeat.sample_ids).action_apply(),
+                       lambda: self._release(production, good | repeat.sample_ids.controlled_unit_id)):
+            with self.assertRaises(UserError):
+                action()
+        self.assertTrue(alert._matrix_hold_is_open())
+        self.assertEqual(source.quality_state, 'fail')
+        self.assertEqual(repeat.quality_state, 'fail')
+        self.assertEqual(before, (production.qty_produced, self.env['stock.valuation.layer'].search([]).ids,
+                                 self.env['quality.unit.stock.fact'].search([]).ids))
+
     def test_five_complete_pass_units_have_five_real_stock_facts(self):
         production, source, final, units = self._ready(False)
         facts = self._release(production, units)

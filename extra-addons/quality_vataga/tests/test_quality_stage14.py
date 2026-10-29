@@ -1,3 +1,5 @@
+import base64
+
 from odoo import Command
 from odoo.exceptions import AccessError, UserError
 from odoo.tests import tagged
@@ -277,6 +279,22 @@ class TestQualityStage14(QualityCheckInProcessCase):
         alert.write({'description': '<p>Уточнення інспектора</p>'})
         self.assertIn('Уточнення інспектора', alert.description)
         self.assertEqual(alert.vataga_matrix_failure_snapshot, snapshot)
+
+    def test_inspector_can_attach_photo_without_changing_failure_snapshot(self):
+        check = self._filled_check()
+        self._numeric(check, check.sample_ids, '11')
+        user = self._inspector('photo')
+        alert = self._alert(check).with_user(user)
+        snapshot = alert.vataga_matrix_failure_snapshot
+        alert.write({'description': '<p>Additional defect description</p>'})
+        # Minimal real PNG attachment, stored only in the disposable ORM test.
+        png = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==')
+        message = alert.message_post(body='Defect photo', attachments=[('defect.png', png)])
+        self.assertEqual(len(message.attachment_ids), 1)
+        self.assertEqual(message.attachment_ids.res_model, 'quality.alert')
+        self.assertEqual(message.attachment_ids.res_id, alert.id)
+        self.assertEqual(alert.vataga_matrix_failure_snapshot, snapshot)
+        self.assertIn('Additional defect description', alert.description)
 
     def test_failure_html_is_escaped_and_plain_snapshot_retains_original_text(self):
         check = self._filled_check()
