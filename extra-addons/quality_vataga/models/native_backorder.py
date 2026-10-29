@@ -99,6 +99,9 @@ class NativeBackorderProduction(models.Model):
             if 'quality_transfer_controlled' in children._fields:
                 for child in children:
                     child._enable_quality_transfer_control()
+                    if ('quality_unit_route_required' in operation.production._fields
+                            and operation.production.quality_unit_route_required):
+                        child._enable_required_unit_route()
         return records
 
     def write(self, vals):

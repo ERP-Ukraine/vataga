@@ -9,6 +9,7 @@
                 <page string="Налаштування контролю" name="control_settings">
                     <group>
                         <field name="x_control_stage"/>
+                        <field name="quality_unit_route_required" groups="quality.group_quality_manager"/>
                         <field name="visual_sample_control_required"/>
                     </group>
                     <field name="control_parameter_line_ids">

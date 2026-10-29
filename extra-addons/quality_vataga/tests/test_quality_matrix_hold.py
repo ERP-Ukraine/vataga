@@ -288,6 +288,122 @@ class TestQualityWorkorderMatrixScope(QualityCheckInProcessCase):
             return workorder.write({'state': 'done'})
         return getattr(workorder, method)()
 
+    def test_standard_pass_is_not_implicitly_a_required_unit_route(self):
+        production, (first, second, third), check = self._three_operations(check_index=0, configured=True)
+        self._fill(check)
+        check.do_pass()
+        self.assertEqual(check.unit_admission_role, 'required')
+        self.assertFalse(check.operation_run_id)
+        self.assertFalse(production.quality_unit_route_required)
+        production._check_matrix_native_completion()
+        for workorder in (first, second, third):
+            workorder.button_start()
+            workorder.button_finish()
+        production.button_mark_done()
+        self.assertEqual(production.state, 'done')
+        self.assertEqual(production.qty_produced, 5)
+
+    def test_qcp_opt_in_is_prospective_and_mo_policy_is_sticky(self):
+        production, workorders, old = self._three_operations(check_index=0, configured=True)
+        self.assertFalse(production.quality_unit_route_required)
+        self.point.quality_unit_route_required = True
+        self.assertFalse(production.quality_unit_route_required)
+        new = self._check(production, workorder_id=workorders[0].id)
+        self.assertTrue(production.quality_unit_route_required)
+        self.assertFalse(production.quality_transfer_controlled)
+        self.point.quality_unit_route_required = False
+        new.unlink()
+        self.assertTrue(production.quality_unit_route_required)
+        with self.assertRaises(UserError):
+            production.write({'quality_unit_route_required': False})
+        self.assertFalse(old.operation_run_id)
+
+    def test_required_pass_without_qrun_blocks_every_final_boundary(self):
+        production, (first, second, third), check = self._three_operations(check_index=0, configured=True)
+        self._fill(check)
+        check.do_pass()
+        move = production.move_finished_ids[:1]
+        line = self.env['stock.move.line'].create({'move_id': move.id, 'quantity': 0})
+        production.action_require_quality_unit_route()
+        self.assertFalse(check.operation_run_id)
+        self.assertFalse(check.sample_ids.controlled_unit_id)
+        self.assertFalse(check.unit_admission_ids)
+        self.assertFalse(production.quality_transfer_controlled)
+        line.write({'quantity': 1})
+        self.assertNotEqual(move.state, 'done')
+        before = (production.state, production.product_qty, production.qty_produced,
+                  production.move_finished_ids.read(['state', 'quantity']))
+        move = production.move_finished_ids[:1]
+        for call in (
+                production.button_mark_done, production.pre_button_mark_done,
+                production._post_inventory, production._split_productions,
+                lambda: production.write({'state': 'done'}),
+                lambda: production.write({'qty_produced': 5}),
+                move._action_done, lambda: move.write({'state': 'done'}),
+                lambda: move.copy({'state': 'done'}),
+                lambda: line.write({'move_id': False}),
+                first.unlink, lambda: first.write({'production_id': False}),
+                lambda: move.write({'production_id': False}),
+                lambda: production.with_context(bypass=True, skip_backorder=True,
+                    quality_native_release=True, quality_unit_route_required=False).button_mark_done(),
+                production.action_open_quality_native_release):
+            with self.subTest(call=call), self.assertRaises(UserError), self.env.cr.savepoint():
+                call()
+        self.assertEqual(before, (production.state, production.product_qty, production.qty_produced,
+                                 production.move_finished_ids.read(['state', 'quantity'])))
+
+    def test_required_qrun_without_admission_cannot_release(self):
+        production, (first, second, third), check = self._three_operations(check_index=0, configured=True)
+        production.action_require_quality_unit_route()
+        transfers.TestQualityUnitTransfer._identify(self, check, first)
+        self._fill(check)
+        check.do_pass()
+        self.assertTrue(check.operation_run_id)
+        self.assertTrue(check.sample_ids.controlled_unit_id)
+        self.assertFalse(check.unit_admission_ids)
+        with self.assertRaises(UserError):
+            production._post_inventory()
+
+    def test_required_future_qc_does_not_block_previous_workorder(self):
+        production, (first, second, third), check = self._three_operations()
+        production.action_require_quality_unit_route()
+        first.button_start()
+        first.button_finish()
+        self.assertEqual(first.state, 'done')
+        self.assertEqual(check.quality_state, 'none')
+        self.assertFalse(check.operation_run_id)
+        with self.assertRaises(UserError):
+            production.button_mark_done()
+
+    def test_finished_history_is_not_activated_by_qcp_changes(self):
+        production, workorders, check = self._three_operations(check_index=0, configured=True)
+        self._fill(check)
+        check.do_pass()
+        # Historical fixture: direct ORM completion is permitted in standard
+        # mode, just as it was before policy introduction. No stock is invented.
+        production.write({'state': 'done'})
+        before = (production.read(), check.read())
+        self.point.quality_unit_route_required = True
+        with self.assertRaises(UserError):
+            production.action_require_quality_unit_route()
+        self.assertEqual(before, (production.read(), check.read()))
+        self.assertFalse(production.quality_unit_route_required)
+
+    def test_only_quality_manager_can_opt_in_and_context_cannot_enable_mo(self):
+        production, workorders, check = self._three_operations()
+        user = self.env['res.users'].with_context(no_reset_password=True).create({
+            'name': 'Route operator', 'login': 'required-route-operator',
+            'groups_id': [Command.set([self.env.ref('base.group_user').id,
+                                      self.env.ref('mrp.group_mrp_user').id])],
+        })
+        with self.assertRaises(AccessError):
+            production.with_user(user).action_require_quality_unit_route()
+        with self.assertRaises(AccessError):
+            self.point.with_user(user).write({'quality_unit_route_required': True})
+        self.assertFalse(production.quality_unit_route_required)
+        duplicate = production.with_context(default_quality_unit_route_required=True).copy()
+        self.assertFalse(duplicate.quality_unit_route_required)
+
     def test_future_empty_qc_does_not_block_first_operation_buttons_or_direct_write(self):
         for method in ('button_finish', 'button_done', 'action_mark_as_done', 'write'):
             with self.subTest(method=method):

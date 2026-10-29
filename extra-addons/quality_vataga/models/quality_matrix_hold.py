@@ -188,6 +188,8 @@ class MatrixNativeCompletion(models.Model):
         Unassigned MO checks and checks for future operations remain part of
         final production/stock validation, without blocking earlier operations.
         """
+        if workorders is None:
+            self._check_required_unit_route_completion()
         # The existing controlled-MO barrier remains entirely authoritative.
         # This closes the earlier gap BEFORE first named handoff activation.
         for production in self.sorted('id'):

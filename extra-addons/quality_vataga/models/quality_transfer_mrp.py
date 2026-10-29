@@ -132,6 +132,8 @@ class MrpWorkorderTransferBoundary(models.Model):
         return super().create(vals_list)
 
     def write(self, vals):
+        if 'production_id' in vals:
+            self.production_id._check_required_unit_route_completion()
         if vals.get('state') == 'done':
             self.production_id._check_matrix_native_completion(workorders=self)
         if {
@@ -144,6 +146,7 @@ class MrpWorkorderTransferBoundary(models.Model):
         return super().write(vals)
 
     def unlink(self):
+        self.production_id._check_required_unit_route_completion()
         self._quality_transfer_relation_productions({'blocked_by_workorder_ids': [], 'needed_by_workorder_ids': []})._check_quality_transfer_boundary()
         return super().unlink()
 
@@ -215,12 +218,25 @@ class StockMoveTransferBoundary(models.Model):
     def create(self, vals_list):
         for vals in vals_list:
             defaults = {name: self.env.context.get('default_' + name) for name in ('production_id', 'raw_material_production_id', 'workorder_id')}
-            if vals.get('state') == 'done':
+            if vals.get('state', self.env.context.get('default_state')) == 'done':
                 self.browse()._quality_transfer_productions(dict(defaults, **vals))._check_matrix_native_completion()
             self.browse()._quality_transfer_productions(dict(defaults, **vals))._check_quality_transfer_boundary()
         return super().create(vals_list)
 
     def write(self, vals):
+        relations = {'production_id', 'raw_material_production_id', 'workorder_id'}
+        if relations.intersection(vals):
+            for move in self:
+                for name in relations.intersection(vals):
+                    if (move[name].id or False) == (vals[name] or False):
+                        continue
+                    before = move[name] if name != 'workorder_id' else move.workorder_id.production_id
+                    # Native WO assignment within an already linked MO is safe.
+                    if name == 'workorder_id' and (not before or before in (move.production_id | move.raw_material_production_id)):
+                        continue
+                    before._check_required_unit_route_completion()
+                if move.state == 'done':
+                    move._quality_transfer_productions(vals)._check_required_unit_route_completion()
         if vals.get('state') == 'done':
             self._quality_transfer_productions(vals)._check_matrix_native_completion()
         if {
@@ -253,16 +269,26 @@ class StockMoveLineTransferBoundary(models.Model):
     def create(self, vals_list):
         for vals in vals_list:
             defaults = {name: self.env.context.get('default_' + name) for name in ('move_id', 'production_id', 'workorder_id')}
-            self.browse()._quality_transfer_productions(dict(defaults, **vals))._check_quality_transfer_boundary()
+            productions = self.browse()._quality_transfer_productions(dict(defaults, **vals))
+            moves = self.env['stock.move'].browse(vals.get('move_id', defaults.get('move_id')))
+            if vals.get('state', self.env.context.get('default_state')) == 'done' or moves.filtered(lambda move: move.state == 'done'):
+                productions._check_required_unit_route_completion()
+            productions._check_quality_transfer_boundary()
         return super().create(vals_list)
 
     def write(self, vals):
         # Include both old and new parent moves so detaching a line cannot
-        # evade the boundary. Even a direct ORM quantity write is protected.
+        # evade the boundary. Posted quantities are protected; pending
+        # reservations remain possible until the first controlled handoff.
+        moves = self.move_id | self.env['stock.move'].browse(vals.get('move_id'))
+        if 'move_id' in vals or vals.get('state') == 'done' or moves.filtered(lambda move: move.state == 'done'):
+            self._quality_transfer_productions(vals)._check_required_unit_route_completion()
         self._quality_transfer_productions(vals)._check_quality_transfer_boundary()
         return super().write(vals)
 
     def unlink(self):
+        if self.move_id.filtered(lambda move: move.state == 'done'):
+            self._quality_transfer_productions()._check_required_unit_route_completion()
         self._quality_transfer_productions()._check_quality_transfer_boundary()
         return super().unlink()
 

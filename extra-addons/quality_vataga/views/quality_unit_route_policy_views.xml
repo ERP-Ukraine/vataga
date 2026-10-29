@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="mrp_production_unit_route_policy" model="ir.ui.view">
+        <field name="name">mrp.production.unit.route.policy</field>
+        <field name="model">mrp.production</field>
+        <field name="inherit_id" ref="mrp.mrp_production_form_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//header" position="inside">
+                <field name="quality_unit_route_required" invisible="1"/>
+                <button name="action_require_quality_unit_route" type="object"
+                    string="Вимагати поштучний маршрут" groups="quality.group_quality_manager"
+                    invisible="quality_unit_route_required or state in ('done', 'cancel')"
+                    confirm="Увімкнути незворотний поштучний режим цього MO? Потрібні QRUN/QUNIT, допуски та повний маршрут. Користувацький складський випуск залишається закритим до Enterprise-перевірки."/>
+            </xpath>
+            <xpath expr="//sheet" position="inside">
+                <div class="alert alert-warning" invisible="not quality_unit_route_required">
+                    Обов’язковий поштучний маршрут. PASS матриці не замінює QRUN/QUNIT та допуск інспектора.
+                    Стандартне завершення та складський випуск заборонені; користувацький поштучний випуск ще закритий.
+                </div>
+            </xpath>
+        </field>
+    </record>
+</odoo>
