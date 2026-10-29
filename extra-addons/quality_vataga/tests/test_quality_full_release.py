@@ -9,7 +9,7 @@ from ..models.quality_production_identity import IDENTIFICATION_CONTEXT, IDENTIF
 
 
 @tagged('post_install', '-at_install')
-class TestQualityFullRelease(QualityCheckInProcessCase):
+class QualityFullReleaseCase(QualityCheckInProcessCase):
     _identify = transfers.TestQualityUnitTransfer._identify
     _decision = transfers.TestQualityUnitTransfer._decision
 
@@ -105,6 +105,8 @@ class TestQualityFullRelease(QualityCheckInProcessCase):
             (call or production.action_open_quality_native_release)()
         self.assertEqual(self._snapshot(production), before)
 
+@tagged('post_install', '-at_install')
+class TestQualityFullRelease(QualityFullReleaseCase):
     def test_p1_n8_n9_full_two_last_operation_qc_no_backorder_under_any_policy(self):
         for policy in ('always', 'never'):
             with self.subTest(backorder_policy=policy):

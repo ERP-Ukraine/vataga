@@ -120,12 +120,17 @@ class NativeBackorderProduction(models.Model):
                 or not 0 < operation.quantity <= original_quantity
                 or (operation.quantity < original_quantity and self.picking_type_id.create_backorder != 'ask')
                 or self.product_id.type != 'product'
-                or self.product_id.tracking != 'none'
+                or (self.product_id.tracking != 'none' and not (
+                    self.product_id.tracking == 'lot' and operation.quantity == original_quantity))
                 or self.move_byproduct_ids
                 or self.move_raw_ids.filtered(lambda move: move.manual_consumption)):
             raise ValidationError(_(
-                'Потрібен відкритий MO без попереднього випуску, без tracking/побічної продукції '
+                'Потрібен відкритий MO без попереднього випуску, без serial tracking/побічної продукції '
                 'та ручного споживання. Для неповної партії потрібен Backorder «Запитувати».'))
+        if self.product_id.tracking == 'lot':
+            lot = self.lot_producing_id
+            if not lot or lot.product_id != self.product_id or (lot.company_id and lot.company_id != self.company_id):
+                raise ValidationError(_('Для повного випуску потрібна реальна партія цього товару та компанії у MO.'))
         for move in self.move_raw_ids.filtered('picked'):
             expected = float_round(operation.quantity * move.unit_factor, precision_rounding=move.product_uom.rounding)
             if float_compare(move.quantity, expected, precision_rounding=move.product_uom.rounding):

@@ -113,8 +113,16 @@ class QualityUnitStockFact(models.Model):
                     or line.location_dest_id != production.location_dest_id
                     or unit._quality_current_production() != production
                     or line.product_uom_id != unit.product_id.uom_id
-                    or unit.product_id.tracking != 'none' or line.quantity <= 0):
+                    or unit.product_id.tracking not in ('none', 'lot') or line.quantity <= 0):
                 raise ValidationError(_('Немає відповідного фактичного складського випуску цього QUNIT.'))
+            if unit.product_id.tracking == 'lot':
+                lot = _read(line.lot_id)
+                if (operation.quantity != production.product_qty or operation.remaining_ids
+                        or not lot or lot != production.lot_producing_id
+                        or lot.product_id != unit.product_id
+                        or (lot.company_id and lot.company_id != unit.company_id)
+                        or (unit.lot_id and unit.lot_id != lot)):
+                    raise ValidationError(_('Складський факт lot-QUNIT потребує повного випуску та правильної фактичної партії у проведеній строкі.'))
         records = super(QualityUnitStockFact, self.with_context({
             key: value for key, value in self.env.context.items() if not key.startswith('default_')})).create(vals_list)
         for line in records.move_line_id:
@@ -209,7 +217,7 @@ class NativeQualityProduction(models.Model):
                     'name': _('Підтвердити повний випуск QUNIT'), 'view_mode': 'form',
                     'res_id': wizard.id, 'target': 'new'}
 
-    def _quality_native_release(self, units, request_key, confirmed=False, full_only=False):
+    def _quality_native_release(self, units, request_key, confirmed=False, full_only=False, finished_lot=None):
         """Private ORM integration entry, deliberately not an RPC action.
 
         Public staging confirmation uses full_only; the legacy experimental
@@ -227,12 +235,20 @@ class NativeQualityProduction(models.Model):
             raise ValidationError(_('Потрібне явне підтвердження фізичного складу QUNIT і випуску з унікальним запитом.'))
         with self.env.cr.savepoint():
             self._lock_quality_transfer_scope()
+            selected_lot = None
+            if self.product_id.tracking == 'lot':
+                selected_lot = self._validate_full_release_lot(
+                    units, finished_lot if finished_lot is not None else self.lot_producing_id)
+            elif finished_lot:
+                self._validate_full_release_lot(units, finished_lot)
             self.env['quality.unit.stock.fact'].flush_model()
             self.env.cr.execute('SELECT id FROM quality_unit_stock_fact WHERE production_id=%s AND request_key=%s ORDER BY id', [self.id, request_key])
             previous = _read(self.env['quality.unit.stock.fact'].browse([row[0] for row in self.env.cr.fetchall()]))
             if previous:
                 if set(previous.unit_id.ids) != set(units.ids):
                     raise ValidationError(_('Цей запит вже використано для іншого складу виробів.'))
+                if selected_lot and set(previous.move_line_id.lot_id.ids) != set(selected_lot.ids):
+                    raise ValidationError(_('Цей випуск вже підтверджено з іншою складською партією.'))
                 return previous
             all_units = self._quality_native_units()
             remaining = all_units - units
@@ -245,6 +261,8 @@ class NativeQualityProduction(models.Model):
             before_checks = self._full_release_checks().filtered(
                 lambda check: check.x_control_stage == 'in_process' and check.unit_admission_role == 'required') if not remaining else self.env['quality.check']
             with operation.activate():
+                if selected_lot and production.lot_producing_id != selected_lot:
+                    production.write({'lot_producing_id': selected_lot.id})
                 children = production._native_quality_complete()
                 if not remaining:
                     after_checks = self._full_release_checks().filtered(

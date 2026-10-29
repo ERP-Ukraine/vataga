@@ -264,6 +264,7 @@ class TestFullReleaseRoutingContract(unittest.TestCase):
         wizard.create_uid, wizard.env = owner, NS(user=owner)
         wizard.production_id = NS(_quality_native_release=Mock())
         wizard.confirmed, wizard.unit_ids, wizard.request_key = False, object(), 'server-nonce'
+        wizard.lot_id = False
         for values in ({'unit_ids': []}, {'request_key': 'forged'}, {'production_id': 999}):
             with self.assertRaises(UserError):
                 wizard.write(values)

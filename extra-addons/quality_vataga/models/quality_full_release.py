@@ -187,6 +187,30 @@ class QualityFullReleaseProduction(models.Model):
                 if not samples or any(not row.controlled_unit_id for row in samples) or samples.controlled_unit_id & units:
                     raise UserError(_('Випуск утримує відкритий Alert %(alert)s.', alert=alert.display_name))
 
+    def _validate_full_release_lot(self, units, lot):
+        """Validate an actual stock lot, independently of QUNIT identity."""
+        self.ensure_one()
+        if self.product_id.tracking == 'none':
+            if lot:
+                raise ValidationError(_('Для товару без tracking партію у майстрі не задають.'))
+            return self.env['stock.lot']
+        if self.product_id.tracking != 'lot':
+            raise ValidationError(_('Цей повний випуск підтримує tracking none або lot; serial не підтримується.'))
+        lot = _read((lot or self.env['stock.lot']).exists())
+        if len(lot) != 1:
+            raise ValidationError(_('Оберіть реальну партію готової продукції перед випуском.'))
+        if lot.product_id != self.product_id or (lot.company_id and lot.company_id != self.company_id):
+            raise ValidationError(_('Партія належить іншому товару або компанії.'))
+        if self.lot_producing_id and self.lot_producing_id != lot:
+            raise ValidationError(_('Обрана партія не відповідає партії готової продукції, вже вказаній у MO.'))
+        for unit in units:
+            if unit.lot_id and unit.lot_id != lot:
+                raise ValidationError(_('Партія не відповідає вже зафіксованій партії QUNIT %(unit)s.', unit=unit.display_name))
+        lines = self.move_finished_ids.filtered(lambda move: move.product_id == self.product_id and move.state != 'cancel').move_line_ids
+        if any(line.quantity > 0 and line.lot_id and line.lot_id != lot for line in lines):
+            raise ValidationError(_('Готові складські строки вже містять іншу партію. Автоматичне перепризначення заборонене.'))
+        return lot
+
     def _validate_quality_full_batch(self, units):
         """Full batches only. No requirement for a fictional QC on every WO."""
         self.ensure_one()

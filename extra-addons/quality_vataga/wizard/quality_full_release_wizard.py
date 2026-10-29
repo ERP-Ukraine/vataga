@@ -11,6 +11,10 @@ class QualityFullReleaseWizard(models.TransientModel):
 
     production_id = fields.Many2one('mrp.production', required=True, readonly=True)
     unit_ids = fields.Many2many('quality.production.unit', readonly=True)
+    product_id = fields.Many2one(related='production_id.product_id')
+    company_id = fields.Many2one(related='production_id.company_id')
+    tracking = fields.Selection(related='production_id.product_id.tracking')
+    lot_id = fields.Many2one('stock.lot', string='Партія готової продукції', check_company=True)
     request_key = fields.Char(required=True, readonly=True)
     confirmed = fields.Boolean(string='Підтверджую фактичний склад всієї партії та реальний складський випуск', default=False)
 
@@ -25,12 +29,15 @@ class QualityFullReleaseWizard(models.TransientModel):
             units = production._full_release_units()
             production._validate_quality_full_batch(units)
             values.append({'production_id': production.id, 'unit_ids': [(6, 0, units.ids)],
-                           'request_key': str(uuid.uuid4()), 'confirmed': False})
+                           'request_key': str(uuid.uuid4()), 'confirmed': False,
+                           'lot_id': production.lot_producing_id.id if production.product_id.tracking == 'lot' else False})
         context = {key: value for key, value in self.env.context.items() if not key.startswith('default_')}
         return super(QualityFullReleaseWizard, self.with_context(context)).create(values)
 
     def write(self, vals):
-        if set(vals) - {'confirmed'}:
+        if 'lot_id' in vals and any(wizard.confirmed and (wizard.lot_id.id or False) != (vals['lot_id'] or False) for wizard in self):
+            raise UserError(_('Спочатку зніміть підтвердження, щоб змінити обрану партію.'))
+        if set(vals) - {'confirmed', 'lot_id'}:
             raise UserError(_('Партію, MO та ключ запиту цього підтвердження не змінюють.'))
         return super().write(vals)
 
@@ -43,5 +50,5 @@ class QualityFullReleaseWizard(models.TransientModel):
         # The bridge owns the savepoint, shared MO lock, fresh evidence check,
         # native stock posting and actual facts. No capability enters RPC context.
         self.production_id._quality_native_release(
-            self.unit_ids, self.request_key, confirmed=True, full_only=True)
+            self.unit_ids, self.request_key, confirmed=True, full_only=True, finished_lot=self.lot_id)
         return {'type': 'ir.actions.act_window_close'}
