@@ -93,7 +93,7 @@ class QualityFullReleaseProduction(models.Model):
         self.env.cr.execute('SELECT id FROM mrp_workorder WHERE production_id=%s ORDER BY id', [self.id])
         return _read(self.env['mrp.workorder'].browse([row[0] for row in self.env.cr.fetchall()]))
 
-    def _applicable_full_qcp(self, workorders):
+    def _applicable_full_qcp(self, workorders, operation_only=False):
         """Resolve actual QCP assignments, not the absence of generated QC.
 
         Enterprise's routing relation is identified by its ORM comodel, rather
@@ -104,11 +104,18 @@ class QualityFullReleaseProduction(models.Model):
         domain = [('x_control_stage', '=', 'in_process')]
         if 'company_id' in Point._fields:
             domain.append(('company_id', 'in', [False, self.company_id.id]))
-        ids = Point.sudo().search(domain).ids  # discover hidden requirements only
-        points = _read(Point.browse(ids))
         operation_fields = [name for name, field in Point._fields.items()
                             if getattr(field, 'comodel_name', None) == 'mrp.routing.workcenter'
                             and field.type in ('many2one', 'many2many')]
+        if operation_only:
+            # A WO boundary resolves only QCP assigned to that operation.
+            # Global/unassigned QCP remain final MO/stock requirements.
+            if not operation_fields or not workorders.operation_id:
+                return set()
+            domain += ['|'] * (len(operation_fields) - 1) + [
+                (name, 'in', workorders.operation_id.ids) for name in operation_fields]
+        ids = Point.sudo().search(domain).ids  # discover hidden requirements only
+        points = _read(Point.browse(ids)) if ids else Point
         categories = self.product_id.categ_id
         parent = categories.parent_id
         while parent and parent not in categories:

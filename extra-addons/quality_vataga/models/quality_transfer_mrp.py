@@ -135,7 +135,7 @@ class MrpWorkorderTransferBoundary(models.Model):
         if 'production_id' in vals:
             self.production_id._check_required_unit_route_completion()
         if vals.get('state') == 'done':
-            self.production_id._check_matrix_native_completion(workorders=self)
+            self._check_quality_native_finish()
         if {
             'production_id', 'product_id', 'company_id', 'product_uom_id', 'workcenter_id',
             'qty_producing', 'qty_produced', 'qty_reported_from_previous_wo',
@@ -155,17 +155,17 @@ class MrpWorkorderTransferBoundary(models.Model):
         return super().button_start(bypass=bypass)
 
     def button_finish(self):
-        self.production_id._check_matrix_native_completion(workorders=self)
+        self._check_quality_native_finish()
         self.production_id._check_quality_transfer_boundary()
         return super().button_finish()
 
     def button_done(self):
-        self.production_id._check_matrix_native_completion(workorders=self)
+        self._check_quality_native_finish()
         self.production_id._check_quality_transfer_boundary()
         return super().button_done()
 
     def action_mark_as_done(self):
-        self.production_id._check_matrix_native_completion(workorders=self)
+        self._check_quality_native_finish()
         self.production_id._check_quality_transfer_boundary()
         return super().action_mark_as_done()
 
@@ -319,7 +319,7 @@ class MrpProductivityTransferBoundary(models.Model):
             if (vals.get('quality_execution_batch_id') or self.env.context.get('default_quality_execution_batch_id')) and not stopping:
                 raise UserError(_('Робочий інтервал QUNIT встановлює система.'))
             if not stopping:
-                workorder.production_id._check_quality_transfer_boundary()
+                workorder._check_quality_native_start()
         return super().create(vals_list)
 
     def write(self, vals):
@@ -335,6 +335,8 @@ class MrpProductivityTransferBoundary(models.Model):
         if not stopping:
             workorders = self.workorder_id | self.env['mrp.workorder'].browse(vals.get('workorder_id'))
             workorders.production_id._check_quality_transfer_boundary()
+            if 'workorder_id' in vals or not all(timer.date_end or vals.get('date_end') for timer in self):
+                workorders._check_quality_native_start()
         return super().write(vals)
 
     def _close(self):

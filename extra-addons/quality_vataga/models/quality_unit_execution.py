@@ -7,6 +7,7 @@ from odoo.osv import expression
 
 EXECUTION_CONTEXT = 'quality_vataga_unit_execution'
 EXECUTION_TOKEN = object()
+NATIVE_EXECUTION_TOKEN = object()
 
 
 class QualityExecutionAccess(models.AbstractModel):
@@ -17,7 +18,15 @@ class QualityExecutionAccess(models.AbstractModel):
     def _search(self, domain, offset=0, limit=None, order=None, access_rights_uid=None):
         scope = [('workorder_id', 'in', self.env['mrp.workorder']._search([]))]
         if self._name == 'quality.unit.execution':
-            scope.append(('transfer_id', 'in', self.env['quality.unit.transfer']._search([])))
+            try:
+                transfers = self.env['quality.unit.transfer']._search([])
+            except AccessError:
+                # Lack of QC access still hides every legacy transfer. Native
+                # facts retain the existing WO/QUNIT read ACLs independently.
+                transfers = []
+            scope += ['|', '&', ('transfer_id', '=', False),
+                      ('controlled_unit_id', 'in', self.env['quality.production.unit']._search([])),
+                      ('transfer_id', 'in', transfers)]
         return super()._search(expression.AND([domain, scope]), offset=offset, limit=limit, order=order, access_rights_uid=access_rights_uid)
 
     def check_access_rule(self, operation):
@@ -29,11 +38,15 @@ class QualityExecutionAccess(models.AbstractModel):
             workorders.check_access_rights('read')
             workorders.check_access_rule('read')
             if self._name == 'quality.unit.execution':
-                self.flush_recordset(['transfer_id'])
-                self.env.cr.execute('SELECT DISTINCT transfer_id FROM quality_unit_execution WHERE id IN %s', [tuple(self.ids)])
-                transfers = self.env['quality.unit.transfer'].browse([row[0] for row in self.env.cr.fetchall()])
+                self.flush_recordset(['transfer_id', 'controlled_unit_id'])
+                self.env.cr.execute('SELECT DISTINCT transfer_id, controlled_unit_id FROM quality_unit_execution WHERE id IN %s', [tuple(self.ids)])
+                rows = self.env.cr.fetchall()
+                transfers = self.env['quality.unit.transfer'].browse({row[0] for row in rows if row[0]})
                 transfers.check_access_rights('read')
                 transfers.check_access_rule('read')
+                units = self.env['quality.production.unit'].browse({row[1] for row in rows if not row[0]})
+                units.check_access_rights('read')
+                units.check_access_rule('read')
         return result
 
 
@@ -56,8 +69,8 @@ class QualityExecutionBatch(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
-        if self.env.context.get(EXECUTION_CONTEXT) is not EXECUTION_TOKEN:
-            raise UserError(_('Виконання створюється лише явним вибором виробів.'))
+        if self.env.context.get(EXECUTION_CONTEXT) not in (EXECUTION_TOKEN, NATIVE_EXECUTION_TOKEN):
+            raise UserError(_('Виконання створюється лише захищеною дією WO.'))
         prepared = []
         for vals in vals_list:
             if set(vals) != {'workorder_id', 'request_key'}:
@@ -65,7 +78,7 @@ class QualityExecutionBatch(models.Model):
             workorder = self.env['mrp.workorder'].browse(vals['workorder_id'])
             workorder._check_quality_execution_access()
             prepared.append(dict(vals, company_id=workorder.company_id.id, operator_id=self.env.uid,
-                                 started_at=fields.Datetime.now(), execution_ids=[], timer_ids=[]))
+                                 started_at=(workorder.date_start or fields.Datetime.now()) if self.env.context.get(EXECUTION_CONTEXT) is NATIVE_EXECUTION_TOKEN else fields.Datetime.now(), execution_ids=[], timer_ids=[]))
         context = {key: value for key, value in self.env.context.items() if not key.startswith('default_')}
         return super(QualityExecutionBatch, self.with_context(context)).create(prepared)
 
@@ -84,11 +97,11 @@ class QualityUnitExecution(models.Model):
     _order = 'id desc'
 
     batch_id = fields.Many2one('quality.unit.execution.batch', required=True, readonly=True, ondelete='restrict', index=True)
-    transfer_id = fields.Many2one('quality.unit.transfer', required=True, readonly=True, ondelete='restrict', index=True)
+    transfer_id = fields.Many2one('quality.unit.transfer', readonly=True, ondelete='restrict', index=True)
     workorder_id = fields.Many2one(related='batch_id.workorder_id', store=True, readonly=True, compute_sudo=False, index=True)
     production_id = fields.Many2one(related='workorder_id.production_id', store=True, readonly=True, compute_sudo=False, index=True)
     company_id = fields.Many2one(related='workorder_id.company_id', store=True, readonly=True, compute_sudo=False, index=True)
-    controlled_unit_id = fields.Many2one(related='transfer_id.controlled_unit_id', store=True, readonly=True, compute_sudo=False, index=True)
+    controlled_unit_id = fields.Many2one('quality.production.unit', required=True, readonly=True, ondelete='restrict', index=True)
     source_run_id = fields.Many2one(related='transfer_id.source_run_id', readonly=True, compute_sudo=False)
     source_workorder_id = fields.Many2one(related='transfer_id.source_workorder_id', readonly=True, compute_sudo=False)
     admission_id = fields.Many2one(related='transfer_id.admission_id', readonly=True, compute_sudo=False)
@@ -115,6 +128,8 @@ class QualityUnitExecution(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        if self.env.context.get(EXECUTION_CONTEXT) is NATIVE_EXECUTION_TOKEN:
+            return self._create_native_facts(vals_list)
         if self.env.context.get(EXECUTION_CONTEXT) is not EXECUTION_TOKEN:
             raise UserError(_('Обробку розпочинають лише через захищений майстер.'))
         prepared = []
@@ -128,10 +143,46 @@ class QualityUnitExecution(models.Model):
             error = transfer._get_execution_error(batch.workorder_id)
             if error:
                 raise ValidationError(error)
-            prepared.append(dict(vals, state='progress', ended_at=False, ended_by_id=False,
+            prepared.append(dict(vals, controlled_unit_id=transfer.controlled_unit_id.id, state='progress', ended_at=False, ended_by_id=False,
                                  result_reference=False, stop_reason=False, check_ids=[]))
         context = {key: value for key, value in self.env.context.items() if not key.startswith('default_')}
         return super(QualityUnitExecution, self.with_context(context)).create(prepared)
+
+    @api.model
+    def _create_native_facts(self, vals_list):
+        prepared = []
+        for vals in vals_list:
+            if set(vals) != {'batch_id', 'controlled_unit_id'}:
+                raise UserError(_('Реквізити виконання встановлює штатне завершення WO.'))
+            batch = self.env['quality.unit.execution.batch'].browse(vals['batch_id'])
+            batch.check_access_rights('read')
+            batch.check_access_rule('read')
+            workorder = batch.workorder_id
+            workorder._check_quality_execution_access()
+            unit = self.env['quality.production.unit'].browse(vals['controlled_unit_id'])
+            unit.check_access_rights('read')
+            unit.check_access_rule('read')
+            if (workorder.state != 'done' or batch.request_key != 'native:%s' % workorder.id
+                    or unit._quality_current_production() != workorder.production_id
+                    or unit.company_id != workorder.company_id or unit.product_id != workorder.product_id):
+                raise ValidationError(_('Підтвердження має відповідати завершеному WO та його QUNIT.'))
+            prepared.append(dict(vals, transfer_id=False, state='processed',
+                                 ended_at=fields.Datetime.now(), ended_by_id=self.env.uid,
+                                 result_reference='Native WO: %s' % workorder.id,
+                                 stop_reason=False, check_ids=[(6, 0, workorder._quality_native_checks().ids)]))
+        context = {key: value for key, value in self.env.context.items() if not key.startswith('default_')}
+        return super(QualityUnitExecution, self.with_context(context)).create(prepared)
+
+    @api.model
+    def _record_native_completion(self, workorder, units):
+        # Called inside the native WO write savepoint, after validation and
+        # successful state change. No synthetic handoff or productivity row.
+        registrar = self.with_context(**{EXECUTION_CONTEXT: NATIVE_EXECUTION_TOKEN})
+        batch = self.env['quality.unit.execution.batch'].with_context(
+            **{EXECUTION_CONTEXT: NATIVE_EXECUTION_TOKEN}).create({
+                'workorder_id': workorder.id, 'request_key': 'native:%s' % workorder.id})
+        return registrar.create([{'batch_id': batch.id, 'controlled_unit_id': unit.id}
+                                 for unit in units.sorted('id')])
 
     def write(self, vals):
         if self.env.context.get(EXECUTION_CONTEXT) is not EXECUTION_TOKEN or set(vals) != {'state', 'ended_at', 'ended_by_id', 'result_reference', 'stop_reason'}:

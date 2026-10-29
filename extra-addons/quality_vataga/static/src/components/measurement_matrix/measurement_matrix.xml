@@ -22,11 +22,11 @@
     </t>
     <t t-name="quality_vataga.UnitTransferWorkorderButtons">
         <span class="d-inline-flex gap-1 flex-wrap">
-            <button t-if="props.record.data.quality_transfer_has_run" type="button" class="btn btn-secondary o_quality_send_units"
+            <button t-if="props.record.data.quality_transfer_controlled and props.record.data.quality_transfer_has_run" type="button" class="btn btn-secondary o_quality_send_units"
                     t-att-disabled="state.opening" t-on-click="() => this.open('send')">Передати допущені вироби</button>
-            <button type="button" class="btn btn-primary o_quality_receive_units"
+            <button t-if="props.record.data.quality_transfer_controlled" type="button" class="btn btn-primary o_quality_receive_units"
                     t-att-disabled="state.opening" t-on-click="() => this.open('receive')">Прийняти передані вироби</button>
-            <button type="button" class="btn btn-secondary o_quality_return_units"
+            <button t-if="props.record.data.quality_transfer_controlled" type="button" class="btn btn-secondary o_quality_return_units"
                     t-att-disabled="state.opening" t-on-click="() => this.open('return')">Повернути вироби</button>
         </span>
     </t>

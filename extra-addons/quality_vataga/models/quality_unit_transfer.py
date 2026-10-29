@@ -1,3 +1,8 @@
+"""Legacy send/receive history and compatibility for already controlled MOs.
+
+Native WO completion records execution directly; a transfer is not required
+to identify or complete a QUNIT on a new route.
+"""
 from markupsafe import escape
 
 from odoo import _, api, fields, models

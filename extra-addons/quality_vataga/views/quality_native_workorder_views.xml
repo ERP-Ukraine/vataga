@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="mrp_workorder_quality_native_units" model="ir.ui.view">
+        <field name="name">mrp.workorder.quality.native.units</field>
+        <field name="model">mrp.workorder</field>
+        <field name="inherit_id" ref="mrp.mrp_production_workorder_form_view_inherit"/>
+        <field name="arch" type="xml">
+            <xpath expr="/form/sheet/notebook" position="before">
+                <group string="Вироби операції" groups="mrp.group_mrp_user" invisible="quality_transfer_controlled">
+                    <field name="quality_transfer_controlled" invisible="1"/>
+                    <field name="company_id" invisible="1"/>
+                    <field name="quality_native_unit_ids" widget="many2many_tags"
+                           domain="[('production_id', '=', production_id), ('company_id', '=', company_id)]"
+                           options="{'no_create': True}" readonly="state in ('done', 'cancel')"/>
+                </group>
+            </xpath>
+            <xpath expr="/form/sheet/notebook" position="inside">
+                <page string="Виконані вироби" name="quality_native_execution"
+                      groups="mrp.group_mrp_user" invisible="quality_transfer_controlled or not quality_execution_ids">
+                    <field name="quality_execution_ids" readonly="1">
+                        <tree create="0" edit="0" delete="0">
+                            <field name="controlled_unit_id"/>
+                            <field name="state"/>
+                            <field name="operator_id"/>
+                            <field name="started_at"/>
+                            <field name="ended_at"/>
+                            <field name="result_reference"/>
+                        </tree>
+                    </field>
+                </page>
+            </xpath>
+        </field>
+    </record>
+</odoo>

@@ -47,7 +47,7 @@
         <field name="arch" type="xml">
             <xpath expr="/form/sheet/notebook" position="inside">
                 <page name="quality_unit_transfers" string="Передачі QUNIT" groups="quality.group_quality_user"
-                      invisible="not quality_transfer_has_run and not quality_transfer_in_ids and not quality_transfer_out_ids">
+                      invisible="not quality_transfer_controlled and not quality_transfer_in_ids and not quality_transfer_out_ids">
                     <field name="quality_transfer_has_run" invisible="1"/>
                     <field name="quality_transfer_controlled" invisible="1"/>
                     <div class="alert alert-warning" invisible="not quality_transfer_controlled">
