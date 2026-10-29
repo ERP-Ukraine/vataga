@@ -6,6 +6,13 @@
         <field name="inherit_id" ref="quality_vataga.quality_alert_board_form"/>
         <field name="arch" type="xml">
             <xpath expr="//group[@name='technical_board_action']" position="inside">
+                <field name="vataga_repair_in_native_backorder" invisible="1"/>
+                <button name="action_start_native_repair" type="object" string="Розпочати ремонт у Backorder"
+                        groups="quality.group_quality_user"
+                        invisible="not vataga_repair_in_native_backorder or not is_board_execution_stage or not is_approved or vataga_repair_done_at"/>
+                <button name="action_stop_native_repair" type="object" string="Зупинити таймер ремонту"
+                        groups="quality.group_quality_user"
+                        invisible="not vataga_repair_in_native_backorder or not is_board_execution_stage or not is_approved or vataga_repair_done_at"/>
                 <button name="action_open_repair_confirmation" type="object"
                         string="Підтвердити доопрацювання" groups="quality.group_quality_user"
                         invisible="decision_type != 'repair' or not is_approved or not is_board_execution_stage or vataga_repair_done_at"/>

@@ -22,3 +22,5 @@ from . import test_quality_alert_view_contract
 from . import test_quality_alert_repair
 from . import test_quality_alert_scrap
 from . import test_stock_scrap_native_contract
+from . import test_native_backorder_bridge
+from . import test_quality_native_backorder

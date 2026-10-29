@@ -4,6 +4,7 @@ import math
 
 from odoo import _, api, Command, fields, models
 from odoo.exceptions import AccessError, UserError, ValidationError
+from .native_backorder import native_operation_allows
 
 
 class QualityMatrixHoldAlert(models.Model):
@@ -132,8 +133,15 @@ class QualityMatrixHoldCheck(models.Model):
         self.check_access_rule('read')
         unit_id = sample.controlled_unit_id.id or 0
         if 'workorder_id' in self._fields and self.workorder_id:
-            history = 'q.workorder_id = %s'
-            scope = self.workorder_id.id
+            ancestors = self.workorder_id
+            current = self.workorder_id.quality_native_parent_workorder_id
+            while current and current not in ancestors:
+                current.check_access_rights('read')
+                current.check_access_rule('read')
+                ancestors |= current
+                current = current.quality_native_parent_workorder_id
+            history = 'q.workorder_id IN %s'
+            scope = tuple(ancestors.ids)
         else:
             history = 'q.point_id = %s'
             scope = self.point_id.id or 0
@@ -177,6 +185,8 @@ class MatrixNativeCompletion(models.Model):
         # The existing controlled-MO barrier remains entirely authoritative.
         # This closes the earlier gap BEFORE first named handoff activation.
         for production in self.sorted('id'):
+            if native_operation_allows(production):
+                continue
             if production.quality_transfer_controlled:
                 continue
             production._lock_quality_transfer_scope()

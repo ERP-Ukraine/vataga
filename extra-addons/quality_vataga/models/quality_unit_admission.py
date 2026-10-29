@@ -230,7 +230,7 @@ class QualityUnitAdmission(models.Model):
                 or run.state != 'registered' or unit not in run.unit_ids
                 or record.workorder_id != run.workorder_id
                 or record.workorder_id.production_id != record.production_id
-                or record.production_id != run.production_id or record.production_id != unit.production_id
+                or record.production_id != run.production_id or not unit._quality_matches_production(record.production_id)
                 or record.product_id != run.product_id or record.product_id != unit.product_id
                 or record.company_id != run.company_id or record.company_id != unit.company_id
             ):

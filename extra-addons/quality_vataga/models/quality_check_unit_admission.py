@@ -95,7 +95,10 @@ class QualityCheckUnitAdmission(models.Model):
         production = self._identity_production()
         if not production:
             return
-        self.env.cr.execute('SELECT id FROM mrp_production WHERE id = %s FOR UPDATE', [production.id])
+        # Share the MO version with native Backorder release as well as the
+        # run version. A completed revocation must invalidate a release's
+        # older RR snapshot even when the release has not read that run yet.
+        production._lock_quality_transfer_scope()
         self.invalidate_recordset(['operation_run_id', 'unit_admission_role'])
         if self.operation_run_id:
             self.env.cr.execute(
@@ -151,7 +154,7 @@ class QualityCheckUnitAdmission(models.Model):
         units.check_access_rule('read')
         if len(units) != run.quantity or set(units.ids) != set(run.unit_ids.ids):
             return _('Кожен зразок повинен відповідати окремому виробу цього запуску.')
-        if any(unit.production_id != production or unit.product_id != run.product_id or unit.company_id != run.company_id for unit in units):
+        if any(not unit._quality_matches_production(production) or unit.product_id != run.product_id or unit.company_id != run.company_id for unit in units):
             return _('Ідентифіковані вироби не відповідають MO, продукту або компанії.')
         try:
             self._validate_measurement_sample_structure()

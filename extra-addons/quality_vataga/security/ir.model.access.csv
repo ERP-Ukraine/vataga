@@ -47,3 +47,9 @@ access_quality_stock_release_wizard_line,quality.unit.stock.release.wizard.line,
 access_quality_stock_timer_binding_wizard,quality.stock.timer.binding.wizard,model_quality_stock_timer_binding_wizard,mrp.group_mrp_user,1,0,0,0
 access_quality_matrix_failure_scope_wizard,quality.matrix.failure.scope.wizard,model_quality_matrix_failure_scope_wizard,quality.group_quality_manager,1,1,1,1
 access_quality_alert_repair_wizard,quality.alert.repair.wizard,model_quality_alert_repair_wizard,quality.group_quality_user,1,1,1,1
+access_quality_unit_continuation_mrp,quality.unit.continuation.mrp,model_quality_unit_continuation,mrp.group_mrp_user,1,0,1,0
+access_quality_unit_continuation_quality,quality.unit.continuation.quality,model_quality_unit_continuation,quality.group_quality_user,1,0,0,0
+access_quality_unit_continuation_stock,quality.unit.continuation.stock,model_quality_unit_continuation,stock.group_stock_user,1,0,0,0
+access_quality_unit_stock_fact_mrp,quality.unit.stock.fact.mrp,model_quality_unit_stock_fact,mrp.group_mrp_user,1,0,1,0
+access_quality_unit_stock_fact_quality,quality.unit.stock.fact.quality,model_quality_unit_stock_fact,quality.group_quality_user,1,0,0,0
+access_quality_unit_stock_fact_stock,quality.unit.stock.fact.stock,model_quality_unit_stock_fact,stock.group_stock_user,1,0,0,0

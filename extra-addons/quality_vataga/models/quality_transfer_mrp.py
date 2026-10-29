@@ -1,5 +1,6 @@
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
+from .native_backorder import native_operation_allows
 
 BOUNDARY_MESSAGE = 'Для цього MO активовано захищений поштучний маршрут. Використайте «Поштучне виконання» з явним вибором прийнятих QUNIT. Стандартне завершення Work Order, зміна виробничої кількості та складський випуск заблоковані.'
 TIMER_CLOSE_TOKEN = object()
@@ -33,6 +34,8 @@ class MrpProductionTransfer(models.Model):
         return controlled
 
     def _check_quality_transfer_boundary(self):
+        if native_operation_allows(self):
+            return
         if self._lock_quality_transfer_scope():
             raise UserError(_(BOUNDARY_MESSAGE))
 

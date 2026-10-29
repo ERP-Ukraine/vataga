@@ -120,7 +120,7 @@ class QualityProductionRun(models.Model):
             if run.state == 'registered' and len(run.unit_ids) != run.quantity:
                 raise ValidationError(_('Склад запуску не відповідає його зафіксованій кількості.'))
             if any(
-                unit.production_id != production or unit.product_id != run.product_id
+                not unit._quality_matches_production(production) or unit.product_id != run.product_id
                 or unit.company_id != run.company_id
                 for unit in run.unit_ids
             ):

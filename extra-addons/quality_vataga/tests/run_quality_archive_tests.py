@@ -54,12 +54,12 @@ def main():
                 'data': ['security/stock_posting.xml', 'security/ir.model.access.csv'],
             }), encoding='utf-8')
             (addon / '__init__.py').write_text('from . import models\nfrom . import tests\n', encoding='utf-8')
-            for filename in ('quality_archive.py', 'quality_release_access.py', 'stock_posting_core.py', 'stock_posting_valuation.py'):
+            for filename in ('quality_archive.py', 'quality_release_access.py', 'stock_posting_core.py', 'stock_posting_valuation.py', 'native_backorder.py'):
                 shutil.copyfile(root / 'models' / filename, addon / 'models' / filename)
-            (addon / 'models' / '__init__.py').write_text('from . import stock_posting_core\nfrom . import stock_posting_valuation\n', encoding='utf-8')
-            for filename in ('test_stock_release_native_contract.py', 'test_stock_archive.py', 'test_stock_scrap_native_contract.py'):
+            (addon / 'models' / '__init__.py').write_text('from . import stock_posting_core\nfrom . import stock_posting_valuation\nfrom . import native_backorder\n', encoding='utf-8')
+            for filename in ('test_stock_release_native_contract.py', 'test_stock_archive.py', 'test_stock_scrap_native_contract.py', 'test_native_backorder_bridge.py'):
                 shutil.copyfile(root / 'tests' / filename, addon / 'tests' / filename)
-            (addon / 'tests' / '__init__.py').write_text('from . import test_stock_release_native_contract\nfrom . import test_stock_archive\nfrom . import test_stock_scrap_native_contract\n', encoding='utf-8')
+            (addon / 'tests' / '__init__.py').write_text('from . import test_stock_release_native_contract\nfrom . import test_stock_archive\nfrom . import test_stock_scrap_native_contract\nfrom . import test_native_backorder_bridge\n', encoding='utf-8')
             with (root / 'security' / 'ir.model.access.csv').open(encoding='utf-8') as stream:
                 rows = list(csv.DictReader(stream))
             with (addon / 'security' / 'ir.model.access.csv').open('w', newline='', encoding='utf-8') as stream:

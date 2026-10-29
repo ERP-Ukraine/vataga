@@ -96,7 +96,9 @@ class QualityCheckIdentity(models.Model):
         production = self._check_identification_access()
         if mode not in ('new', 'reuse', 'existing') or not confirmed:
             raise UserError(_('Оберіть спосіб і підтвердіть відповідність зразків виробам та наявним результатам.'))
-        self.env.cr.execute('SELECT id FROM mrp_production WHERE id = %s FOR UPDATE', [production.id])
+        # A concurrent registration changes the release evidence population;
+        # bump the shared MO version rather than keep an older RR snapshot.
+        production._lock_quality_transfer_scope()
         self.env.cr.execute('SELECT id FROM quality_check WHERE id = %s FOR UPDATE', [self.id])
         production.invalidate_recordset(['product_id', 'company_id', 'qty_producing', 'product_uom_id', 'state'])
         self.invalidate_recordset([
@@ -171,7 +173,7 @@ class QualityCheckIdentity(models.Model):
             units.check_access_rights('read')
             units.check_access_rule('read')
             if len(units) != len(samples) or any(
-                unit.production_id != production or unit.product_id != self.product_id
+                unit._quality_current_production() != production or unit.product_id != self.product_id
                 or unit.company_id != production.company_id for unit in units
             ):
                 raise ValidationError(_('Всі вироби мають належати цьому MO, виробу та компанії.'))

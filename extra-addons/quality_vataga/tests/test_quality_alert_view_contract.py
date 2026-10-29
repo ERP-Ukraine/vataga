@@ -114,6 +114,17 @@ class TestQualityAlertViewContract(unittest.TestCase):
         self.assertFalse(page.xpath('.//field[@name="scrap_qty"]|.//field[@name="product_qty"]'))
         self.assertEqual(page.xpath('.//tree/field/@name'), ['controlled_unit_id', 'sample_number', 'sample_result'])
 
+    def test_native_history_is_readonly_and_does_not_expose_posting_actions(self):
+        form = etree.parse(str(ROOT / 'views/quality_native_backorder_views.xml'))
+        original = etree.parse(str(ROOT / 'views/quality_production_identity_views.xml'))
+        self.assertFalse(form.xpath('//button|//notebook'))
+        self.assertEqual(len(original.xpath("//record[@id='quality_production_unit_form']//notebook")), 1)
+        for field in form.xpath("//field[@name='native_continuation_ids' or @name='native_stock_fact_ids']"):
+            self.assertEqual(field.get('readonly'), '1')
+            self.assertEqual(field.xpath('./tree/@create'), ['0'])
+            self.assertEqual(field.xpath('./tree/@edit'), ['0'])
+            self.assertEqual(field.xpath('./tree/@delete'), ['0'])
+
 
 if __name__ == '__main__':
     unittest.main()

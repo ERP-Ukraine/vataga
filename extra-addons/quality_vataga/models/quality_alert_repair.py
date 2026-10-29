@@ -6,6 +6,7 @@ from odoo import _, api, fields, models
 from odoo.exceptions import AccessError, UserError, ValidationError
 
 from .quality_alert import BOARD_STAGE_XMLIDS
+from .native_backorder import NativeBackorderOperation
 
 
 REPAIR_CHECK_TOKEN = object()
@@ -32,6 +33,42 @@ class QualityAlertRepair(models.Model):
     vataga_repair_closed_check_id = fields.Many2one(
         'quality.check', string='Контроль виконання рішення', readonly=True,
         copy=False, ondelete='restrict')
+    vataga_repair_in_native_backorder = fields.Boolean(compute='_compute_repair_native_backorder')
+
+    @api.depends('vataga_failure_sample_ids.controlled_unit_id.native_continuation_ids')
+    @api.depends_context('uid', 'allowed_company_ids')
+    def _compute_repair_native_backorder(self):
+        for alert in self:
+            try:
+                production, _workorder = alert._repair_target()
+                alert.vataga_repair_in_native_backorder = bool(production.quality_native_parent_id)
+            except (AccessError, UserError):
+                alert.vataga_repair_in_native_backorder = False
+
+    def action_start_native_repair(self):
+        self._lock_board_records()
+        self._check_repair_action()
+        production, workorder = self._repair_target()
+        if not production.quality_native_parent_id or self.vataga_repair_done_at:
+            raise UserError(_('Ця дія призначена для незавершеного ремонту у штатному Backorder.'))
+        workorder.check_access_rights('write')
+        workorder.check_access_rule('write')
+        # Start actual native time, rather than manufacture a cost or copy old
+        # timers. Quantity zero makes warehouse completion impossible here.
+        with NativeBackorderOperation(production, 0).activate():
+            workorder.button_start()
+        return True
+
+    def action_stop_native_repair(self):
+        self._lock_board_records()
+        self._check_repair_action()
+        production, workorder = self._repair_target()
+        if not production.quality_native_parent_id:
+            raise UserError(_('Ця дія призначена для ремонту у штатному Backorder.'))
+        timers = workorder.time_ids.filtered(lambda row: not row.date_end and row.user_id == self.env.user)
+        with NativeBackorderOperation(production, 0).activate():
+            timers._close()
+        return True
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -134,12 +171,23 @@ class QualityAlertRepair(models.Model):
                 or len(check.sample_ids) != run.quantity
                 or run.quantity != check.in_process_sample_quantity
                 or units - run.unit_ids
-                or any(unit.production_id != production or unit.product_id != check.product_id
+                or any(not unit._quality_matches_production(production) or unit.product_id != check.product_id
                        or unit.company_id != production.company_id for unit in units)):
             raise ValidationError(scope_error)
         run.workorder_id.check_access_rights('read')
         run.workorder_id.check_access_rule('read')
         return samples.sorted('sample_number')
+
+    def _repair_target(self):
+        samples = self._repair_scope()
+        productions = self.env['mrp.production']
+        for unit in samples.controlled_unit_id:
+            unit._assert_not_stock_posted()
+            productions |= unit._quality_current_production()
+        if len(productions) != 1:
+            raise ValidationError(_('Сфера ремонту належить різним поточним MO. Потрібне окреме рішення для кожної партії.'))
+        workorder = productions._quality_equivalent_workorder(self.check_id.operation_run_id.workorder_id)
+        return productions, workorder
 
     def _check_repair_action(self):
         self.ensure_one()
@@ -152,8 +200,8 @@ class QualityAlertRepair(models.Model):
                 or self.stage_id != self.env.ref(BOARD_STAGE_XMLIDS[2])):
             raise UserError(_('Спочатку затвердьте рішення ТР «Ремонт/Доопрацювання».'))
         samples = self._repair_scope()
-        production = self.check_id._identity_production()
-        if production.state not in ('confirmed', 'progress') or self.check_id.operation_run_id.workorder_id.state in ('done', 'cancel'):
+        production, workorder = self._repair_target()
+        if production.state not in ('confirmed', 'progress') or workorder.state in ('done', 'cancel'):
             raise UserError(_('Ремонт доступний для відкритого MO та незавершеної операції.'))
         return samples
 
@@ -171,6 +219,11 @@ class QualityAlertRepair(models.Model):
         with self.env.cr.savepoint():
             self._lock_board_records()
             samples = self._check_repair_action()
+            production, workorder = self._repair_target()
+            if production.quality_native_parent_id and (
+                    workorder.time_ids.filtered(lambda row: not row.date_end)
+                    or not any(row.date_end and row.duration > 0 for row in workorder.time_ids)):
+                raise UserError(_('Для ремонту у Backorder потрібен фактичний завершений штатний робочий інтервал. Відсутність часу не означає нульову вартість ремонту.'))
             if not isinstance(note, str) or not note.strip():
                 raise ValidationError(_('Опишіть фактично виконане доопрацювання всіх зазначених QUNIT.'))
             if self.vataga_repair_done_at:
@@ -199,17 +252,17 @@ class QualityAlertRepair(models.Model):
             if previous and previous.quality_state != 'fail':
                 return previous._repair_form_action()
             source = self.check_id
+            production, workorder = self._repair_target()
             values = {
                 'vataga_repair_alert_id': self.id, 'point_id': source.point_id.id,
-                'production_id': source._identity_production().id,
+                'production_id': production.id,
                 'product_id': source.product_id.id, 'team_id': source.team_id.id,
                 'test_type_id': source.test_type_id.id, 'measure_on': 'product',
                 'quality_state': 'none', 'unit_admission_role': 'required',
             }
             for name in ('company_id', 'workorder_id'):
                 if name in source._fields:
-                    values[name] = (source.operation_run_id.workorder_id.id
-                                    if name == 'workorder_id' else source[name].id)
+                    values[name] = (workorder.id if name == 'workorder_id' else production.company_id.id)
             context = {key: value for key, value in self.env.context.items()
                        if not key.startswith('default_') and key != REPAIR_CONTEXT}
             check = self.env['quality.check'].with_context(
@@ -217,7 +270,7 @@ class QualityAlertRepair(models.Model):
             check._identify_samples('reuse', [
                 {'sample_id': sample.id, 'unit_id': original.controlled_unit_id.id}
                 for sample, original in zip(check.sample_ids.sorted('sample_number'), samples)
-            ], workorder=source.operation_run_id.workorder_id, confirmed=True)
+            ], workorder=workorder, confirmed=True)
             # Creation and identification share the savepoint: no orphan QC or QRUN.
             check.message_post(body=escape(_(
                 'Повторний контроль після доопрацювання за Alert %(alert)s. '
@@ -241,9 +294,9 @@ class QualityAlertRepair(models.Model):
                 or not check or check.vataga_repair_alert_id != self
                 or check.quality_state != 'pass' or check.unit_admission_role != 'required'
                 or check.x_control_stage != 'in_process' or check.point_id != self.check_id.point_id
-                or check._identity_production() != self.check_id._identity_production()
+                or any(not unit._quality_matches_production(check._identity_production()) for unit in samples.controlled_unit_id)
                 or not run or run == self.check_id.operation_run_id or run.state != 'registered'
-                or run.workorder_id != self.check_id.operation_run_id.workorder_id
+                or run.workorder_id != check._identity_production()._quality_equivalent_workorder(self.check_id.operation_run_id.workorder_id)
                 or run.origin_check_id != check or run.registration_mode != 'reuse'
                 or set(run.unit_ids.ids) != set(samples.controlled_unit_id.ids)
                 or len(check.sample_ids) != len(samples)
@@ -343,9 +396,9 @@ class QualityCheckRepair(models.Model):
         samples = alert._repair_scope()
         source = alert.check_id
         if (self.x_control_stage != 'in_process' or self.point_id != source.point_id
-                or self._identity_production() != source._identity_production()
+                or any(not unit._quality_matches_production(self._identity_production()) for unit in samples.controlled_unit_id)
                 or self.product_id != source.product_id or self.picking_id or self.move_line_id
-                or ('workorder_id' in self._fields and self.workorder_id != source.operation_run_id.workorder_id)):
+                or ('workorder_id' in self._fields and self.workorder_id != self._identity_production()._quality_equivalent_workorder(source.operation_run_id.workorder_id))):
             return 0, _('Повторний контроль не відповідає адресній партії ремонту.')
         return len(samples), False
 
@@ -354,8 +407,9 @@ class QualityCheckRepair(models.Model):
             return super()._is_repair_identification(mode, mapping, run, workorder)
         alert = self.vataga_repair_alert_id
         samples = alert._check_repair_action()
+        production, target_workorder = alert._repair_target()
         if (not alert.vataga_repair_done_at or mode != 'reuse' or run
-                or workorder != alert.check_id.operation_run_id.workorder_id
+                or workorder != target_workorder or self._identity_production() != production
                 or {row.get('unit_id') for row in mapping} != set(samples.controlled_unit_id.ids)):
             raise ValidationError(_('Повторний контроль використовує лише ті самі QUNIT затвердженого ремонту.'))
         return True
