@@ -147,9 +147,9 @@ class MrpWorkorderTransferBoundary(models.Model):
         self._quality_transfer_relation_productions({'blocked_by_workorder_ids': [], 'needed_by_workorder_ids': []})._check_quality_transfer_boundary()
         return super().unlink()
 
-    def button_start(self):
+    def button_start(self, bypass=False):
         self.production_id._check_quality_transfer_boundary()
-        return super().button_start()
+        return super().button_start(bypass=bypass)
 
     def button_finish(self):
         self.production_id._check_matrix_native_completion(workorders=self)

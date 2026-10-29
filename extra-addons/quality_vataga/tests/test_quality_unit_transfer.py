@@ -366,6 +366,29 @@ class TestQualityUnitTransfer(QualityCheckInProcessCase):
         self.assertEqual(production.qty_producing, 4)
         self.assertFalse(production.quality_transfer_controlled)
 
+    def test_successful_qc_starts_workorder_with_enterprise_bypass(self):
+        check = self._ready(fail_last=False)
+        source = check.operation_run_id.workorder_id
+        original = type(source).button_start
+        with patch.object(type(source), 'button_start', autospec=True, side_effect=original) as start:
+            check.do_pass()
+        self.assertEqual(check.quality_state, 'pass')
+        self.assertTrue(any(call.kwargs.get('bypass') is True for call in start.call_args_list))
+        self.assertEqual(source.state, 'progress')
+        self.assertFalse(check.production_id.quality_transfer_controlled)
+
+    def test_enterprise_bypass_cannot_start_protected_route(self):
+        check, source, destination = self._route()
+        self._send(check, destination).action_apply()
+        before = (source.state, destination.state, source.time_ids.ids, destination.time_ids.ids,
+                  check.production_id.qty_producing, check.production_id.qty_produced)
+        for workorder in (source, destination):
+            for kwargs in ({}, {'bypass': False}, {'bypass': True}):
+                with self.subTest(workorder=workorder.id, kwargs=kwargs), self.assertRaises(UserError):
+                    workorder.button_start(**kwargs)
+        self.assertEqual(before, (source.state, destination.state, source.time_ids.ids, destination.time_ids.ids,
+                                 check.production_id.qty_producing, check.production_id.qty_produced))
+
     def test_running_source_timer_can_be_stopped_after_transfer(self):
         check, source, destination = self._route()
         source.duration_expected = 1
