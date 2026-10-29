@@ -19,9 +19,11 @@ export class QualityMeasurementMatrix extends Component {
         this.ui = useService("ui");
         this.loadVersion = 0;
         this.initializationAttempted = new Set();
+        this.identityInitializationAttempted = new Set();
         this.state = useState({
             loading: true,
             saving: false,
+            unitChoices: {},
             sampleCount: 1,
             addingSamples: false,
             removingSamples: false,
@@ -110,11 +112,30 @@ export class QualityMeasurementMatrix extends Component {
             if (version !== this.loadVersion) {
                 return;
             }
+            if (initialize && data.can_initialize_identity && data.batch_quantity > 0 &&
+                !this.identityInitializationAttempted.has(checkId)) {
+                const dirty = await record.isDirty();
+                if (version !== this.loadVersion) {
+                    return;
+                }
+                if (dirty) {
+                    this.initializationDeferred = true;
+                } else {
+                    this.identityInitializationAttempted.add(checkId);
+                    data = await this.orm.call('quality.check', 'initialize_qc_unit_identity', [[checkId]]);
+                }
+            }
+            if (version !== this.loadVersion) {
+                return;
+            }
             this.state.data = data;
             if (syncForm && data.control_stage === "in_process") {
                 const quantityStale = "in_process_sample_quantity" in record.data &&
                     record.data.in_process_sample_quantity !== data.batch_quantity;
-                this.parentRefreshPending = generated || quantityStale;
+                const identityStale = "operation_run_id" in record.data &&
+                    "operation_run_id" in data &&
+                    (record.data.operation_run_id?.[0] || false) !== data.operation_run_id;
+                this.parentRefreshPending = generated || quantityStale || identityStale;
                 if (this.parentRefreshPending) {
                     this.parentRefreshPending = !(await refreshQualityCheckRecord(record, this.ui));
                 }
@@ -130,9 +151,38 @@ export class QualityMeasurementMatrix extends Component {
         this.state.sampleCount = ev.target.value;
     }
 
+    async bindUnits() {
+        if (this.state.saving || !this.checkId) {
+            return;
+        }
+        const record = this.props.record;
+        const checkId = this.checkId;
+        this.state.saving = true;
+        try {
+            if ((await record.isDirty()) && (await record.save()) === false) {
+                return;
+            }
+            if (this.checkId !== checkId) {
+                return;
+            }
+            const mapping = this.state.data.samples.map((sample) => ({
+                sample_id: sample.id,
+                unit_id: Number(this.state.unitChoices[sample.id]) || 0,
+            }));
+            const data = await this.orm.call('quality.check', 'bind_measurement_units', [[checkId], mapping]);
+            if (this.checkId === checkId) {
+                this.state.data = data;
+                await refreshQualityCheckRecord(record, this.ui);
+            }
+        } finally {
+            this.state.saving = false;
+        }
+    }
+
     async refreshInProcessMatrix() {
         const record = this.props.record;
         this.initializationAttempted.delete(this.checkId);
+        this.identityInitializationAttempted.delete(this.checkId);
         await this.load(record, { syncForm: false });
         await refreshQualityCheckRecord(record, this.ui);
     }

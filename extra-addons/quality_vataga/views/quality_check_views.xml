@@ -9,9 +9,6 @@
             <xpath expr="//header" position="inside">
                 <widget name="quality_unit_admission_buttons" groups="quality.group_quality_user"
                         invisible="x_control_stage != 'in_process' or not operation_run_id"/>
-                <button name="action_open_identification_wizard" type="object" string="Ідентифікувати вироби"
-                        groups="quality.group_quality_user" class="btn-secondary"
-                        invisible="x_control_stage != 'in_process' or quality_state != 'none' or operation_run_id or not in_process_result_quantities_valid"/>
                 <button
                     name="action_open_matrix_quality_alert"
                     type="object"
@@ -71,11 +68,12 @@
                     </div>
                     <group>
                         <field name="in_process_sample_quantity" readonly="1"/>
-                        <field name="operation_run_id" readonly="1" options="{'no_create': True}"/>
+                        <field name="operation_run_id" invisible="1"/>
                         <field name="unit_admission_role" groups="quality.group_quality_manager"/>
                         <field name="in_process_result_quantities_valid" invisible="1"/>
                         <div colspan="2" class="text-muted">
-                            PASS не є допуском. Допуск конкретних виробів підтверджується інспектором окремо.
+                            Завершення QC фіксує результати та допуски придатних виробів.
+                            Незавершені обов’язкові перевірки й відкриті Alert утримують відповідні вироби.
                         </div>
                         <div colspan="2" class="alert alert-warning mb-0"
                              invisible="in_process_result_quantities_valid">

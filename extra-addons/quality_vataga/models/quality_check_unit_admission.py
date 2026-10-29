@@ -49,9 +49,55 @@ class QualityCheckUnitAdmission(models.Model):
         context = dict(self.env.context)
         for name in ('x_admitted_qty', 'x_held_qty', 'unit_admission_ids', 'unit_admission_role'):
             context.pop('default_' + name, None)
-        return super(QualityCheckUnitAdmission, self.with_context(context)).create(prepared)
+        with self.env.cr.savepoint():
+            # Serialize creation of another mandatory QC with completion of
+            # its siblings, even before it has a QRUN or measurement rows.
+            production_ids = set()
+            for vals in prepared:
+                production_id = vals.get('production_id', context.get('default_production_id'))
+                if production_id:
+                    production_ids.add(production_id)
+                workorder_id = vals.get('workorder_id', context.get('default_workorder_id'))
+                if workorder_id:
+                    workorder = self.env['mrp.workorder'].browse(workorder_id)
+                    workorder.check_access_rights('read')
+                    workorder.check_access_rule('read')
+                    production_ids.add(workorder.production_id.id)
+            self.env['mrp.production'].browse(sorted(production_ids))._lock_quality_transfer_scope()
+            checks = super(QualityCheckUnitAdmission, self.with_context(context)).create(prepared)
+            if checks.filtered(lambda item: item.x_control_stage == 'in_process' and item.measurement_matrix_required and item.quality_state in ('pass', 'fail')):
+                raise ValidationError(_('Створіть QC, заповніть матрицю та завершіть контроль.'))
+            checks._invalidate_qc_admission_status()
+            return checks
+
+    def do_pass(self):
+        with self.env.cr.savepoint():
+            return super().do_pass()
+
+    def do_fail(self):
+        with self.env.cr.savepoint():
+            return super().do_fail()
 
     def write(self, vals):
+        if 'quality_state' in vals:
+            # The completion, identity and audit records form one transaction,
+            # including when an ORM caller catches the validation exception.
+            with self.env.cr.savepoint():
+                for check in self.filtered(lambda item: item.x_control_stage == 'in_process' and item.measurement_matrix_required).sorted('id'):
+                    check._lock_unit_admission_scope()
+                    if vals['quality_state'] == 'none' and check.quality_state != 'none':
+                        check._guard_unit_admission_evidence_edit()
+                    if vals['quality_state'] in ('pass', 'fail'):
+                        check._ensure_qc_unit_identity()
+                        if not check.operation_run_id:
+                            raise ValidationError(_('Оберіть наявні QUNIT у матриці перед завершенням контролю.'))
+                        check._validate_measurement_sample_structure()
+                        if not check.sample_ids or any(not sample.is_complete for sample in check.sample_ids) or not check.equipment_selection_complete:
+                            raise ValidationError(_('Заповніть усі вимірювання, візуальний контроль та ЗВТ перед завершенням QC.'))
+                return self._write_with_qc_admissions(vals)
+        return self._write_with_qc_admissions(vals)
+
+    def _write_with_qc_admissions(self, vals):
         if {'x_admitted_qty', 'x_held_qty', 'unit_admission_ids'}.intersection(vals):
             raise UserError(_('Кількість допусків та їх записи встановлює система.'))
         if 'unit_admission_role' in vals:
@@ -61,14 +107,48 @@ class QualityCheckUnitAdmission(models.Model):
             self.check_access_rule('write')
             for check in self:
                 check._lock_unit_admission_scope()
-                if check.operation_run_id and check._active_run_admissions():
+                if check.operation_run_id and check._dependent_unit_admissions():
                     raise UserError(_('Спочатку скасуйте допуски запуску перед зміною обов’язкових перевірок.'))
         old_roles = {check.id: check.unit_admission_role for check in self} if 'unit_admission_role' in vals else {}
         result = super().write(vals)
         for check in self:
             if check.id in old_roles and old_roles[check.id] != check.unit_admission_role:
                 check.message_post(body=escape(_('Роль перевірки для допуску змінено: %(role)s.', role=check.unit_admission_role)), subtype_xmlid='mail.mt_note')
+        if vals.get('quality_state') in ('pass', 'fail'):
+            for check in self.filtered(lambda item: item.x_control_stage == 'in_process' and item.operation_run_id):
+                check._confirm_completed_qc_units()
+        if {'quality_state', 'unit_admission_role'}.intersection(vals):
+            self._invalidate_qc_admission_status()
         return result
+
+    def _invalidate_qc_admission_status(self):
+        productions = self.env['mrp.production']
+        for check in self:
+            productions |= check._identity_production()
+        # Cache invalidation only, never elevated authorization or writes.
+        checks = self.env['quality.check'].sudo().search([
+            '|', ('production_id', 'in', productions.ids),
+            ('operation_run_id.production_id', 'in', productions.ids),
+        ])
+        checks.invalidate_recordset(['x_admitted_qty', 'x_held_qty'])
+        self.env['quality.unit.admission'].sudo().search([
+            ('production_id', 'in', productions.ids),
+        ]).invalidate_recordset(['is_effective', 'ineffective_reason'])
+
+    def _dependent_unit_admissions(self):
+        self.ensure_one()
+        return self._active_run_admissions() | self.env['quality.unit.admission'].sudo().search([
+            ('required_check_ids', 'in', self.ids), ('state', '=', 'confirmed'),
+        ])
+
+    def _confirm_completed_qc_units(self):
+        """Completion is the inspector's decision; PASS inputs alone are not."""
+        self.ensure_one()
+        for check in self._unit_admission_required_checks().filtered(lambda item: item.operation_run_id and item.quality_state in ('pass', 'fail')):
+            eligible = check.sample_ids.filtered(lambda sample: not check._get_unit_admission_error(sample))
+            if eligible:
+                check._execute_unit_admission_action(eligible.ids, 'confirm',
+                    'qc-completion-%s' % check.id)
 
     def _check_unit_admission_access(self):
         self.ensure_one()
@@ -122,6 +202,22 @@ class QualityCheckUnitAdmission(models.Model):
             ('x_control_stage', '=', 'in_process'), ('unit_admission_role', '=', 'required'),
         ]).ids
         checks = self.env['quality.check'].browse(ids) | self
+        workorder = self.operation_run_id.workorder_id
+        if workorder:
+            # QRUN is an implementation detail. All current mandatory QCPs on
+            # this operation count, including QC not yet identified. A retest
+            # supersedes its own QCP only; other pending QCPs still hold units.
+            operation_domain = [('operation_run_id.workorder_id', '=', workorder.id)]
+            if 'workorder_id' in self._fields:
+                operation_domain = ['|', ('workorder_id', '=', workorder.id)] + operation_domain
+            candidates = self.env['quality.check'].sudo().search(operation_domain + [
+                ('x_control_stage', '=', 'in_process'),
+                ('unit_admission_role', '=', 'required'),
+            ], order='id desc')
+            latest = {}
+            for candidate in candidates:
+                latest.setdefault(candidate.point_id.id, candidate.id)
+            checks |= self.env['quality.check'].browse(list(latest.values()))
         checks.check_access_rights('read')
         checks.check_access_rule('read')
         return checks
@@ -182,6 +278,8 @@ class QualityCheckUnitAdmission(models.Model):
             if sample.sample_result != 'pass':
                 return _('Допуск можливий лише для зразка PASS; FAIL та pending утримуються.')
             for check in self._unit_admission_required_checks():
+                if check.quality_state not in ('pass', 'fail'):
+                    return _('Обов’язкова перевірка %(check)s ще не завершена.', check=check.display_name)
                 error = check._get_unit_admission_structure_error()
                 if error:
                     return _('%(check)s: %(reason)s', check=check.display_name, reason=error)
@@ -199,7 +297,7 @@ class QualityCheckUnitAdmission(models.Model):
             check.check_access_rights('write')
             check.check_access_rule('write')
             check._lock_unit_admission_scope()
-            admissions = check._active_run_admissions()
+            admissions = check._dependent_unit_admissions()
             if check.unit_admission_role != 'required':
                 admissions = admissions.filtered(lambda record: record.check_id.id == check.id)
             if unit_ids is not None:

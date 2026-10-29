@@ -58,6 +58,8 @@ QUnit.module("quality_vataga measurement matrix", (hooks) => {
                     "get_measurement_matrix_data",
                     "initialize_in_process_measurement_matrix",
                     "update_measurement_visual_result",
+                    "bind_measurement_units",
+                    "initialize_qc_unit_identity",
                 ].includes(args.method)) {
                     onRPC?.(args);
                     return structuredClone(data);
@@ -72,6 +74,46 @@ QUnit.module("quality_vataga measurement matrix", (hooks) => {
         assert.containsOnce(target, ".o_quality_measurement_sample_controls");
         assert.containsOnce(target, "#quality_vataga_sample_count");
         assert.strictEqual(calls.filter((name) => name === "initialize_in_process_measurement_matrix").length, 0);
+    });
+
+    QUnit.test("existing physical units are selected atomically inside QC", async (assert) => {
+        const data = matrix('in_process', [sample(1), sample(2)]);
+        data.identity_required = true;
+        data.identity_choices = [{ id: 11, name: 'QUNIT/11' }, { id: 12, name: 'QUNIT/12' }];
+        let mapping;
+        await openMatrix(data, (args) => {
+            if (args.method === 'bind_measurement_units') {
+                mapping = args.args[1];
+                data.samples.forEach((row) => {
+                    row.controlled_unit_name = `QUNIT/${mapping.find((item) => item.sample_id === row.id).unit_id}`;
+                });
+                data.identity_required = false;
+            }
+        });
+        await editSelect(target, '.o_quality_unit_choice[data-sample-id="1"]', '12');
+        await editSelect(target, '.o_quality_unit_choice[data-sample-id="2"]', '11');
+        await click(target, '.o_quality_bind_units');
+        assert.deepEqual(mapping, [{ sample_id: 1, unit_id: 12 }, { sample_id: 2, unit_id: 11 }]);
+        assert.containsNone(target, '.o_quality_unit_choice');
+        assert.containsN(target, '.o_quality_controlled_unit', 2);
+    });
+
+    QUnit.test("clean QC opens with automatic identity and no technical wizard", async (assert) => {
+        const data = matrix('in_process', [sample(1), sample(2)]);
+        data.can_initialize_identity = true;
+        data.operation_run_id = false;
+        const calls = [];
+        await openMatrix(data, (args) => {
+            calls.push(args.method);
+            if (args.method === 'initialize_qc_unit_identity') {
+                data.operation_run_id = 21;
+                data.can_initialize_identity = false;
+                data.samples.forEach((row) => { row.controlled_unit_name = `QUNIT/${row.id}`; });
+            }
+        });
+        assert.deepEqual(calls, ['get_measurement_matrix_data', 'initialize_qc_unit_identity']);
+        assert.containsN(target, '.o_quality_controlled_unit', 2);
+        assert.containsNone(target, '.o_quality_unit_choice');
     });
 
     QUnit.test("shows escaped unit identities while historical samples remain unbound", async (assert) => {

@@ -10,15 +10,11 @@
     </t>
     <t t-name="quality_vataga.UnitAdmissionButtons">
         <span class="d-inline-flex gap-1 o_quality_unit_admission_buttons">
-            <button type="button" class="btn btn-secondary o_quality_confirm_admission"
-                    t-att-disabled="state.opening" t-on-click="() => this.open('confirm')">
-                Підтвердити допуск виробів
-            </button>
             <button type="button" class="btn btn-secondary o_quality_revoke_admission"
                     t-att-disabled="state.opening" t-on-click="() => this.open('revoke')">
                 Скасувати допуск виробів
             </button>
-            <button type="button" class="btn btn-secondary o_quality_send_units"
+            <button t-if="props.record.data.quality_transfer_controlled" type="button" class="btn btn-secondary o_quality_send_units"
                     t-att-disabled="state.opening" t-on-click="() => this.open('transfer')">
                 Передати допущені вироби
             </button>
@@ -112,6 +108,17 @@
                 </p>
                 <div t-if="state.data.batch_error" class="alert alert-warning" role="alert">
                     <t t-esc="state.data.batch_error"/>
+                </div>
+                <div t-if="state.data.identity_required" class="alert alert-info">
+                    <t t-esc="state.data.identity_reason"/>
+                    <div t-foreach="state.data.samples" t-as="sample" t-key="sample.id" class="d-flex gap-2 my-2">
+                        <label>Зразок №<t t-esc="sample.sample_number"/></label>
+                        <select class="form-select o_quality_unit_choice" t-att-data-sample-id="sample.id" t-att-disabled="state.saving" t-model="state.unitChoices[sample.id]">
+                            <option value="">Оберіть виріб</option>
+                            <option t-foreach="state.data.identity_choices || []" t-as="unit" t-key="unit.id" t-att-value="unit.id"><t t-esc="unit.name"/></option>
+                        </select>
+                    </div>
+                    <button type="button" class="btn btn-primary o_quality_bind_units" t-att-disabled="state.saving" t-on-click="bindUnits">Зберегти відповідність виробів</button>
                 </div>
                 <button
                     t-if="state.data.editable"

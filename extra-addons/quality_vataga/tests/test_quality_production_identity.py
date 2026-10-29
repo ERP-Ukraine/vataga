@@ -72,13 +72,18 @@ class TestQualityProductionIdentity(QualityCheckInProcessCase):
         self.assertEqual(check.quality_state, 'none')
         self.assertFalse(check.can_pass_measurement_check)
 
-    def test_equal_quantities_on_same_mo_do_not_merge_batches(self):
+    def test_equal_quantities_on_same_mo_require_reuse_of_existing_units(self):
         production = self._production()
         first, second = self._check(production), self._check(production)
-        first_run, second_run = self._register(first), self._register(second)
+        first_run = self._register(first)
+        with self.assertRaises(ValidationError):
+            self._register(second)
+        self.assertFalse(second.operation_run_id)
+        self.assertFalse(second.sample_ids.controlled_unit_id)
+        second_run = self._register(second, mode='reuse', units=first_run.unit_ids)
         self.assertNotEqual(first_run, second_run)
-        self.assertFalse(first_run.unit_ids & second_run.unit_ids)
-        self.assertEqual(len(set((first_run.unit_ids | second_run.unit_ids).mapped('name'))), 10)
+        self.assertEqual(set(first_run.unit_ids.ids), set(second_run.unit_ids.ids))
+        self.assertEqual(len(first_run.unit_ids | second_run.unit_ids), 5)
 
     def test_additional_check_reuses_explicit_permuted_mapping(self):
         production = self._production()

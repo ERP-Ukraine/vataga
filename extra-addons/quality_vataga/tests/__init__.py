@@ -6,6 +6,8 @@ from . import test_quality_check_production
 from . import test_quality_check_in_process
 from . import test_quality_check_result_quantities
 from . import test_quality_production_identity
+from . import test_quality_qc_simplification
+from . import test_quality_qc_completion_contract
 from . import test_quality_unit_admission
 from . import test_quality_unit_transfer
 from . import test_quality_unit_execution

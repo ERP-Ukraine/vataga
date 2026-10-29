@@ -1,5 +1,5 @@
 from odoo import _, api, Command, fields, models
-from odoo.exceptions import UserError, ValidationError
+from odoo.exceptions import AccessError, UserError, ValidationError
 
 from .quality_production_identity import IDENTIFICATION_CONTEXT, IDENTIFICATION_TOKEN
 
@@ -88,7 +88,7 @@ class QualityCheckIdentity(models.Model):
             return self._identify_samples_locked(mode, mapping, run, workorder, confirmed)
 
     def _identify_samples_locked(self, mode, mapping, run, workorder, confirmed):
-        """Explicit, one-time binding; never called by normal QC generation.
+        """One-time binding shared by QC initialization and explicit selection.
 
         Lock MO before QC so two wizards cannot register two batches for the
         same check. SQL uniqueness also protects the origin and unit numbers.
@@ -154,6 +154,11 @@ class QualityCheckIdentity(models.Model):
         self._validate_measurement_sample_structure()
         if samples.filtered('controlled_unit_id'):
             raise ValidationError(_('Перевірка має частково призначені ідентифікатори. Автоматичне виправлення заборонено.'))
+        if mode == 'new' and self.env['quality.production.unit'].sudo().search_count([
+            '|', ('production_id', '=', production.id),
+            ('native_continuation_ids.production_id', '=', production.id),
+        ], limit=1):
+            raise ValidationError(_('Вироби цього MO вже зареєстровані. Оберіть наявні QUNIT у матриці.'))
         if mode == 'existing':
             if (
                 not run or run.state != 'registered' or run.production_id != production
@@ -208,6 +213,16 @@ class QualityCheckIdentity(models.Model):
         return run
 
     def get_measurement_matrix_data(self):
+        can_identify = all([
+            self.check_access_rights('write', raise_exception=False),
+            self.env['quality.production.run'].check_access_rights('create', raise_exception=False),
+            self.env['quality.production.unit'].check_access_rights('create', raise_exception=False),
+        ])
+        if can_identify:
+            try:
+                self.check_access_rule('write')
+            except AccessError:
+                can_identify = False
         data = super().get_measurement_matrix_data()
         samples = {sample.id: sample for sample in self.sample_ids}
         for row in data['samples']:
@@ -217,7 +232,108 @@ class QualityCheckIdentity(models.Model):
                 unit.check_access_rule('read')
             row['controlled_unit_id'] = unit.id or False
             row['controlled_unit_name'] = unit.name or ''
+        if self.x_control_stage == 'in_process':
+            data['operation_run_id'] = self.operation_run_id.id or False
+            data['can_initialize_identity'] = bool(can_identify and self.quality_state == 'none' and not self.operation_run_id)
+        if self.x_control_stage == 'in_process' and self.quality_state == 'none' and not self.operation_run_id and can_identify:
+            units = self._qc_existing_units()
+            data['identity_choices'] = [{'id': unit.id, 'name': unit.name} for unit in units]
+            data['identity_required'] = bool(self.sample_ids)
+            data['identity_reason'] = _('Оберіть наявні QUNIT. Якщо операцію або фізичний склад партії не визначено, уточніть їх у стандартному робочому завданні; нові ідентифікатори не створюються навмання.')
         return data
+
+    def initialize_qc_unit_identity(self):
+        """Called automatically on a clean QC form, never by a read getter."""
+        self.ensure_one()
+        self._ensure_measurement_editable()
+        with self.env.cr.savepoint():
+            self._ensure_qc_unit_identity()
+            return self.get_measurement_matrix_data()
+
+    def _qc_existing_units(self):
+        """Discover hidden identities too; never interpret ACL filtering as absence."""
+        self.ensure_one()
+        production = self._identity_production()
+        if not production:
+            return self.env['quality.production.unit']
+        ids = self.env['quality.production.unit'].sudo().search([
+            '|', ('production_id', '=', production.id),
+            ('native_continuation_ids.production_id', '=', production.id),
+        ]).ids
+        units = self.env['quality.production.unit'].browse(ids)
+        units.check_access_rights('read')
+        units.check_access_rule('read')
+        return units.filtered(lambda unit: unit._quality_current_production() == production)
+
+    def _qc_identity_workorder(self):
+        self.ensure_one()
+        workorder = self.workorder_id if 'workorder_id' in self._fields else self.env['mrp.workorder']
+        if not workorder:
+            candidates = self._identity_production().workorder_ids
+            if len(candidates) == 1:
+                workorder = candidates
+        return workorder
+
+    def _ensure_qc_unit_identity(self):
+        self.ensure_one()
+        if (self.x_control_stage != 'in_process' or self.quality_state != 'none'
+                or self.operation_run_id or not self.sample_ids
+                or self._get_in_process_batch_error(validate_current=True)):
+            return
+        with self.env.cr.savepoint():
+            production = self._check_identification_access()
+            production._lock_quality_transfer_scope()
+            self.invalidate_recordset(['operation_run_id', 'sample_ids'])
+            if self.operation_run_id:
+                return
+            units = self._qc_existing_units()
+            samples = self.sample_ids.sorted('sample_number')
+            workorder = self._qc_identity_workorder()
+            if not workorder and production.workorder_ids:
+                return
+            # An execution-backed historical QC already has explicit identities.
+            explicit = self.quality_execution_ids.controlled_unit_id
+            if explicit:
+                return  # preserve the existing protected execution workflow
+            if units:
+                # Equal batch sizes do not prove which physical unit is row 1.
+                if len(units) != 1 or len(samples) != 1:
+                    return
+                mode = 'reuse'
+            else:
+                # Do not re-register units moved to a continuation or already
+                # produced. Initial registration must describe a fresh batch.
+                if production.qty_produced or self.env['quality.production.run'].sudo().search_count([
+                    ('production_id', '=', production.id),
+                ], limit=1):
+                    return
+                mode = 'new'
+            lot = production.lot_producing_id
+            if mode == 'new' and self.product_id.tracking == 'serial':
+                if len(samples) != 1 or not lot or self.env['quality.production.unit'].sudo().search_count([
+                    ('serial_lot_id', '=', lot.id),
+                ], limit=1):
+                    return
+            self._identify_samples(mode, [
+                {'sample_id': sample.id, 'unit_id': units.id if units else False,
+                 'lot_id': lot.id if mode == 'new' and self.product_id.tracking in ('lot', 'serial') else False}
+                for sample in samples
+            ], workorder=workorder, confirmed=True)
+
+    def bind_measurement_units(self, mapping):
+        """One atomic selection from the QC matrix; no new identities via RPC."""
+        self.ensure_one()
+        if not isinstance(mapping, list) or any(
+                not isinstance(row, dict) or set(row) != {'sample_id', 'unit_id'}
+                or type(row['sample_id']) is not int or type(row['unit_id']) is not int
+                for row in mapping):
+            raise ValidationError(_('Оберіть наявний виріб для кожного зразка.'))
+        workorder = self._qc_identity_workorder()
+        if not workorder and self._identity_production().workorder_ids:
+            raise ValidationError(_('Уточніть робоче завдання QC перед прив’язкою виробів.'))
+        with self.env.cr.savepoint():
+            self._identify_samples('reuse', mapping, workorder=workorder, confirmed=True)
+            return self.get_measurement_matrix_data()
 
 
 def release_quantity_dependencies(model):

@@ -113,6 +113,7 @@ QUnit.module("quality_vataga matrix refresh", () => {
                 history: [...source.history], messages: [...source.messages], note: source.note,
                 transferred: source.sent.size, received: source.received.size,
                 awaiting: source.approved.size - source.sent.size, quality_transfer_has_run: true,
+                quality_transfer_controlled: true,
                 receipts: [...source.received].map((i) => `QUNIT/${id}/${i + 1}`),
                 processing: source.processing.size, processed: source.processed.size,
                 executions: [...source.received].map((i) => ({ name: `QUNIT/${id}/${i + 1}`, state: source.processed.has(i) ? 'Оброблено' : source.processing.has(i) ? 'В процесі' : 'Очікує обробки' })),
@@ -247,6 +248,13 @@ QUnit.module("quality_vataga matrix refresh", () => {
             get dialogOpen() { return dialogOpen; },
             get openedAction() { return openedAction; },
             async open(mode = "confirm") {
+                if (mode === 'confirm') {
+                    // Compatibility API remains testable, but phase 1 removes
+                    // its separate confirmation button from the inspector UI.
+                    const buttons = findChildren(form, (node) => node.component instanceof QualityUnitAdmissionButtons).component;
+                    await buttons.open('confirm');
+                    return;
+                }
                 const selector = {
                     confirm: ".o_quality_confirm_admission", revoke: ".o_quality_revoke_admission",
                     transfer: ".o_quality_send_units", send: ".o_quality_send_units",
