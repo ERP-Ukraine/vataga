@@ -181,7 +181,13 @@ class QualityMatrixHoldCheck(models.Model):
 class MatrixNativeCompletion(models.Model):
     _inherit = 'mrp.production'
 
-    def _check_matrix_native_completion(self):
+    def _check_matrix_native_completion(self, workorders=None):
+        """Validate an operation's QC, or all MO QC at the stock boundary.
+
+        Only Work Order completion supplies the server-side operation scope.
+        Unassigned MO checks and checks for future operations remain part of
+        final production/stock validation, without blocking earlier operations.
+        """
         # The existing controlled-MO barrier remains entirely authoritative.
         # This closes the earlier gap BEFORE first named handoff activation.
         for production in self.sorted('id'):
@@ -192,11 +198,26 @@ class MatrixNativeCompletion(models.Model):
             production._lock_quality_transfer_scope()
             Check = self.env['quality.check']
             Check.flush_model()
-            scope = 'c.production_id=%s'
-            params = [production.id]
-            if 'workorder_id' in Check._fields:
-                scope += ' OR c.workorder_id IN (SELECT id FROM mrp_workorder WHERE production_id=%s)'
-                params.append(production.id)
+            if workorders is None:
+                scope = 'c.production_id=%s'
+                params = [production.id]
+                if 'workorder_id' in Check._fields:
+                    scope += ' OR c.workorder_id IN (SELECT id FROM mrp_workorder WHERE production_id=%s)'
+                    params.append(production.id)
+            else:
+                selected = workorders.filtered(lambda row: row.production_id == production)
+                if not selected:
+                    continue
+                selected.check_access_rights('read')
+                selected.check_access_rule('read')
+                # Discover IDs before normal ACL checks: a hidden applicable
+                # QC must reject completion, not disappear from its scope.
+                self.env['quality.production.run'].flush_model(['workorder_id'])
+                scope = 'c.operation_run_id IN (SELECT id FROM quality_production_run WHERE workorder_id IN %s)'
+                params = [tuple(selected.ids)]
+                if 'workorder_id' in Check._fields:
+                    scope += ' OR c.workorder_id IN %s'
+                    params.append(tuple(selected.ids))
             self.env.cr.execute("SELECT c.id FROM quality_check c JOIN quality_point p ON p.id=c.point_id WHERE p.x_control_stage='in_process' AND (" + scope + ') ORDER BY c.id', params)
             checks = Check.browse([row[0] for row in self.env.cr.fetchall()])
             if not checks:

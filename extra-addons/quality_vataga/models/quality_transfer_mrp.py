@@ -133,7 +133,7 @@ class MrpWorkorderTransferBoundary(models.Model):
 
     def write(self, vals):
         if vals.get('state') == 'done':
-            self.production_id._check_matrix_native_completion()
+            self.production_id._check_matrix_native_completion(workorders=self)
         if {
             'production_id', 'product_id', 'company_id', 'product_uom_id', 'workcenter_id',
             'qty_producing', 'qty_produced', 'qty_reported_from_previous_wo',
@@ -152,17 +152,17 @@ class MrpWorkorderTransferBoundary(models.Model):
         return super().button_start()
 
     def button_finish(self):
-        self.production_id._check_matrix_native_completion()
+        self.production_id._check_matrix_native_completion(workorders=self)
         self.production_id._check_quality_transfer_boundary()
         return super().button_finish()
 
     def button_done(self):
-        self.production_id._check_matrix_native_completion()
+        self.production_id._check_matrix_native_completion(workorders=self)
         self.production_id._check_quality_transfer_boundary()
         return super().button_done()
 
     def action_mark_as_done(self):
-        self.production_id._check_matrix_native_completion()
+        self.production_id._check_matrix_native_completion(workorders=self)
         self.production_id._check_quality_transfer_boundary()
         return super().action_mark_as_done()
 

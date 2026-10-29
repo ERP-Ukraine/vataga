@@ -234,3 +234,151 @@ class TestQualityMatrixHold(QualityCheckInProcessCase):
         self.assertEqual(check.x_passed_qty, 5)
         with self.assertRaises(ValidationError):
             check.production_id._check_matrix_native_completion()
+
+
+@tagged('post_install', '-at_install')
+class TestQualityWorkorderMatrixScope(QualityCheckInProcessCase):
+    """Real three-operation MRP/Quality fixtures, requiring Enterprise."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # These tests assign each QC explicitly to its operation. Do not let
+        # the fixture's broad automatic QCP introduce unrelated duplicate QCs.
+        cls.point.picking_type_ids = [Command.clear()]
+        cls.product.type = 'product'
+        center = cls.env['mrp.workcenter'].create({'name': 'QC operation scope'})
+        cls.bom = cls.env['mrp.bom'].create({
+            'product_tmpl_id': cls.product.product_tmpl_id.id, 'product_qty': 1,
+            'product_uom_id': cls.product.uom_id.id,
+            'operation_ids': [Command.create({'name': name, 'workcenter_id': center.id})
+                              for name in ('Cutting', 'Crimping', 'Cable inspection')],
+        })
+        cls.unconfigured_point = cls.env['quality.point'].create({
+            'title': 'Future operation without matrix settings',
+            'x_control_stage': 'in_process',
+            'team_id': cls.team.id, 'test_type_id': cls.test_type.id,
+        })
+
+    def setUp(self):
+        super().setUp()
+        if 'workorder_id' not in self.env['quality.check']._fields:
+            self.skipTest('Requires Enterprise Quality / Work Order integration.')
+
+    def _three_operations(self, check_index=2, configured=False):
+        production = self.env['mrp.production'].create({
+            'product_id': self.product.id, 'product_qty': 5,
+            'product_uom_id': self.product.uom_id.id, 'bom_id': self.bom.id,
+            'picking_type_id': self.warehouse.manu_type_id.id,
+            'location_src_id': self.warehouse.lot_stock_id.id,
+            'location_dest_id': self.warehouse.lot_stock_id.id,
+        })
+        production.action_confirm()
+        production.write({'qty_producing': 5, 'allow_workorder_dependencies': True})
+        first, second, third = production.workorder_ids.sorted('id')
+        second.blocked_by_workorder_ids = [Command.set(first.ids)]
+        third.blocked_by_workorder_ids = [Command.set(second.ids)]
+        workorders = (first, second, third)
+        check = self._check(production, point=self.point if configured else self.unconfigured_point,
+                            workorder_id=workorders[check_index].id)
+        return production, workorders, check
+
+    def _complete(self, workorder, method):
+        if method == 'write':
+            return workorder.write({'state': 'done'})
+        return getattr(workorder, method)()
+
+    def test_future_empty_qc_does_not_block_first_operation_buttons_or_direct_write(self):
+        for method in ('button_finish', 'button_done', 'action_mark_as_done', 'write'):
+            with self.subTest(method=method):
+                production, (first, second, third), check = self._three_operations()
+                self.assertFalse(production.quality_transfer_controlled)
+                self.assertEqual(check.quality_state, 'none')
+                self.assertFalse(check.measurement_matrix_required)
+                self.assertFalse(check.sample_ids)
+                before = check.read(['quality_state', 'measurement_matrix_required', 'sample_ids', 'workorder_id'])
+                first.button_start()
+                self._complete(first, method)
+                self.assertEqual(first.state, 'done')
+                self.assertNotEqual(third.state, 'done')
+                self.assertNotEqual(production.state, 'done')
+                self.assertEqual(check.read(['quality_state', 'measurement_matrix_required', 'sample_ids', 'workorder_id']), before)
+
+    def test_third_operation_with_its_own_empty_qc_is_blocked_on_every_entry(self):
+        production, (first, second, third), check = self._three_operations()
+        first.button_start()
+        first.button_finish()
+        second.button_start()
+        second.button_finish()
+        third.button_start()
+        for method in ('button_finish', 'button_done', 'action_mark_as_done', 'write'):
+            with self.subTest(method=method), self.assertRaises(UserError), self.env.cr.savepoint():
+                self._complete(third, method)
+        self.assertNotEqual(third.state, 'done')
+        self.assertEqual(check.quality_state, 'none')
+
+    def test_future_qc_still_blocks_full_mo_stock_and_backorder(self):
+        production, (first, second, third), check = self._three_operations()
+        first.button_start()
+        first.button_finish()
+        before = (production.state, production.product_qty, production.qty_produced,
+                  production.move_finished_ids.read(['state', 'quantity']))
+        for action in (production.button_mark_done, production.pre_button_mark_done,
+                       production._post_inventory, production._split_productions,
+                       lambda: production.write({'state': 'done'}),
+                       production.move_finished_ids._action_done,
+                       lambda: production.move_finished_ids.write({'state': 'done'})):
+            with self.assertRaises(UserError), self.env.cr.savepoint():
+                action()
+        self.assertEqual((production.state, production.product_qty, production.qty_produced,
+                          production.move_finished_ids.read(['state', 'quantity'])), before)
+
+    def test_first_operation_cannot_bypass_its_own_required_qc(self):
+        production, (first, second, third), check = self._three_operations(check_index=0)
+        first.button_start()
+        for method in ('button_finish', 'button_done', 'action_mark_as_done', 'write'):
+            with self.subTest(method=method), self.assertRaises(UserError), self.env.cr.savepoint():
+                self._complete(first, method)
+        self.assertNotEqual(first.state, 'done')
+
+    def test_pass_on_first_operation_allows_it_without_releasing_future_qc(self):
+        production, (first, second, third), future = self._three_operations()
+        own = self._check(production, point=self.point, workorder_id=first.id)
+        self._fill(own)
+        own.do_pass()
+        first.button_start()
+        first.button_finish()
+        self.assertEqual(first.state, 'done')
+        self.assertEqual(own.quality_state, 'pass')
+        self.assertFalse(future.sample_ids)
+        with self.assertRaises(UserError):
+            production._check_matrix_native_completion()
+
+    def test_qrun_bound_qc_cannot_be_hidden_by_an_empty_direct_workorder_field(self):
+        production, (first, second, third), check = self._three_operations(configured=True)
+        # A QRUN can carry the operation when the direct QC field is empty.
+        check = self._check(production, point=self.point)
+        check._identify_samples('new', [{'sample_id': sample.id} for sample in check.sample_ids],
+                                workorder=first, confirmed=True)
+        self.assertFalse(check.workorder_id)
+        self.assertEqual(check.operation_run_id.workorder_id, first)
+        first.button_start()
+        with self.assertRaises(UserError):
+            first.write({'state': 'done'})
+
+    def test_mixed_workorder_write_cannot_hide_the_operation_with_pending_qc(self):
+        production, (first, second, third), check = self._three_operations()
+        with self.assertRaises(UserError):
+            (first | third).write({'state': 'done'})
+        self.assertNotEqual(first.state, 'done')
+        self.assertNotEqual(third.state, 'done')
+
+    def test_controlled_mo_remains_blocked_even_when_qc_belongs_only_to_future_workorder(self):
+        production, (first, second, third), check = self._three_operations()
+        first.button_start()
+        production._enable_quality_transfer_control()
+        for method in ('button_finish', 'button_done', 'action_mark_as_done', 'write'):
+            with self.subTest(method=method), self.assertRaises(UserError), self.env.cr.savepoint():
+                self._complete(first, method)
+        self.assertTrue(production.quality_transfer_controlled)
+        self.assertNotEqual(first.state, 'done')
