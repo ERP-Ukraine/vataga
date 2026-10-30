@@ -41,6 +41,10 @@ def native_operation():
 
 
 def native_operation_allows(productions):
+    if productions and 'quality_native_partial_revision' in getattr(productions, '_fields', {}):
+        from .native_partial_release import partial_operation_allows
+        if partial_operation_allows(productions):
+            return True
     operation = native_operation()
     return bool(operation and productions and all(
         production.env.cr is operation.production.env.cr

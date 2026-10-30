@@ -333,6 +333,10 @@ class QualityFullReleaseProduction(models.Model):
                     if not processed and not handed_off and not (
                             workorder.state == 'done' and workorder.qty_produced >= quantity):
                         raise ValidationError(_('Не підтверджено виконання %(operation)s для %(unit)s.', operation=workorder.display_name, unit=unit.display_name))
+        return self._validate_quality_batch_controls(units, workorders, standard=standard)
+
+    def _validate_quality_batch_controls(self, units, workorders, standard=False):
+        """Shared exact QCP/admission/Alert gates; no quantity/stock authority."""
         requirements = self._capture_full_required_qcp()
         checks = self._full_release_checks()
         required = checks.filtered(lambda check: check.x_control_stage == 'in_process' and check.unit_admission_role == 'required')

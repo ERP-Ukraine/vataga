@@ -61,7 +61,7 @@ class Rows(list):
 class TestFullBatchReadinessContract(unittest.TestCase):
     def setUp(self):
         cls = shipped_class('models/quality_full_release.py', 'QualityFullReleaseProduction',
-                            {'_validate_quality_full_batch', '_check_full_release_test_access'},
+                            {'_validate_quality_full_batch', '_validate_quality_batch_controls', '_check_full_release_test_access'},
                             math=math, _read=lambda records: records)
         production = cls()
         production.id = 1000

@@ -100,15 +100,25 @@ class QualityUnitStockFact(models.Model):
         operation = native_operation()
         _require_roles(self.env)
         for values in vals_list:
-            allowed = operation.standard_full.get(values.get('production_id'), ()) if operation and operation.standard_full else (
-                operation.unit_ids if operation and values.get('production_id') == operation.production.id else ())
-            if (not operation or set(values) != {'unit_id', 'production_id', 'move_line_id', 'request_key'}
+            from .native_partial_release import partial_operation
+            partial = partial_operation()
+            partial_fact = bool(partial and partial.phase == 'facts' and partial.release_id
+                                and values.get('production_id') == partial.production.id
+                                and self.env.cr is partial.production.env.cr
+                                and values.get('move_line_id') in partial.new_line_ids)
+            if partial_fact:
+                allowed = partial.unit_ids
+            elif operation and operation.standard_full:
+                allowed = operation.standard_full.get(values.get('production_id'), ())
+            else:
+                allowed = operation.unit_ids if operation and values.get('production_id') == operation.production.id else ()
+            if ((not operation and not partial_fact) or set(values) != {'unit_id', 'production_id', 'move_line_id', 'request_key'}
                     or values['unit_id'] not in allowed or not values['request_key']):
                 raise UserError(_('Складський факт QUNIT створюють лише після штатного проведення.'))
             unit = _read(self.env['quality.production.unit'].browse(values['unit_id']))
             line = _read(self.env['stock.move.line'].browse(values['move_line_id']))
             production = _read(self.env['mrp.production'].browse(values['production_id']))
-            if (production.state != 'done' or line.move_id.state != 'done'
+            if ((production.state != 'done' and not partial_fact) or line.move_id.state != 'done'
                     or line.move_id.production_id != production or line.move_id.scrapped
                     or line.product_id != unit.product_id or line.company_id != unit.company_id
                     or line.location_dest_id != production.location_dest_id
@@ -118,8 +128,8 @@ class QualityUnitStockFact(models.Model):
                 raise ValidationError(_('Немає відповідного фактичного складського випуску цього QUNIT.'))
             if unit.product_id.tracking == 'lot':
                 lot = _read(line.lot_id)
-                full_quantity = len(allowed) if operation.standard_full else operation.quantity
-                if (full_quantity != production.product_qty or operation.remaining_ids
+                full_quantity = len(allowed) if partial_fact or operation.standard_full else operation.quantity
+                if ((not partial_fact and (full_quantity != production.product_qty or operation.remaining_ids))
                         or not lot or lot != production.lot_producing_id
                         or lot.product_id != unit.product_id
                         or (lot.company_id and lot.company_id != unit.company_id)
@@ -127,7 +137,7 @@ class QualityUnitStockFact(models.Model):
                     raise ValidationError(_('Складський факт lot-QUNIT потребує повного випуску та правильної фактичної партії у проведеній строкі.'))
             if unit.product_id.tracking == 'serial':
                 lot = _read(line.lot_id)
-                if (not operation.standard_full or len(allowed) != 1 or production.product_qty != 1
+                if (partial_fact or not operation.standard_full or len(allowed) != 1 or production.product_qty != 1
                         or line.quantity != 1 or not lot or lot != production.lot_producing_id
                         or lot.product_id != unit.product_id or lot.company_id and lot.company_id != unit.company_id
                         or unit.lot_id and unit.lot_id != lot):

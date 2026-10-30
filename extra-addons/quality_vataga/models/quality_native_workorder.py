@@ -309,12 +309,15 @@ class QualityNativeWorkorder(models.Model):
             units = self._quality_native_units()
             if not units:
                 raise UserError(_('Спочатку ідентифікуйте QUNIT через QC і оберіть оброблені вироби.'))
-            units._assert_not_stock_posted()
             history = self._quality_native_history()
             recorded = history.filtered(lambda row: row.state == 'processed').controlled_unit_id
             if self.qty_produced != len(recorded):
                 raise UserError(_('Кількість WO не відповідає наявним поштучним фактам. Автоматичне доповнення історії заборонене.'))
             missing = units - recorded
+            if self.production_id._native_partial_history():
+                missing._assert_not_stock_posted()
+            else:
+                units._assert_not_stock_posted()
             if not missing:
                 return True
             if self.state != 'progress' or not self.time_ids.filtered(

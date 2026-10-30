@@ -98,6 +98,7 @@ class TestFullReleaseLotContract(unittest.TestCase):
         operation = NS(quantity=2, remaining_ids=(), standard_full={})
         line = NS(lot_id=self.lot)
         scope = {'production': production, 'unit': unit, 'operation': operation, 'line': line, 'allowed': (),
+                 'partial_fact': False,
                  '_read': lambda record: record, 'ValidationError': UserError, '_': lambda text: text}
         exec(code, scope)
         for candidate in (False, Lot(id=99, product_id=self.product, company_id=self.company)):

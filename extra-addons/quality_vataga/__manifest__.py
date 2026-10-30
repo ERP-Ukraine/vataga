@@ -26,6 +26,7 @@
         'security/quality_unit_transfer.xml',
         'security/quality_unit_execution.xml',
         'security/quality_native_backorder.xml',
+        'security/quality_native_partial_release.xml',
         'data/quality_identification_sequences.xml',
         'data/quality_alert_board_stages.xml',
         'data/ir_config_parameter_data.xml',

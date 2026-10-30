@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="native_partial_release_company" model="ir.rule">
+        <field name="name">Частковий випуск: компанії</field>
+        <field name="model_id" ref="model_quality_native_partial_release"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="native_partial_unit_company" model="ir.rule">
+        <field name="name">Частковий випуск виробу: компанії</field>
+        <field name="model_id" ref="model_quality_native_partial_unit"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="native_partial_cost_company" model="ir.rule">
+        <field name="name">Checkpoint WO: компанії</field>
+        <field name="model_id" ref="model_quality_native_partial_cost"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+</odoo>
