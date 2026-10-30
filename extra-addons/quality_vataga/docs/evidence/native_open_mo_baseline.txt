@@ -1,0 +1,14 @@
+DISPOSABLE DATABASE: qunit_archive_39ca7a82c30045f2 127.0.0.1: 55433
+2026-10-30 10:25:41,481 24168 INFO ? odoo.service.server: HTTP service (werkzeug) running on kubernetes.docker.internal:57346
+<string>:38: (ERROR/3) Unexpected indentation.
+<string>:43: (WARNING/2) Block quote ends without a blank line; unexpected unindent.
+2026-10-30 10:30:51,471 24168 INFO qunit_archive_39ca7a82c30045f2 odoo.service.server: Starting post tests
+2026-10-30 10:30:52,846 24168 INFO qunit_archive_39ca7a82c30045f2 odoo.addons.quality_archive_probe.tests.test_native_open_mo_feasibility: Starting TestNativeOpenMoFeasibility.test_error_after_real_posting_rolls_back_moves_quants_and_svl ...
+2026-10-30 10:30:55,083 24168 INFO qunit_archive_39ca7a82c30045f2 odoo.addons.quality_archive_probe.tests.test_native_open_mo_feasibility: Starting TestNativeOpenMoFeasibility.test_first_four_can_post_without_splitting_the_mo ...
+2026-10-30 10:30:56,803 24168 INFO qunit_archive_39ca7a82c30045f2 odoo.addons.quality_archive_probe.tests.test_native_open_mo_feasibility: Starting TestNativeOpenMoFeasibility.test_second_post_rewrites_old_consumption_links_and_reuses_all_wo_cost ...
+2026-10-30 10:31:00,009 24168 INFO qunit_archive_39ca7a82c30045f2 odoo.service.server: 3 post-tests in 8.54s, 2027 queries
+2026-10-30 10:31:00,009 24168 INFO qunit_archive_39ca7a82c30045f2 odoo.tests.stats: quality_archive_probe: 5 tests 8.13s 2027 queries
+2026-10-30 10:31:00,011 24168 INFO qunit_archive_39ca7a82c30045f2 odoo.tests.result: 0 failed, 0 error(s) of 3 tests when loading database 'qunit_archive_39ca7a82c30045f2'
+2026-10-30 10:31:00,011 24168 INFO qunit_archive_39ca7a82c30045f2 odoo.service.server: Initiating shutdown
+2026-10-30 10:31:00,011 24168 INFO qunit_archive_39ca7a82c30045f2 odoo.service.server: Hit CTRL-C again or send a second signal to force the shutdown.
+DROPPED DISPOSABLE DATABASE: qunit_archive_39ca7a82c30045f2

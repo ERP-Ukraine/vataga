@@ -5,12 +5,16 @@ run on a disposable database. No posting, costing or valuation method is mocked.
 The two-post probe documents why exposing _post_inventory alone is unsafe.
 """
 from datetime import timedelta
+import json
+import logging
 
 from odoo import fields
 from odoo.exceptions import UserError
 from odoo.tests import tagged
 
 from .test_stock_release_native_contract import StockReleaseNativeCase
+
+_logger = logging.getLogger(__name__)
 
 
 @tagged('post_install', '-at_install', 'native_open_mo_feasibility')
@@ -51,6 +55,12 @@ class TestNativeOpenMoFeasibility(StockReleaseNativeCase):
         self.assertEqual(sum(finished.stock_valuation_layer_ids.mapped('quantity')), 4)
         remaining = production.move_finished_ids.filtered(lambda m: m.state not in ('done', 'cancel'))
         self.assertEqual(sum(remaining.mapped('product_uom_qty')), 1)
+        _logger.info('NATIVE_OPEN_MO_FIRST: %s', json.dumps({
+            'state': production.state, 'planned': production.product_qty,
+            'produced': production.qty_produced, 'stock': self._stock(),
+            'finished_svl_value': sum(finished.stock_valuation_layer_ids.mapped('value')),
+            'wo_cost': production.workorder_ids._cal_cost(), 'new_mos': 0,
+        }, sort_keys=True))
 
     def test_second_post_rewrites_old_consumption_links_and_reuses_all_wo_cost(self):
         production = self._timed_production()
@@ -78,6 +88,13 @@ class TestNativeOpenMoFeasibility(StockReleaseNativeCase):
         # unchanged WO intervals are included once per posting, hence twice.
         self.assertAlmostEqual(output_value, raw_value + 2 * wo_cost)
         self.assertGreater(output_value, raw_value + wo_cost)
+        _logger.info('NATIVE_OPEN_MO_SECOND: %s', json.dumps({
+            'stock': self._stock(), 'raw_value': raw_value, 'output_value': output_value,
+            'wo_cost': wo_cost, 'single_count_value': raw_value + wo_cost,
+            'old_consumption_line_ids': old_consumption.ids,
+            'rewritten_consumption_line_ids': old_lines.consume_line_ids.ids,
+            'first_svl_unchanged': True, 'timers_unchanged': True,
+        }, sort_keys=True))
 
     def test_error_after_real_posting_rolls_back_moves_quants_and_svl(self):
         production = self._timed_production()
@@ -95,3 +112,4 @@ class TestNativeOpenMoFeasibility(StockReleaseNativeCase):
         self.assertEqual(self._stock(), quantities)
         self.assertEqual(production.qty_produced, 0)
         self.assertEqual(production.product_qty, 5)
+        _logger.info('NATIVE_OPEN_MO_ROLLBACK: moves, lines, SVL, MO and stock restored; stock=%s', self._stock())
