@@ -164,6 +164,115 @@ class TestNativePartialAdapter(StockReleaseNativeCase):
         with patch.object(cls, '_cal_cost', unknown_provider):
             self._denied(production, lambda: self._release(production))
 
+    def test_unknown_price_provider_names_the_actual_implementation(self):
+        production = self._timed()
+        cls = type(production)
+        original = cls._cal_price
+
+        def unknown_price(rows, moves):
+            return original(rows, moves)
+
+        with patch.object(cls, '_cal_price', unknown_price):
+            before = self._snapshot(production)
+            with self.assertRaisesRegex(UserError, 'unknown_price'):
+                self._release(production)
+            self.assertEqual(self._snapshot(production), before)
+
+    def test_named_employee_extension_is_not_authorized_by_its_module_name(self):
+        production = self._timed()
+        cls = type(production.workorder_ids)
+        original = cls._cal_cost
+
+        def unreviewed_employee_cost(rows):
+            return original(rows)
+
+        # A label is not evidence of the Enterprise algorithm. This extension
+        # delegates the real calculation; no price or Stock result is mocked.
+        unreviewed_employee_cost.__module__ = 'odoo.addons.mrp_workorder_hr_account.models.mrp_workorder'
+        unreviewed_employee_cost.__qualname__ = 'MrpWorkorder._cal_cost'
+        with patch.object(cls, '_cal_cost', unreviewed_employee_cost):
+            self._denied(production, lambda: self._release(production))
+
+    def test_cost_report_contains_all_mro_definitions_and_changes_no_stock(self):
+        production = self._timed()
+        before = self._snapshot(production)
+        report = production._native_partial_cost_provider_report(self.env.cr.dbname, include_source=True)
+        self.assertEqual(report['mode'], 'READ ONLY')
+        for name, records, method in (
+                ('mrp.production._cal_price', production, '_cal_price'),
+                ('mrp.workorder._cal_cost', production.workorder_ids, '_cal_cost')):
+            expected = [c for c in type(records).__mro__ if method in c.__dict__]
+            self.assertEqual(len(report[name]), len(expected))
+            self.assertTrue(all(row['approved'] for row in report[name]), report[name])
+            for row in report[name]:
+                self.assertTrue(row['wrappers'])
+                self.assertIn('source_sha256', row['wrappers'][0])
+                self.assertIn('source', row['wrappers'][0])
+                _logger.info('COST_PROVIDER_MRO: %s %s sha256=%s approved=%s', name, row['provider'],
+                             row['wrappers'][0]['source_sha256'], row['approved'])
+        self.assertIn('mrp.workcenter.costs_hour', report['fields'])
+        self.assertIn('mrp.workcenter.productivity._compute_duration', report['computed_methods'])
+        self.assertEqual(self._snapshot(production), before)
+        with self.assertRaises(AccessError):
+            production._native_partial_cost_provider_report('not-this-database')
+        worker = self.env['res.users'].create({
+            'name': 'Cost report worker', 'login': 'partial_cost_report_worker',
+            'groups_id': [(6, 0, [self.env.ref('base.group_user').id])]})
+        with self.assertRaises(AccessError):
+            production.with_user(worker)._native_partial_cost_provider_report(self.env.cr.dbname)
+
+    def test_shadowed_cost_override_is_reported_and_rejected(self):
+        production = self._timed()
+        # The active adapter still calls the real core implementation, but a
+        # changed definition LOWER in its MRO must also fail the provider gate.
+        from odoo.addons.mrp.models.mrp_workorder import MrpWorkorder
+        original = MrpWorkorder._cal_cost
+
+        def changed_core(rows):
+            return original(rows)
+
+        with patch.object(MrpWorkorder, '_cal_cost', changed_core):
+            report = production._native_partial_cost_provider_report(self.env.cr.dbname)
+            # The report must expose every definition, including this shadowed
+            # method. Approval remains an identity check on the frozen core.
+            self.assertTrue(any('changed_core' in row['provider']
+                                for row in report['mrp.workorder._cal_cost']))
+            self.assertTrue(any(not row['approved'] for row in report['mrp.workorder._cal_cost']))
+            self._denied(production, lambda: self._release(production))
+
+    def test_overlapping_workcenter_intervals_use_native_union_cost(self):
+        production = self._timed()
+        workorder = production.workorder_ids
+        timer = workorder.time_ids
+        self.env['mrp.workcenter.productivity'].create(workorder._prepare_timeline_vals(
+            0, timer.date_start + timedelta(minutes=15), timer.date_end))
+        self.assertAlmostEqual(workorder._cal_cost(), 60)
+        first = self._release(production)
+        self._new_work(production)
+        second = self._release(production, ('5',), 'union-second')
+        self.assertAlmostEqual(sum(first.unit_ids.move_line_id.move_id.stock_valuation_layer_ids.mapped('value')), 140)
+        self.assertAlmostEqual(sum(second.unit_ids.move_line_id.move_id.stock_valuation_layer_ids.mapped('value')), 35)
+
+    def test_each_workcenter_keeps_its_own_cost_checkpoint(self):
+        second_center = self.env['mrp.workcenter'].create({'name': 'Second real cost center', 'costs_hour': 30})
+        self.bom.write({'operation_ids': [(0, 0, {
+            'name': 'Second native operation', 'workcenter_id': second_center.id, 'time_cycle': 6})]})
+        production = self._production()
+        end = fields.Datetime.now().replace(microsecond=0) - timedelta(minutes=30)
+        for workorder in production.workorder_ids:
+            minutes = 60 if workorder.workcenter_id == self.workcenter else 30
+            self.env['mrp.workcenter.productivity'].create(workorder._prepare_timeline_vals(
+                0, end - timedelta(minutes=minutes), end))
+        first = self._release(production)
+        self.assertEqual(sorted(first.cost_ids.mapped('cumulative_cost')), [15, 60])
+        self.assertAlmostEqual(sum(first.unit_ids.move_line_id.move_id.stock_valuation_layer_ids.mapped('value')), 155)
+        for workorder in production.workorder_ids:
+            self.env['mrp.workcenter.productivity'].create(workorder._prepare_timeline_vals(
+                0, end, end + timedelta(minutes=15)))
+        second = self._release(production, ('5',), 'two-centers-second')
+        self.assertEqual(sorted(second.cost_ids.mapped('cumulative_cost')), [22.5, 75])
+        self.assertAlmostEqual(sum(second.unit_ids.move_line_id.move_id.stock_valuation_layer_ids.mapped('value')), 42.5)
+
     def test_negative_delta_rejected_even_if_checkpoint_is_corrupt(self):
         production = self._timed()
         release = self._release(production)

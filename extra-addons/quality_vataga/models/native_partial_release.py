@@ -16,7 +16,11 @@ from odoo.addons.mrp.models.mrp_workorder import MrpWorkorder as CoreWorkorder
 from odoo.addons.mrp.models.mrp_production import MrpProduction as CoreProduction
 from odoo.addons.mrp_account.models.mrp_production import MrpProduction as AccountProduction
 
+from .native_cost_provider import describe_method, method_definitions, provider_name
 
+
+_CORE_COST = CoreWorkorder._cal_cost
+_CORE_PRICES = (CoreProduction._cal_price, AccountProduction._cal_price)
 _PARTIAL = ContextVar('quality_native_partial_posting', default=None)
 
 
@@ -155,6 +159,39 @@ class NativePartialProduction(models.Model):
 
     quality_native_partial_revision = fields.Integer(readonly=True, copy=False, default=0)
 
+    @api.model
+    def _native_partial_cost_provider_report(self, expected_database, include_source=False):
+        """Read-only registry evidence, callable from Odoo shell/Scheduled Action."""
+        if self.env.cr.dbname != expected_database or not self.env.user.has_group('base.group_system'):
+            raise AccessError(_('Потрібні системний адміністратор і точна назва тестової staging-бази.'))
+        production_allowed = {NativePartialProduction._cal_price, *_CORE_PRICES}
+        workorder_allowed = {NativePartialWorkorder._cal_cost, _CORE_COST}
+        report = {'database': self.env.cr.dbname, 'mode': 'READ ONLY',
+                  'order': 'registry MRO definitions; super calls require source review',
+                  'mrp.production._cal_price': describe_method(
+                      self.env['mrp.production'], '_cal_price', production_allowed, include_source),
+                  'mrp.workorder._cal_cost': describe_method(
+                      self.env['mrp.workorder'], '_cal_cost', workorder_allowed, include_source),
+                  'fields': {}, 'computed_methods': {}}
+        for model in ('mrp.production', 'mrp.workorder', 'mrp.workcenter',
+                      'mrp.workcenter.productivity', 'hr.employee'):
+            if model not in self.env:
+                continue
+            records = self.env[model]
+            for name, field_definition in records._fields.items():
+                if not any(word in name for word in ('cost', 'employee', 'duration')):
+                    continue
+                compute = field_definition.compute
+                report['fields'][model + '.' + name] = {
+                    'type': field_definition.type, 'store': bool(field_definition.store),
+                    'related': field_definition.related,
+                    'compute': compute if isinstance(compute, str) else repr(compute),
+                    'depends': self.env.registry.field_depends.get(field_definition, ())}
+                if isinstance(compute, str):
+                    report['computed_methods'][model + '.' + compute] = describe_method(
+                        records, compute, include_source=include_source)
+        return report
+
     @api.model_create_multi
     def create(self, vals_list):
         if any('quality_native_partial_revision' in v for v in vals_list):
@@ -238,11 +275,11 @@ class NativePartialProduction(models.Model):
                 raise ValidationError(_('Потрібна реальна партія товару та компанії у MO.'))
         elif self.lot_producing_id:
             raise ValidationError(_('Товар без tracking не потребує партії.'))
-        for method, allowed in [('_cal_price', {NativePartialProduction._cal_price,
-                                                CoreProduction._cal_price, AccountProduction._cal_price})]:
-            providers = [c.__dict__[method] for c in type(self).__mro__ if method in c.__dict__]
-            if any(p not in allowed for p in providers):
-                raise ValidationError(_('Неперевірений постачальник розрахунку ціни MRP.'))
+        for method, allowed in [('_cal_price', {NativePartialProduction._cal_price, *_CORE_PRICES})]:
+            unknown = [provider_name(owner, provider) for owner, provider in method_definitions(self, method)
+                       if provider not in allowed]
+            if unknown:
+                raise ValidationError(_('Неперевірений постачальник розрахунку ціни MRP.\n%s') % '\n'.join(unknown))
         for workorder in self.workorder_ids:
             workorder._native_partial_cost_basis()
         for move in self.move_raw_ids | self.move_finished_ids:
@@ -441,9 +478,11 @@ class NativePartialWorkorder(models.Model):
 
     def _native_partial_cost_basis(self):
         self.ensure_one()
-        providers = [c.__dict__['_cal_cost'] for c in type(self).__mro__ if '_cal_cost' in c.__dict__]
-        if any(p not in {NativePartialWorkorder._cal_cost, CoreWorkorder._cal_cost} for p in providers):
-            raise ValidationError(_('Неперевірений постачальник вартості WO.'))
+        allowed = {NativePartialWorkorder._cal_cost, _CORE_COST}
+        unknown = [provider_name(owner, provider) for owner, provider in method_definitions(self, '_cal_cost')
+                   if provider not in allowed]
+        if unknown:
+            raise ValidationError(_('Неперевірений постачальник вартості WO.\n%s') % '\n'.join(unknown))
         self.env['mrp.workcenter.productivity'].flush_model()
         self.env.cr.execute('SELECT id FROM mrp_workcenter_productivity WHERE workorder_id=%s ORDER BY id', [self.id])
         timers = _read(self.env['mrp.workcenter.productivity'].browse([r[0] for r in self.env.cr.fetchall()]))

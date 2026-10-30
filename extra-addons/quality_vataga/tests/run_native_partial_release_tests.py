@@ -43,7 +43,7 @@ def main():
                 'data': ['security/ir.model.access.csv', 'security/rules.xml'],
             }), encoding='utf-8')
             (addon / '__init__.py').write_text('from . import models\nfrom . import tests\n', encoding='utf-8')
-            for name in ('native_backorder.py', 'native_partial_release.py'):
+            for name in ('native_backorder.py', 'native_cost_provider.py', 'native_partial_release.py'):
                 shutil.copyfile(root / 'models' / name, addon / 'models' / name)
             (addon / 'models/__init__.py').write_text('from . import native_backorder\nfrom . import native_partial_release\n', encoding='utf-8')
             for name in ('test_stock_release_native_contract.py', 'test_native_partial_adapter.py', 'test_native_backorder_bridge.py'):
