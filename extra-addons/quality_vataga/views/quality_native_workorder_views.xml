@@ -6,26 +6,28 @@
         <field name="inherit_id" ref="mrp.mrp_production_workorder_form_view_inherit"/>
         <field name="arch" type="xml">
             <xpath expr="/form/sheet/notebook" position="before">
-                <group string="Вироби операції" groups="mrp.group_mrp_user" invisible="quality_transfer_controlled">
-                    <field name="quality_transfer_controlled" invisible="1"/>
-                    <field name="company_id" invisible="1"/>
-                    <field name="quality_native_unit_ids" widget="many2many_tags"
-                           domain="[('production_id', '=', production_id), ('company_id', '=', company_id)]"
-                           options="{'no_create': True}" readonly="state in ('done', 'cancel')"/>
-                    <button name="action_open_quality_native_checks" type="object" string="Контроль якості операції"/>
-                    <button name="action_start_quality_native_units" type="object" string="Почати вибрані QUNIT"
-                            context="{'quality_expected_unit_ids': quality_native_unit_ids}"
-                            invisible="state in ('done', 'cancel')"/>
-                    <button name="action_confirm_quality_native_units" type="object" string="Підтвердити обробку вибраних QUNIT"
-                            context="{'quality_expected_unit_ids': quality_native_unit_ids}"
-                            invisible="state != 'progress'"/>
-                    <button name="action_open_quality_execution_control" type="object" string="QC оброблених QUNIT"
-                            invisible="not quality_execution_ids"/>
+                <field name="quality_transfer_controlled" invisible="1"/>
+                <field name="quality_native_managed" invisible="1"/>
+                <field name="qty_produced" invisible="1"/>
+                <group string="Обробка та якість" groups="mrp.group_mrp_user" invisible="not quality_native_managed">
+                    <field name="quality_native_status" nolabel="1"/>
+                    <field name="quality_native_hold_reason" invisible="not quality_native_hold_reason"/>
+                    <div colspan="2">Почніть роботу та підтвердьте її штатними кнопками. Якщо частина виробів утримується, обробка збережеться, а WO залишиться відкритою.</div>
+                    <button name="button_start" type="object" string="Почати" class="btn-primary"
+                            invisible="production_state in ('draft', 'done', 'cancel') or working_state == 'blocked' or state in ('done', 'cancel') or is_user_working"/>
+                    <button name="button_pending" type="object" string="Пауза"
+                            invisible="not is_user_working"/>
+                    <button name="button_finish" type="object" string="Підтвердити обробку" class="btn-primary"
+                            invisible="state in ('done', 'cancel') or (not is_user_working and not qty_produced)"/>
                 </group>
             </xpath>
             <xpath expr="/form/sheet/notebook" position="inside">
-                <page string="Виконані вироби" name="quality_native_execution"
-                      groups="mrp.group_mrp_user" invisible="quality_transfer_controlled or not quality_execution_ids">
+                <page string="Вироби та історія" name="quality_native_execution"
+                      groups="mrp.group_mrp_user" invisible="quality_transfer_controlled or (not quality_native_managed and not quality_execution_ids and not quality_native_unit_ids)">
+                    <field name="quality_native_unit_ids" widget="many2many_tags" readonly="1"/>
+                    <button name="action_open_quality_native_checks" type="object" string="Переглянути QC операції"/>
+                    <button name="action_open_quality_execution_control" type="object" string="Повторний контроль обробленого виробу"
+                            invisible="not quality_execution_ids"/>
                     <field name="quality_execution_ids" readonly="1">
                         <tree create="0" edit="0" delete="0">
                             <field name="controlled_unit_id"/>

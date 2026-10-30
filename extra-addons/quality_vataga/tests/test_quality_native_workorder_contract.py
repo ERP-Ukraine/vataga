@@ -68,6 +68,7 @@ class TestNativeWorkorderValidation(unittest.TestCase):
                                    _quality_native_units=Mock(return_value=self.units),
                                    _check_quality_execution_access=Mock(),
                                    _quality_validate_native_checks=Mock())
+        self.row._quality_native_completion_units = self.row._quality_native_units
         self.scope.rows = [self.row]
         self.scope.production_id = self.production
         self.scope._check_quality_native_start = Mock()
@@ -206,6 +207,7 @@ class TestNativeUnitSelection(unittest.TestCase):
     def setUp(self):
         self.scope = load({'_quality_native_units'})()
         self.scope.ensure_one = lambda: None
+        self.scope._quality_native_automatic = lambda: False
         self.scope.company_id, self.scope.product_id = 1, 2
         production = SimpleNamespace()
         self.units = Rows([SimpleNamespace(id=index, company_id=1, product_id=2,
@@ -270,7 +272,10 @@ class TestNativeWorkorderTransactions(unittest.TestCase):
         self.wo.bypasses, self.wo.facts, self.wo.timer_open = [], [], True
         self.units = Rows([SimpleNamespace(id=11), SimpleNamespace(id=12)])
         self.row = SimpleNamespace(id=1, state='progress', qty_produced=0, qty_production=2,
+                                   _quality_native_automatic=lambda: False,
+                                   _quality_confirm_on_native_finish=lambda: False,
                                    quality_execution_ids=[], _quality_native_units=lambda: self.units)
+        self.row._quality_native_completion_units = self.row._quality_native_units
         self.wo.rows = [self.row]
         self.wo._check_quality_native_start = Mock()
         self.wo._check_quality_native_finish = Mock()

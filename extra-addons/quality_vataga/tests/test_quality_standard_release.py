@@ -12,6 +12,26 @@ from .test_quality_full_release import QualityFullReleaseCase
 
 @tagged('post_install', '-at_install', 'quality_stock_phase3')
 class TestQualityStandardRelease(QualityFullReleaseCase):
+    def test_mixed_five_and_one_unit_retest_release_without_rechecking_four(self):
+        production, check = self._prepared(quantity=5, result='fail')
+        last = production.workorder_ids.sorted('id')[-1]
+        last.button_start(bypass=True)
+        last.button_finish()
+        self.assertEqual((last.state, last.qty_produced), ('progress', 5))
+        failed = check.sample_ids.filtered(lambda row: row.sample_result == 'fail').controlled_unit_id
+        repeat = last.quality_execution_ids.filtered(
+            lambda row: row.controlled_unit_id == failed)._create_control(last, self.point)
+        self._fill(repeat)
+        repeat.do_pass()
+        last.button_finish()
+        self.assertEqual(last.state, 'done')
+        production.button_mark_done()
+        self.assertEqual((production.state, production.qty_produced), ('done', 5))
+        self.assertEqual(len(production.native_stock_fact_ids), 5)
+        self.assertEqual(len(repeat.sample_ids), 1)
+        self.assertEqual(check.quality_state, 'fail')
+        self.assertEqual(check.x_admitted_qty, 4)
+
     def test_stock_error_after_real_consumption_rolls_back_whole_transaction(self):
         production, check = self._prepared()
         before = self._snapshot(production)

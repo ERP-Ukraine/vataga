@@ -211,6 +211,23 @@ class TestFullBatchReadinessContract(unittest.TestCase):
         with self.assertRaises(UserError):
             self.production._validate_quality_full_batch(self.units)
 
+    def test_mixed_qc_plus_single_unit_pass_retest_does_not_repeat_good_unit(self):
+        self.check.quality_state = 'fail'
+        self.samples[-1].sample_result = 'fail'
+        sample = Record(id=3, controlled_unit_id=self.units[-1], sample_result='pass')
+        repeat = Record(id=72, display_name='One-unit retest', point_id=self.check.point_id,
+            operation_run_id=Record(id=101, workorder_id=self.workorders[-1]),
+            x_control_stage='in_process', unit_admission_role='required', quality_state='pass',
+            sample_ids=Rows([sample]), _get_unit_admission_error=lambda samples: False)
+        self.production._full_release_checks.return_value = Rows([self.check, repeat])
+        self.assertTrue(self.production._validate_quality_full_batch(self.units, standard=True))
+        self.assertEqual(self.samples[-1].sample_result, 'fail')
+        self.assertEqual(len(repeat.sample_ids), 1)
+        for result in ('fail', 'pending'):
+            sample.sample_result = result
+            with self.subTest(result=result), self.assertRaises(UserError):
+                self.production._validate_quality_full_batch(self.units, standard=True)
+
     def test_missing_final_qcp_is_not_hidden_by_completed_in_process_qc(self):
         self.production._applicable_full_qcp.return_value = {(99, 33, 33)}
         with self.assertRaises(UserError):

@@ -68,7 +68,7 @@ class TestQualityQcSimplification(QualityCheckInProcessCase):
         self.assertFalse(production.quality_transfer_controlled)
         self.assertEqual(production.qty_produced, 0)
 
-    def test_mixed_result_admits_only_pass_and_retest_selects_old_units(self):
+    def test_mixed_result_admits_only_pass_and_full_retest_reuses_canonical_units(self):
         production, workorder, check = self._batch()
         check.initialize_qc_unit_identity()
         self._fill(check)
@@ -84,10 +84,11 @@ class TestQualityQcSimplification(QualityCheckInProcessCase):
         old_units = check.sample_ids.controlled_unit_id
         retest = self._check(production, workorder_id=workorder.id)
         data = retest.initialize_qc_unit_identity()
-        self.assertTrue(data['identity_required'])
-        self.assertFalse(retest.operation_run_id)
-        self.assertEqual(self._counts(production)[:2], (2, 1))
-        self._bind(retest, old_units.sorted('id', reverse=True))
+        self.assertFalse(data.get('identity_required'))
+        self.assertTrue(retest.operation_run_id)
+        self.assertEqual(self._counts(production)[:2], (2, 2))
+        self.assertEqual(retest.sample_ids.sorted('sample_number').controlled_unit_id,
+                         old_units.sorted('unit_number'))
         self._fill(retest)
         retest.do_pass()
         self.assertEqual(self._counts(production)[0], 2)

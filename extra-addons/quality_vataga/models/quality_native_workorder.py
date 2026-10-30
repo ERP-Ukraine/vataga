@@ -4,7 +4,7 @@ import uuid
 from contextvars import ContextVar
 
 from odoo import _, api, fields, models
-from odoo.exceptions import UserError, ValidationError
+from odoo.exceptions import AccessError, UserError, ValidationError
 
 from .native_backorder import native_operation_allows
 
@@ -31,8 +31,98 @@ class QualityNativeWorkorder(models.Model):
     quality_native_unit_ids = fields.Many2many(
         'quality.production.unit', 'quality_native_workorder_unit_rel',
         'workorder_id', 'unit_id', string='Вироби цієї операції', copy=False,
-        help='За потреби оберіть конкретні QUNIT. Повний однозначний склад '
-             'власної QC або попереднього виконання враховується автоматично.')
+        help='У сучасному поштучному маршруті система фіксує дозволений склад '
+             'при штатному запуску WO. Поле зберігається для перегляду та аудиту.')
+    quality_native_managed = fields.Boolean(compute='_compute_quality_native_managed')
+    quality_native_status = fields.Text(string='Результат операції', compute='_compute_quality_native_status')
+    quality_native_hold_reason = fields.Text(string='Що утримує вироби', compute='_compute_quality_native_status')
+
+    @api.depends('production_id.quality_unit_route_required', 'quality_transfer_controlled')
+    def _compute_quality_native_managed(self):
+        for workorder in self:
+            workorder.quality_native_managed = workorder._quality_native_automatic()
+
+    def _quality_native_automatic(self):
+        self.ensure_one()
+        return self.production_id.quality_unit_route_required and not self.quality_transfer_controlled
+
+    def _quality_native_available_units(self, universe):
+        """Read-only eligibility; mutation callers still lock and revalidate."""
+        self.ensure_one()
+        available = universe
+        reasons = {}
+        for source in self._quality_native_predecessors():
+            checks = source._quality_native_checks()  # Missing QCP/ACL is never hidden.
+            history = source._quality_native_history()
+            processed = history.filtered(lambda row: row.state == 'processed').controlled_unit_id
+            for unit in available:
+                reason = False
+                if (source.state != 'done' and unit not in processed) or (history and unit not in processed):
+                    reason = _('Не підтверджено обробку попередньої операції %(wo)s.', wo=source.display_name)
+                else:
+                    try:
+                        source._quality_validate_native_checks(checks, unit, lock=False)
+                    except AccessError:
+                        raise
+                    except UserError as error:
+                        reason = str(error)
+                if reason:
+                    reasons[unit.id] = reason
+                    available -= unit
+        return available, reasons
+
+    @api.depends('state', 'qty_produced', 'quality_execution_ids.state',
+                 'production_id.quality_transfer_revision', 'production_id.quality_unit_route_required')
+    @api.depends_context('uid', 'allowed_company_ids')
+    def _compute_quality_native_status(self):
+        # No registration, admission, revision updates or timers from a read.
+        for workorder in self:
+            workorder.quality_native_status = False
+            workorder.quality_native_hold_reason = False
+            if not workorder._quality_native_automatic():
+                continue
+            universe = workorder.production_id._full_release_units()
+            if not universe:
+                workorder.quality_native_status = _('Звичайна робота WO. Вироби ідентифікуються під час першого поштучного QC.')
+                continue
+            try:
+                available, reasons = workorder._quality_native_available_units(universe)
+                checks = workorder._quality_native_checks()
+            except AccessError:
+                raise
+            except UserError as error:
+                workorder.quality_native_status = _('Продовження утримується.')
+                workorder.quality_native_hold_reason = str(error)
+                continue
+            processed = workorder._quality_native_history().filtered(lambda row: row.state == 'processed').controlled_unit_id
+            passed = failed = pending = 0
+            for unit in universe:
+                latest = {}
+                for check in checks.sorted('id', reverse=True):
+                    if not check.operation_run_id or unit in check.operation_run_id.unit_ids:
+                        latest.setdefault(check.point_id.id, check)
+                samples = [check.sample_ids.filtered(lambda row: row.controlled_unit_id == unit)
+                           for check in latest.values()]
+                if any(sample.sample_result == 'fail' for sample in samples if len(sample) == 1):
+                    failed += 1
+                elif samples and all(len(sample) == 1 and sample.sample_result == 'pass' for sample in samples):
+                    passed += 1
+                elif checks:
+                    pending += 1
+                if checks and unit in available:
+                    try:
+                        workorder._quality_validate_native_checks(checks, unit, lock=False)
+                    except AccessError:
+                        raise
+                    except UserError as error:
+                        reasons[unit.id] = str(error)
+            workorder.quality_native_status = _(
+                'Оброблено: %(processed)s / %(total)s. До обробки дозволено: %(ready)s. '
+                'QC: PASS %(passed)s, FAIL %(failed)s, очікує %(pending)s. Дозволено продовжити: %(admitted)s.',
+                processed=len(processed), total=len(universe), ready=len(available - processed),
+                passed=passed, failed=failed, pending=pending, admitted=len(universe) - len(reasons))
+            workorder.quality_native_hold_reason = '\n'.join(
+                '%s: %s' % (unit.display_name, reasons[unit.id]) for unit in universe if unit.id in reasons)
 
     def _quality_native_history(self):
         Execution = self.env['quality.unit.execution']
@@ -104,6 +194,13 @@ class QualityNativeWorkorder(models.Model):
                 or unit.company_id != self.company_id or unit.product_id != self.product_id
                 for unit in selected):
             raise ValidationError(_('QUNIT повинні належати саме цьому MO, виробу та компанії.'))
+        if universe and self._quality_native_automatic():
+            if selected and self.time_ids.filtered(lambda timer: not timer.date_end):
+                return selected  # Composition frozen by the native start.
+            available, reasons = self._quality_native_available_units(universe)
+            if not available:
+                raise UserError(_('Немає виробів, дозволених до обробки.\n%s') % '\n'.join(sorted(set(reasons.values()))))
+            return available
         if selected:
             return selected
         # Only an explicit QC identity or immutable preceding execution is a
@@ -119,7 +216,13 @@ class QualityNativeWorkorder(models.Model):
             raise UserError(_('Оберіть конкретні QUNIT у картці робочого завдання.'))
         return universe
 
-    def _quality_validate_native_checks(self, checks, units):
+    def _quality_native_completion_units(self):
+        units = self._quality_native_units()
+        if self._quality_native_automatic():
+            units |= self._quality_native_history().filtered(lambda row: row.state == 'processed').controlled_unit_id
+        return units
+
+    def _quality_validate_native_checks(self, checks, units, lock=True):
         if units and checks:
             # A repeat QC for one unit supersedes its QCP for that unit only.
             for unit in units:
@@ -129,13 +232,14 @@ class QualityNativeWorkorder(models.Model):
                         latest.setdefault(check.point_id.id, check)
                 if {check.point_id.id for check in checks} - set(latest):
                     raise UserError(_('Обов’язкова QC не ідентифікує вибраний QUNIT.'))
-                self._quality_validate_native_unit_checks(list(latest.values()), unit)
+                self._quality_validate_native_unit_checks(list(latest.values()), unit, lock=lock)
             return
-        self._quality_validate_native_unit_checks(checks, None)
+        self._quality_validate_native_unit_checks(checks, None, lock=lock)
 
-    def _quality_validate_native_unit_checks(self, checks, unit):
+    def _quality_validate_native_unit_checks(self, checks, unit, lock=True):
         for check in checks:
-            check._lock_unit_admission_scope()
+            if lock:
+                check._lock_unit_admission_scope()
             if unit is None:
                 self.production_id._check_matrix_native_completion(workorders=self)
                 continue
@@ -181,7 +285,7 @@ class QualityNativeWorkorder(models.Model):
             self._check_quality_native_selection()
             if self.production_id.state not in ('confirmed', 'progress'):
                 raise UserError(_('Поштучну обробку дозволено лише у відкритому MO.'))
-            if not self.quality_native_unit_ids:
+            if not self.quality_native_unit_ids and not self._quality_native_automatic():
                 raise UserError(_('Явно оберіть QUNIT для запуску цієї операції.'))
             self._quality_native_units()._assert_not_stock_posted()
             # Enterprise argument is forwarded, never a quality bypass.
@@ -199,11 +303,8 @@ class QualityNativeWorkorder(models.Model):
             self.production_id._check_quality_transfer_boundary()
             self.invalidate_recordset()
             self._check_quality_native_selection()
-            if not self.quality_native_unit_ids:
+            if not self.quality_native_unit_ids and not self._quality_native_automatic():
                 raise UserError(_('Явно оберіть фактично оброблені QUNIT перед підтвердженням.'))
-            if self.state != 'progress' or not self.time_ids.filtered(
-                    lambda timer: timer.user_id == self.env.user and not timer.date_end):
-                raise UserError(_('Спочатку почніть штатну роботу над WO під своїм користувачем.'))
             self._check_quality_native_start()
             units = self._quality_native_units()
             if not units:
@@ -216,6 +317,9 @@ class QualityNativeWorkorder(models.Model):
             missing = units - recorded
             if not missing:
                 return True
+            if self.state != 'progress' or not self.time_ids.filtered(
+                    lambda timer: timer.user_id == self.env.user and not timer.date_end):
+                raise UserError(_('Спочатку почніть штатну роботу над WO під своїм користувачем.'))
             scope = _PARTIAL_EXECUTION.set((self.env.cr, self.id, frozenset(missing.ids)))
             try:
                 self.env['quality.unit.execution']._record_partial_completion(self, missing, str(uuid.uuid4()))
@@ -244,7 +348,7 @@ class QualityNativeWorkorder(models.Model):
             if workorder.state == 'done':
                 continue  # Never backfill a previously completed operation.
             checks = workorder._quality_native_checks()
-            units = workorder._quality_native_units()
+            units = workorder._quality_native_completion_units()
             if units:
                 workorder._check_quality_execution_access()
                 uom = self.env.ref('uom.product_uom_unit')
@@ -262,23 +366,88 @@ class QualityNativeWorkorder(models.Model):
 
     def button_start(self, bypass=False):
         with self.env.cr.savepoint():
+            starting = self
+            for workorder in self:
+                if (not native_operation_allows(workorder.production_id) and workorder._quality_native_automatic()
+                        and workorder.state not in ('done', 'cancel')
+                        and not workorder.time_ids.filtered(lambda timer: not timer.date_end)):
+                    workorder.production_id._check_quality_transfer_boundary()
+                    universe = workorder.production_id._full_release_units()
+                    if universe:
+                        available, reasons = workorder._quality_native_available_units(universe)
+                        processed = workorder._quality_native_history().filtered(lambda row: row.state == 'processed').controlled_unit_id
+                        pending = available - processed
+                        if not pending:
+                            if bypass:
+                                starting -= workorder  # QC callback: no repeated work/timer.
+                                continue
+                            raise UserError(_('Немає нових дозволених виробів для обробки. Вже оброблені вироби повторно не запускаються; після завершення QC підтвердьте готову WO.'))
+                        workorder.write({'quality_native_unit_ids': [(6, 0, pending.ids)]})
             self._check_quality_native_start()
-            return super().button_start(bypass=bypass)
+            # Enterprise normally waits for all predecessors. The same
+            # server gate above permits only individually eligible QUNIT.
+            if any(workorder._quality_native_automatic()
+                   and workorder.production_id._full_release_units()
+                   and any(source.state != 'done' for source in workorder._quality_native_predecessors())
+                   for workorder in self):
+                bypass = True
+            return super(QualityNativeWorkorder, starting).button_start(bypass=bypass) if starting else True
+
+    def _quality_confirm_on_native_finish(self):
+        """A native Done click acknowledges physical work, never partial stock."""
+        self.ensure_one()
+        if native_operation_allows(self.production_id) or not self._quality_native_automatic() or self.state in ('done', 'cancel'):
+            return False
+        universe = self.production_id._full_release_units()
+        if not universe:
+            return False  # Before the first QC, use native operations unchanged.
+        self.production_id._check_quality_transfer_boundary()
+        units = self._quality_native_units()
+        completed = units | self._quality_native_history().filtered(lambda row: row.state == 'processed').controlled_unit_id
+        try:
+            checks = self._quality_native_checks()
+        except AccessError:
+            raise
+        except UserError:
+            checks = False  # Missing own QC holds advancement, not physical facts.
+        ready = checks is not False and set(completed.ids) == set(universe.ids)
+        if ready:
+            try:
+                self._quality_validate_native_checks(checks, completed)
+            except AccessError:
+                raise
+            except UserError:
+                ready = False
+        if not ready or self._quality_native_history():
+            self.action_confirm_quality_native_units()
+        if not ready:
+            self.button_pending()  # Native pause, not another timer/state.
+            return True
+        return False
 
     def button_finish(self):
         with self.env.cr.savepoint():
-            self._check_quality_native_finish()
-            return super().button_finish()
+            remaining = self.filtered(lambda workorder: not workorder._quality_confirm_on_native_finish())
+            if not remaining:
+                return True
+            remaining._check_quality_native_finish()
+            return super(QualityNativeWorkorder, remaining).button_finish()
 
     def button_done(self):
         with self.env.cr.savepoint():
-            self._check_quality_native_finish()
-            return super().button_done()
+            remaining = self.filtered(lambda workorder: not workorder._quality_confirm_on_native_finish())
+            if not remaining:
+                return True
+            remaining._check_quality_native_finish()
+            return super(QualityNativeWorkorder, remaining).button_done()
 
     def action_mark_as_done(self):
         with self.env.cr.savepoint():
-            self._check_quality_native_finish()
-            return super().action_mark_as_done()
+            remaining = self.filtered(lambda workorder: not workorder._quality_confirm_on_native_finish())
+            if not remaining:
+                return True
+            remaining._check_quality_native_finish()
+            return super(QualityNativeWorkorder, remaining).action_mark_as_done()
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -318,6 +487,9 @@ class QualityNativeWorkorder(models.Model):
                          'quality_native_unit_ids', 'qty_produced', 'state'}
             history = self._quality_native_history()
             for record in self:
+                if ('quality_native_unit_ids' in vals and record._quality_native_automatic()
+                        and record.time_ids.filtered(lambda timer: not timer.date_end)):
+                    raise UserError(_('Склад активної роботи зафіксовано при запуску. Спочатку підтвердьте або призупиніть поточну обробку.'))
                 if set(vals) == {'quality_native_unit_ids'} and record.state not in ('done', 'cancel'):
                     continue  # Draft selection is not immutable execution history.
                 if vals.get('state') == 'done' and record.state == 'progress' and not (
@@ -345,7 +517,7 @@ class QualityNativeWorkorder(models.Model):
                 for record in self:
                     if record.production_id._full_release_units() and vals['qty_reported_from_previous_wo'] != record.qty_reported_from_previous_wo:
                         raise UserError(_(PARTIAL_WO_MESSAGE))
-            selections = {record.id: record._quality_native_units() for record in completing}
+            selections = {record.id: record._quality_native_completion_units() for record in completing}
             result = super().write(vals)
             if 'quality_native_unit_ids' in vals:
                 for record in self:

@@ -296,9 +296,17 @@ class QualityCheckIdentity(models.Model):
             if explicit:
                 return  # preserve the existing protected execution workflow
             if units:
-                # Equal batch sizes do not prove which physical unit is row 1.
-                if len(units) != 1 or len(samples) != 1:
+                # Reuse the canonical numbers of one intact registration,
+                # not an arbitrary same-sized collection or continuation.
+                registration = units.registration_run_id
+                if (len(units) != len(samples) or len(registration) != 1
+                        or registration.state != 'registered'
+                        or registration.production_id != production
+                        or set(registration.unit_ids.ids) != set(units.ids)
+                        or set(units.mapped('unit_number')) != set(range(1, len(samples) + 1))
+                        or any(unit.production_id != production for unit in units)):
                     return
+                units = units.sorted('unit_number')
                 mode = 'reuse'
             else:
                 # Do not re-register units moved to a continuation or already
@@ -315,9 +323,9 @@ class QualityCheckIdentity(models.Model):
                 ], limit=1):
                     return
             self._identify_samples(mode, [
-                {'sample_id': sample.id, 'unit_id': units.id if units else False,
+                {'sample_id': sample.id, 'unit_id': units[index].id if units else False,
                  'lot_id': lot.id if mode == 'new' and self.product_id.tracking in ('lot', 'serial') else False}
-                for sample in samples
+                for index, sample in enumerate(samples)
             ], workorder=workorder, confirmed=True)
 
     def bind_measurement_units(self, mapping):

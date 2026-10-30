@@ -371,7 +371,14 @@ class QualityFullReleaseProduction(models.Model):
                 latest = _read(relevant.operation_run_id).sorted('id')[-1:]
                 for check in relevant.filtered(lambda item: item.operation_run_id == latest):
                     sample = check.sample_ids.filtered(lambda row: row.controlled_unit_id == unit)
-                    if check.quality_state != 'pass' or check._get_unit_admission_error(sample):
+                    # A mixed matrix may retain PASS for this unit while
+                    # only its failed neighbour receives a later retest.
+                    # A FAIL decision with all inputs now PASS still needs
+                    # an explicit QC completion, as before.
+                    if (check.quality_state not in ('pass', 'fail') or len(sample) != 1
+                            or sample.sample_result != 'pass'
+                            or (check.quality_state == 'fail' and not any(row.sample_result == 'fail' for row in check.sample_ids))
+                            or check._get_unit_admission_error(sample)):
                         raise ValidationError(_('QC %(check)s / %(unit)s: потрібні завершений PASS, ЗВТ і відсутність утримань.', check=check.display_name, unit=unit.display_name))
                 admissions = self.env['quality.unit.admission'].search([
                     ('operation_run_id', '=', latest.id), ('controlled_unit_id', '=', unit.id), ('state', '=', 'confirmed')])
