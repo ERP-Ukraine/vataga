@@ -1,0 +1,110 @@
+=== ENTERPRISE EMPLOYEE COST DIAGNOSTIC ===
+DATABASE: odoo17-vataga-staging
+MODE: READ ONLY
+
+=== mrp.workcenter.productivity._compute_employee ===
+PROVIDER: odoo.addons.mrp_workorder.models.mrp_workcenter.MrpWorkcenterProductivity -> odoo.addons.mrp_workorder.models.mrp_workcenter.MrpWorkcenterProductivity._compute_employee
+FILE: /mnt/enterprise-addons/mrp_workorder/models/mrp_workcenter.py
+SHA256: b5d424ca09fce731830d37c75bf930af2439d8e9c58471335090411725083d5a
+SOURCE:
+    @api.depends('user_id')
+    def _compute_employee(self):
+        for time in self:
+            if time.user_id and time.user_id.employee_id:
+                time.employee_id = time.user_id.employee_id
+
+
+=== mrp.workcenter.productivity._compute_employee_cost ===
+PROVIDER: odoo.addons.mrp_workorder.models.mrp_workcenter.MrpWorkcenterProductivity -> odoo.addons.mrp_workorder.models.mrp_workcenter.MrpWorkcenterProductivity._compute_employee_cost
+FILE: /mnt/enterprise-addons/mrp_workorder/models/mrp_workcenter.py
+SHA256: 6825f569941fa0f1c6980bcc1f644a55caafa044a8d310e22cdf655f6f16df1f
+SOURCE:
+    @api.depends('employee_id.hourly_cost')
+    def _compute_employee_cost(self):
+        for time in self:
+            time.employee_cost = time.employee_id.hourly_cost if time.employee_id else time.workcenter_id.employee_costs_hour
+
+
+=== mrp.workcenter.productivity._compute_total_cost ===
+PROVIDER: odoo.addons.mrp_workorder.models.mrp_workcenter.MrpWorkcenterProductivity -> odoo.addons.mrp_workorder.models.mrp_workcenter.MrpWorkcenterProductivity._compute_total_cost
+FILE: /mnt/enterprise-addons/mrp_workorder/models/mrp_workcenter.py
+SHA256: 32ecbbb3205f8a10e0332a480685426d7e28f8646994af5df30a24f5b33a5f3d
+SOURCE:
+    @api.depends('duration', 'employee_cost')
+    def _compute_total_cost(self):
+        for time in self:
+            time.total_cost = time.employee_cost * time.duration / 60
+
+
+=== mrp.workcenter.productivity._compute_duration ===
+PROVIDER: odoo.addons.mrp.models.mrp_workcenter.MrpWorkcenterProductivity -> odoo.addons.mrp.models.mrp_workcenter.MrpWorkcenterProductivity._compute_duration
+FILE: /usr/lib/python3/dist-packages/odoo/addons/mrp/models/mrp_workcenter.py
+SHA256: 618f330d8dfd0675e79d8c38f5552b891b1920c9e4050ce313517d0e50e6a2b4
+SOURCE:
+    @api.depends('date_end', 'date_start')
+    def _compute_duration(self):
+        for blocktime in self:
+            if blocktime.date_start and blocktime.date_end:
+                blocktime.duration = blocktime.loss_id._convert_to_duration(blocktime.date_start.replace(microsecond=0), blocktime.date_end.replace(microsecond=0), blocktime.workcenter_id)
+            else:
+                blocktime.duration = 0.0
+
+
+=== mrp.workorder._compute_duration ===
+PROVIDER: odoo.addons.mrp_workorder_hr_account.models.mrp_workorder.MrpWorkorder -> odoo.addons.mrp_workorder_hr_account.models.mrp_workorder.MrpWorkorder._compute_duration
+FILE: /mnt/enterprise-addons/mrp_workorder_hr_account/models/mrp_workorder.py
+SHA256: bc14ea261933e6b4a0f18630bbd89c9c84a908d7119d1b3b89fa8f696d85ca71
+SOURCE:
+    def _compute_duration(self):
+        self._create_or_update_analytic_entry()
+        super()._compute_duration()
+
+PROVIDER: odoo.addons.mrp_workorder.models.mrp_workorder.MrpProductionWorkcenterLine -> odoo.addons.mrp_workorder.models.mrp_workorder.MrpProductionWorkcenterLine._compute_duration
+FILE: /mnt/enterprise-addons/mrp_workorder/models/mrp_workorder.py
+SHA256: 8ab93fe310949670b9c0e2cdbb606f1d69d768844e3cfb4f645fe85050c71426
+SOURCE:
+    def _compute_duration(self):
+        wo_ids_without_employees = set()
+        for wo in self:
+            wo.duration = wo.get_duration()
+            wo.duration_unit = round(wo.duration / max(wo.qty_produced, 1), 2)
+            if wo.duration_expected:
+                wo.duration_percent = max(-2147483648, min(2147483647, 100 * (wo.duration_expected - wo.duration) / wo.duration_expected))
+            else:
+                wo.duration_percent = 0
+        return super(MrpProductionWorkcenterLine, self.env['mrp.workorder'].browse(wo_ids_without_employees))._compute_duration()
+
+PROVIDER: odoo.addons.mrp_account.models.mrp_workorder.MrpWorkorder -> odoo.addons.mrp_account.models.mrp_workorder.MrpWorkorder._compute_duration
+FILE: /usr/lib/python3/dist-packages/odoo/addons/mrp_account/models/mrp_workorder.py
+SHA256: b3322e7b201006c7c4501b51074867e01955c8acd4408e1c25ad7a09a63ae298
+SOURCE:
+    def _compute_duration(self):
+        res = super()._compute_duration()
+        self._create_or_update_analytic_entry()
+        return res
+
+PROVIDER: odoo.addons.mrp.models.mrp_workorder.MrpWorkorder -> odoo.addons.mrp.models.mrp_workorder.MrpWorkorder._compute_duration
+FILE: /usr/lib/python3/dist-packages/odoo/addons/mrp/models/mrp_workorder.py
+SHA256: b28a1e487670c30c9b370afffcbc075274cd49a5dedeab673b97f2d55feb0ad5
+SOURCE:
+    @api.depends('time_ids.duration', 'time_ids.loss_type', 'qty_produced')
+    def _compute_duration(self):
+        for order in self:
+            order.duration = order.get_duration()
+            order.duration_unit = round(order.duration / max(order.qty_produced, 1), 2)  # rounding 2 because it is a time
+            if order.duration_expected:
+                order.duration_percent = max(-2147483648, min(2147483647, 100 * (order.duration_expected - order.duration) / order.duration_expected))
+            else:
+                order.duration_percent = 0
+
+
+=== COST FIELD DEPENDENCIES ===
+mrp.workcenter.productivity.employee_id: {'type': 'many2one', 'store': True, 'related': None, 'compute': '_compute_employee', 'depends': ('user_id',)}
+mrp.workcenter.productivity.employee_cost: {'type': 'monetary', 'store': True, 'related': None, 'compute': '_compute_employee_cost', 'depends': ('employee_id.hourly_cost',)}
+mrp.workcenter.productivity.total_cost: {'type': 'float', 'store': False, 'related': None, 'compute': '_compute_total_cost', 'depends': ('duration', 'employee_cost')}
+mrp.workcenter.productivity.duration: {'type': 'float', 'store': True, 'related': None, 'compute': '_compute_duration', 'depends': ('date_end', 'date_start')}
+hr.employee.hourly_cost: {'type': 'monetary', 'store': True, 'related': None, 'compute': 'None', 'depends': ()}
+mrp.workcenter.employee_costs_hour: {'type': 'monetary', 'store': True, 'related': None, 'compute': 'None', 'depends': ()}
+
+DATABASE CHANGES: NONE
+=== END ===

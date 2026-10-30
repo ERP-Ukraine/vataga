@@ -57,3 +57,5 @@ access_quality_full_release_wizard,quality.full.release.wizard,model_quality_ful
 access_quality_native_partial_release_mrp,quality.native.partial.release,model_quality_native_partial_release,mrp.group_mrp_user,1,0,1,0
 access_quality_native_partial_unit_mrp,quality.native.partial.unit,model_quality_native_partial_unit,mrp.group_mrp_user,1,0,1,0
 access_quality_native_partial_cost_mrp,quality.native.partial.cost,model_quality_native_partial_cost,mrp.group_mrp_user,1,0,1,0
+access_quality_native_production_loss_mrp,quality.native.production.loss,model_quality_native_production_loss,mrp.group_mrp_user,1,0,1,0
+access_quality_production_loss_fact_mrp,quality.production.loss.fact,model_quality_production_loss_fact,mrp.group_mrp_user,1,0,1,0

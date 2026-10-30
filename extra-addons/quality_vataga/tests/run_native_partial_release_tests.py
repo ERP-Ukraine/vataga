@@ -17,8 +17,11 @@ def main():
     parser.add_argument('--odoo-source', type=Path, required=True)
     parser.add_argument('--port', type=int, required=True)
     parser.add_argument('--run-disposable-tests', action='store_true', required=True)
+    parser.add_argument('--with-subcontracting', action='store_true',
+                        help='Install the real Community subcontracting override to test its non-subcontract branch.')
     parser.add_argument('--test-tags', default='/quality_partial_probe:TestNativePartialAdapter,'
-                        '/quality_partial_probe:TestNativeBackorderBridge,/quality_partial_probe:TestNativePartialProduction')
+                        '/quality_partial_probe:TestNativeBackorderBridge,/quality_partial_probe:TestNativePartialProduction,'
+                        '/quality_partial_probe:TestNativeProductionLoss')
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     source = args.odoo_source.resolve()
@@ -39,27 +42,32 @@ def main():
                 (addon / part).mkdir(parents=True)
             (addon / '__manifest__.py').write_text(repr({
                 'name': 'Disposable incremental native MRP tests', 'version': '17.0.2.62',
-                'license': 'LGPL-3', 'depends': ['mrp_account'],
+                'license': 'LGPL-3', 'depends': ['mrp_account'] + (['mrp_subcontracting_account'] if args.with_subcontracting else []),
                 'data': ['security/ir.model.access.csv', 'security/rules.xml'],
             }), encoding='utf-8')
             (addon / '__init__.py').write_text('from . import models\nfrom . import tests\n', encoding='utf-8')
-            for name in ('native_backorder.py', 'native_cost_provider.py', 'native_partial_release.py'):
+            for name in ('native_backorder.py', 'native_cost_provider.py', 'native_partial_release.py', 'native_production_loss.py'):
                 shutil.copyfile(root / 'models' / name, addon / 'models' / name)
-            (addon / 'models/__init__.py').write_text('from . import native_backorder\nfrom . import native_partial_release\n', encoding='utf-8')
-            for name in ('test_stock_release_native_contract.py', 'test_native_partial_adapter.py', 'test_native_backorder_bridge.py'):
+            (addon / 'models/__init__.py').write_text('from . import native_backorder\nfrom . import native_partial_release\n'
+                                                    'from . import native_production_loss\n', encoding='utf-8')
+            for name in ('test_stock_release_native_contract.py', 'test_native_partial_adapter.py',
+                         'test_native_backorder_bridge.py', 'test_native_production_loss.py'):
                 shutil.copyfile(root / 'tests' / name, addon / 'tests' / name)
             (addon / 'tests/__init__.py').write_text('from . import test_stock_release_native_contract\n'
-                                                   'from . import test_native_partial_adapter\nfrom . import test_native_backorder_bridge\n', encoding='utf-8')
+                                                   'from . import test_native_partial_adapter\nfrom . import test_native_backorder_bridge\n'
+                                                   'from . import test_native_production_loss\n', encoding='utf-8')
             names = ('release', 'unit', 'cost')
             (addon / 'security/ir.model.access.csv').write_text(
                 'id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink\n' + ''.join(
                     f'access_partial_{n},partial {n},model_quality_native_partial_{n},mrp.group_mrp_user,1,0,1,0\n'
-                    for n in names), encoding='utf-8')
+                    for n in names) + 'access_loss,production loss,model_quality_native_production_loss,mrp.group_mrp_user,1,0,1,0\n', encoding='utf-8')
             (addon / 'security/rules.xml').write_text('<odoo>' + ''.join(
                 f'<record id="partial_{n}_company" model="ir.rule"><field name="name">partial {n} company</field>'
                 f'<field name="model_id" ref="model_quality_native_partial_{n}"/>'
                 '<field name="domain_force">[("company_id", "in", company_ids)]</field></record>'
-                for n in names) + '</odoo>', encoding='utf-8')
+                for n in names) + '<record id="loss_company" model="ir.rule"><field name="name">production loss company</field>'
+                '<field name="model_id" ref="model_quality_native_production_loss"/>'
+                '<field name="domain_force">[("company_id", "in", company_ids)]</field></record></odoo>', encoding='utf-8')
             environment = dict(os.environ, QUNIT_DISPOSABLE_TEST_DATABASE=database, PYTHONUTF8='1')
             result = subprocess.run([
                 sys.executable, str(source / 'odoo-bin'), '-d', database,

@@ -44,7 +44,7 @@ class QualityPartialProbe(models.Model):
             self.env['mrp.workcenter.productivity'].create(workorder._prepare_timeline_vals(0, start, end))
 
     @api.model
-    def _quality_partial_probe_setup(self, tracking='none'):
+    def _quality_partial_probe_setup(self, tracking='none', all_pass=False):
         if 'workorder_id' not in self.env['quality.check']._fields:
             raise UserError(_('Для тесту потрібна справжня Enterprise-інтеграція QC з Work Orders.'))
         suffix = uuid.uuid4().hex[:12]
@@ -125,20 +125,26 @@ class QualityPartialProbe(models.Model):
         _assert(len(check.sample_ids) == 5, 'Expected five identified real QC samples')
         for sample in check.sample_ids:
             check.update_measurement_visual_result(sample.id, 'yes')
-        check.update_measurement_visual_result(check.sample_ids.sorted('sample_number')[-1].id, 'no')
-        check.do_fail()
+        if all_pass:
+            check.do_pass()
+        else:
+            check.update_measurement_visual_result(check.sample_ids.sorted('sample_number')[-1].id, 'no')
+            check.do_fail()
         orders[1].button_finish()
         self._quality_partial_probe_closed_time(orders[1], 20, anchor + timedelta(minutes=30))
-        alert = self.env['quality.alert'].create({'name': 'QPART held fifth ' + suffix,
-            'check_id': check.id, 'team_id': team.id})
+        alert = self.env['quality.alert']
+        if not all_pass:
+            alert = alert.create({'name': 'QPART held fifth ' + suffix,
+                'check_id': check.id, 'team_id': team.id})
         orders[2].button_start()
         self._quality_partial_probe_timer(orders[2])
         orders[2].button_finish()
         self._quality_partial_probe_closed_time(orders[2], 20, anchor + timedelta(hours=1))
         good = check.sample_ids.filtered(lambda s: s.sample_result == 'pass').controlled_unit_id
         failed = check.sample_ids.filtered(lambda s: s.sample_result == 'fail').controlled_unit_id
-        _assert(len(good) == 4 and len(failed) == 1 and orders[1].qty_produced == 5
-                and orders[2].qty_produced == 4, 'Native WO2/WO3 did not confirm the exact 5/4 identities')
+        _assert(len(good) == (5 if all_pass else 4) and len(failed) == (0 if all_pass else 1)
+                and orders[1].qty_produced == 5 and orders[2].qty_produced == len(good),
+                'Native WO2/WO3 did not confirm the exact physical identities')
         return {'production': production, 'orders': orders, 'check': check, 'alert': alert,
                 'good': good, 'failed': failed, 'anchor': anchor, 'component': component}
 

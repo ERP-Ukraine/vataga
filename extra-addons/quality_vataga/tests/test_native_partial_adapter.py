@@ -193,6 +193,35 @@ class TestNativePartialAdapter(StockReleaseNativeCase):
         with patch.object(cls, '_cal_cost', unreviewed_employee_cost):
             self._denied(production, lambda: self._release(production))
 
+    def test_reviewed_subcontracting_source_is_required_and_subcontract_orders_are_blocked(self):
+        production = self._timed()
+        from ..models.native_cost_provider import reviewed_subcontracting_methods
+        owners = [owner for owner in type(production).__mro__
+                  if owner.__module__ == 'odoo.addons.mrp_subcontracting_account.models.mrp_production'
+                  and '_cal_price' in owner.__dict__]
+        if not owners:
+            self.assertFalse(list(reviewed_subcontracting_methods(production)))
+            return
+        owner = owners[0]
+        original = owner._cal_price
+        self.assertIn(original, list(reviewed_subcontracting_methods(production)))
+
+        def unreviewed_same_module(rows, consumed_moves):
+            return original(rows, consumed_moves)
+
+        unreviewed_same_module.__module__ = owner.__module__
+        with patch.object(owner, '_cal_price', unreviewed_same_module):
+            self.assertFalse(list(reviewed_subcontracting_methods(production)))
+            self._denied(production, lambda: self._release(production))
+        from functools import wraps
+        wrapped = wraps(original)(unreviewed_same_module)
+        with patch.object(owner, '_cal_price', wrapped):
+            self.assertFalse(list(reviewed_subcontracting_methods(production)))
+            self._denied(production, lambda: self._release(production))
+        production.bom_id = self.env['mrp.bom'].create({
+            'product_tmpl_id': self.product.product_tmpl_id.id, 'product_qty': 1, 'type': 'subcontract'})
+        self._denied(production, lambda: self._release(production))
+
     def test_cost_report_contains_all_mro_definitions_and_changes_no_stock(self):
         production = self._timed()
         before = self._snapshot(production)

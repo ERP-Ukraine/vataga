@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="quality_production_loss_alert_form" model="ir.ui.view">
+        <field name="name">quality.alert.production.loss</field>
+        <field name="model">quality.alert</field>
+        <field name="inherit_id" ref="quality_vataga.quality_alert_scrap_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//page[@name='vataga_scrap']/p" position="replace">
+                <p>Виробничі втрати стосуються невипущених FAIL-QUNIT. Документ зберігає кількість і фактичну вартість; за ручної періодичної оцінки бухгалтерську проводку не створює.</p>
+            </xpath>
+            <xpath expr="//page[@name='vataga_scrap']/group" position="after">
+                <button name="action_scrap_defective_units" type="object" string="Визнати втрати та завершити MO"
+                        class="btn-primary" groups="quality.group_quality_manager"
+                        invisible="vataga_scrap_status != 'ready'"
+                        confirm="Підтверджую повне фактичне споживання компонентів партії. Випустити готові QUNIT, визнати затверджений брак виробничими втратами та завершити MO без Backorder?"/>
+                <field name="production_loss_fact_ids" readonly="1" nolabel="1">
+                    <tree create="0" edit="0" delete="0">
+                        <field name="unit_id"/>
+                        <field name="production_id"/>
+                        <field name="currency_id" column_invisible="True"/>
+                        <field name="value" widget="monetary"/>
+                        <field name="accounting_status"/>
+                    </tree>
+                </field>
+            </xpath>
+        </field>
+    </record>
+</odoo>

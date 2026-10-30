@@ -1,6 +1,31 @@
 """Inspect actual registered implementations; names never authorize providers."""
 import hashlib
 import inspect
+import ast
+import textwrap
+
+
+def reviewed_subcontracting_methods(records):
+    """Only the reviewed Community 17 override, for non-subcontract MOs.
+
+    Its sole extra branch changes extra_cost from a subcontract receipt. The
+    caller must reject that branch's input before allowing native posting.
+    An identical module or function NAME is insufficient.
+    """
+    for owner, implementation in method_definitions(records, '_cal_price'):
+        if (owner.__module__ != 'odoo.addons.mrp_subcontracting_account.models.mrp_production'
+                or implementation.__module__ != owner.__module__
+                or getattr(implementation, '__wrapped__', None) is not None):
+            continue
+        try:
+            tree = ast.parse(textwrap.dedent(inspect.getsource(implementation)))
+            # Python 3.12 adds empty type_params; it is absent in 3.10/3.11.
+            canonical = ast.dump(tree.body[0], include_attributes=False).replace(', type_params=[]', '')
+            digest = hashlib.sha256(canonical.encode()).hexdigest()
+        except (TypeError, OSError, SyntaxError):
+            continue
+        if digest == '2028b44ccffe792370d64d58bd8f268a4b334f69d8804a90245b93ece32400aa':
+            yield implementation
 
 
 def method_definitions(records, method):

@@ -15,4 +15,14 @@
         <field name="model_id" ref="model_quality_native_partial_cost"/>
         <field name="domain_force">[('company_id', 'in', company_ids)]</field>
     </record>
+    <record id="native_production_loss_company" model="ir.rule">
+        <field name="name">Виробничі втрати: компанії</field>
+        <field name="model_id" ref="model_quality_native_production_loss"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="production_loss_fact_company" model="ir.rule">
+        <field name="name">Втрати QUNIT: компанії</field>
+        <field name="model_id" ref="model_quality_production_loss_fact"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
 </odoo>

@@ -51,6 +51,7 @@
         'wizard/quality_alert_repair_views.xml',
         'views/quality_alert_repair_views.xml',
         'views/quality_alert_scrap_views.xml',
+        'views/quality_production_loss_views.xml',
         'views/quality_native_backorder_views.xml',
         'wizard/quality_full_release_views.xml',
     ],
