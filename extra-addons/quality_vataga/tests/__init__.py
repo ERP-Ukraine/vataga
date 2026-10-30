@@ -40,3 +40,5 @@ from . import test_quality_standard_release
 from . import test_quality_standard_release_contract
 from . import test_quality_posted_admission
 from . import test_quality_posted_admission_contract
+from . import test_quality_partial_workorder
+from . import test_quality_partial_workorder_contract

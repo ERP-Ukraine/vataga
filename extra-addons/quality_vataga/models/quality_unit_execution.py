@@ -77,8 +77,15 @@ class QualityExecutionBatch(models.Model):
                 raise UserError(_('Реквізити робочого інтервалу встановлює система.'))
             workorder = self.env['mrp.workorder'].browse(vals['workorder_id'])
             workorder._check_quality_execution_access()
+            started_at = fields.Datetime.now()
+            if self.env.context.get(EXECUTION_CONTEXT) is NATIVE_EXECUTION_TOKEN:
+                started_at = workorder.date_start or started_at
+                if vals['request_key'].startswith('partial:'):
+                    running = workorder.time_ids.filtered(
+                        lambda timer: timer.user_id == self.env.user and not timer.date_end)
+                    started_at = running[:1].date_start or started_at
             prepared.append(dict(vals, company_id=workorder.company_id.id, operator_id=self.env.uid,
-                                 started_at=(workorder.date_start or fields.Datetime.now()) if self.env.context.get(EXECUTION_CONTEXT) is NATIVE_EXECUTION_TOKEN else fields.Datetime.now(), execution_ids=[], timer_ids=[]))
+                                 started_at=started_at, execution_ids=[], timer_ids=[]))
         context = {key: value for key, value in self.env.context.items() if not key.startswith('default_')}
         return super(QualityExecutionBatch, self.with_context(context)).create(prepared)
 
@@ -150,6 +157,7 @@ class QualityUnitExecution(models.Model):
 
     @api.model
     def _create_native_facts(self, vals_list):
+        from .quality_native_workorder import partial_execution_allows
         prepared = []
         for vals in vals_list:
             if set(vals) != {'batch_id', 'controlled_unit_id'}:
@@ -162,14 +170,15 @@ class QualityUnitExecution(models.Model):
             unit = self.env['quality.production.unit'].browse(vals['controlled_unit_id'])
             unit.check_access_rights('read')
             unit.check_access_rule('read')
-            if (workorder.state != 'done' or batch.request_key != 'native:%s' % workorder.id
+            partial = partial_execution_allows(workorder, unit) and workorder.state == 'progress' and batch.request_key.startswith('partial:')
+            if ((not partial and (workorder.state != 'done' or batch.request_key != 'native:%s' % workorder.id))
                     or unit._quality_current_production() != workorder.production_id
                     or unit.company_id != workorder.company_id or unit.product_id != workorder.product_id):
                 raise ValidationError(_('Підтвердження має відповідати завершеному WO та його QUNIT.'))
             prepared.append(dict(vals, transfer_id=False, state='processed',
                                  ended_at=fields.Datetime.now(), ended_by_id=self.env.uid,
                                  result_reference='Native WO: %s' % workorder.id,
-                                 stop_reason=False, check_ids=[(6, 0, workorder._quality_native_checks().ids)]))
+                                 stop_reason=False, check_ids=[] if partial else [(6, 0, workorder._quality_native_checks().ids)]))
         context = {key: value for key, value in self.env.context.items() if not key.startswith('default_')}
         return super(QualityUnitExecution, self.with_context(context)).create(prepared)
 
@@ -177,12 +186,26 @@ class QualityUnitExecution(models.Model):
     def _record_native_completion(self, workorder, units):
         # Called inside the native WO write savepoint, after validation and
         # successful state change. No synthetic handoff or productivity row.
+        units = units - workorder._quality_native_history().filtered(lambda row: row.state == 'processed').controlled_unit_id
+        if not units:
+            return self.browse()
         registrar = self.with_context(**{EXECUTION_CONTEXT: NATIVE_EXECUTION_TOKEN})
         batch = self.env['quality.unit.execution.batch'].with_context(
             **{EXECUTION_CONTEXT: NATIVE_EXECUTION_TOKEN}).create({
                 'workorder_id': workorder.id, 'request_key': 'native:%s' % workorder.id})
         return registrar.create([{'batch_id': batch.id, 'controlled_unit_id': unit.id}
                                  for unit in units.sorted('id')])
+
+    @api.model
+    def _record_partial_completion(self, workorder, units, request_key):
+        from .quality_native_workorder import partial_execution_allows
+        if not partial_execution_allows(workorder, units):
+            raise UserError(_('Немає захищеного підтвердження обробки QUNIT.'))
+        batch = self.env['quality.unit.execution.batch'].with_context(
+            **{EXECUTION_CONTEXT: NATIVE_EXECUTION_TOKEN}).create({
+                'workorder_id': workorder.id, 'request_key': 'partial:%s:%s' % (workorder.id, request_key)})
+        return self.with_context(**{EXECUTION_CONTEXT: NATIVE_EXECUTION_TOKEN}).create([
+            {'batch_id': batch.id, 'controlled_unit_id': unit.id} for unit in units.sorted('id')])
 
     def write(self, vals):
         if self.env.context.get(EXECUTION_CONTEXT) is not EXECUTION_TOKEN or set(vals) != {'state', 'ended_at', 'ended_by_id', 'result_reference', 'stop_reason'}:

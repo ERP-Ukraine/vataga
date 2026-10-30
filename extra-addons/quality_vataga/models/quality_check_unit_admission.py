@@ -195,7 +195,7 @@ class QualityCheckUnitAdmission(models.Model):
             ('operation_run_id', '=', self.operation_run_id.id), ('state', '=', 'confirmed'),
         ])
 
-    def _unit_admission_required_checks(self):
+    def _unit_admission_required_checks(self, unit=None):
         self.ensure_one()
         ids = self.env['quality.check'].sudo().search([
             ('operation_run_id', '=', self.operation_run_id.id),
@@ -216,6 +216,8 @@ class QualityCheckUnitAdmission(models.Model):
             ], order='id desc')
             latest = {}
             for candidate in candidates:
+                if unit and candidate.operation_run_id and unit not in candidate.operation_run_id.unit_ids:
+                    continue
                 latest.setdefault(candidate.point_id.id, candidate.id)
             checks |= self.env['quality.check'].browse(list(latest.values()))
         checks.check_access_rights('read')
@@ -277,7 +279,7 @@ class QualityCheckUnitAdmission(models.Model):
                 return error
             if sample.sample_result != 'pass':
                 return _('Допуск можливий лише для зразка PASS; FAIL та pending утримуються.')
-            for check in self._unit_admission_required_checks():
+            for check in self._unit_admission_required_checks(unit=sample.controlled_unit_id):
                 if check.quality_state not in ('pass', 'fail'):
                     return _('Обов’язкова перевірка %(check)s ще не завершена.', check=check.display_name)
                 error = check._get_unit_admission_structure_error()

@@ -121,7 +121,7 @@ class QualityUnitAdmission(models.Model):
             error = check._get_unit_admission_error(sample)
             if error:
                 raise ValidationError(error)
-            checks = check._unit_admission_required_checks()
+            checks = check._unit_admission_required_checks(unit=sample.controlled_unit_id)
             run, unit = check.operation_run_id, sample.controlled_unit_id
             prepared.append(dict(
                 vals, name='%s / %s' % (unit.name, run.name),

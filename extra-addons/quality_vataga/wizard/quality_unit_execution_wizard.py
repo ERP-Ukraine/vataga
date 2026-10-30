@@ -146,7 +146,7 @@ class QualityUnitExecutionWizardLine(models.TransientModel):
         for line in self:
             record = line.execution_id
             transfer = line.transfer_id or record.transfer_id
-            line.controlled_unit_id = transfer.controlled_unit_id
+            line.controlled_unit_id = record.controlled_unit_id or transfer.controlled_unit_id
             line.status = labels.get(record.state, _('Очікує обробки'))
             error = ''
             if line.wizard_id.mode == 'start':

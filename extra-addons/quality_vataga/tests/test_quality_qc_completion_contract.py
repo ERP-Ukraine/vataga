@@ -39,7 +39,7 @@ class TestQcCompletionContract(unittest.TestCase):
         self.required = SimpleNamespace(quality_state='pass', display_name='Mandatory QC',
                                        _get_unit_admission_structure_error=lambda: False,
                                        sample_ids=Rows([self.sample]))
-        self.check._unit_admission_required_checks = lambda: [self.required]
+        self.check._unit_admission_required_checks = lambda unit=None: [self.required]
         self.validate = validator()
 
     def test_complete_pass_is_eligible(self):
@@ -63,7 +63,7 @@ class TestQcCompletionContract(unittest.TestCase):
         self.assertTrue(self.validate(self.check, self.sample))
 
     def test_hidden_required_qc_cannot_disappear_from_validation(self):
-        def hidden():
+        def hidden(unit=None):
             raise Denied()
         self.check._unit_admission_required_checks = hidden
         self.assertTrue(self.validate(self.check, self.sample))

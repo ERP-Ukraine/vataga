@@ -20,7 +20,8 @@ def load(methods, parent=object):
         method.decorator_list = []
     scope = {'Parent': parent, 'math': math, 'UserError': ValueError, 'ValidationError': ValueError,
              '_': lambda text: text, 'native_operation_allows': lambda productions: False,
-             'PARTIAL_WO_MESSAGE': 'Partial WO requires Enterprise validation'}
+        'PARTIAL_WO_MESSAGE': 'Partial WO requires Enterprise validation',
+        'partial_execution_allows': lambda record: False}
     exec(compile(ast.fix_missing_locations(ast.Module(body=[cls], type_ignores=[])), str(path), 'exec'), scope)
     return scope['QualityNativeWorkorder']
 
@@ -53,7 +54,7 @@ class Recordset:
 
 class TestNativeWorkorderValidation(unittest.TestCase):
     def setUp(self):
-        cls = load({'_check_quality_native_finish', '_check_quality_native_start', '_quality_validate_native_checks'}, Recordset)
+        cls = load({'_check_quality_native_finish', '_check_quality_native_start', '_quality_validate_native_checks', '_quality_validate_native_unit_checks'}, Recordset)
         self.scope = cls()
         self.unit = SimpleNamespace(id=11)
         self.units = Rows([self.unit, SimpleNamespace(id=12)])
@@ -144,6 +145,8 @@ class TestNativeWorkorderValidation(unittest.TestCase):
         admission = SimpleNamespace(controlled_unit_id=self.unit, state='confirmed',
                                     _get_effectiveness_error=Mock(return_value=False))
         check = SimpleNamespace(_lock_unit_admission_scope=Mock(), sample_ids=Rows([sample]),
+                                id=1, point_id=SimpleNamespace(id=1),
+                                operation_run_id=SimpleNamespace(unit_ids=Rows([self.unit])),
                                 _get_unit_admission_error=Mock(return_value=False),
                                 unit_admission_ids=Rows([admission]))
         return check, admission

@@ -12,6 +12,15 @@
                     <field name="quality_native_unit_ids" widget="many2many_tags"
                            domain="[('production_id', '=', production_id), ('company_id', '=', company_id)]"
                            options="{'no_create': True}" readonly="state in ('done', 'cancel')"/>
+                    <button name="action_open_quality_native_checks" type="object" string="Контроль якості операції"/>
+                    <button name="action_start_quality_native_units" type="object" string="Почати вибрані QUNIT"
+                            context="{'quality_expected_unit_ids': quality_native_unit_ids}"
+                            invisible="state in ('done', 'cancel')"/>
+                    <button name="action_confirm_quality_native_units" type="object" string="Підтвердити обробку вибраних QUNIT"
+                            context="{'quality_expected_unit_ids': quality_native_unit_ids}"
+                            invisible="state != 'progress'"/>
+                    <button name="action_open_quality_execution_control" type="object" string="QC оброблених QUNIT"
+                            invisible="not quality_execution_ids"/>
                 </group>
             </xpath>
             <xpath expr="/form/sheet/notebook" position="inside">

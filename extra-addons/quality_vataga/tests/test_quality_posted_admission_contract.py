@@ -42,7 +42,7 @@ class TestPostedAdmissionValidity(unittest.TestCase):
         self.check.ensure_one = Mock()
         self.check._get_unit_admission_structure_error = Mock(return_value=False)
         self.check._matrix_alert_hold_error = Mock(return_value=False)
-        self.check._unit_admission_required_checks = lambda: [self.check]
+        self.check._unit_admission_required_checks = lambda unit=None: [self.check]
         self.check.quality_state, self.check.display_name = 'pass', 'QC existing'
         self.check.x_control_stage, self.check.operation_run_id = 'in_process', True
         self.check.in_process_sample_quantity = 2
