@@ -66,7 +66,7 @@ class TestQualityArchiveSchema(unittest.TestCase):
 
     def test_manifest_paths_and_relative_imports_resolve(self):
         manifest = ast.literal_eval((ROOT / '__manifest__.py').read_text(encoding='utf-8'))
-        self.assertEqual(manifest['version'], '17.0.2.59')
+        self.assertEqual(manifest['version'], '17.0.2.60')
         for path in manifest['data']:
             self.assertTrue((ROOT / path).is_file(), path)
             self.assertNotIn(path, ('wizard/quality_unit_release_views.xml',

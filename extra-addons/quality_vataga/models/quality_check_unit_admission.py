@@ -345,6 +345,10 @@ class QualityCheckUnitAdmission(models.Model):
                 raise ValidationError(_('Усі обрані зразки мають належати цій перевірці.'))
             if not self.operation_run_id:
                 raise ValidationError(_('Спочатку ідентифікуйте вироби.'))
+            if mode == 'confirm':
+                # Reject even an idempotent/active confirmation request after
+                # posting, under the same MO lock as native stock completion.
+                samples.controlled_unit_id._assert_not_stock_posted()
             registrar = self.env['quality.unit.admission'].with_context(**{ADMISSION_CONTEXT: ADMISSION_TOKEN})
             for sample in samples:
                 active = self._active_run_admissions().filtered(lambda record: record.controlled_unit_id.id == sample.controlled_unit_id.id)

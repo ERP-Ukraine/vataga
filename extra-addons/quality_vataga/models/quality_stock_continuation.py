@@ -72,11 +72,6 @@ class QualityPostedExecution(models.Model):
 class QualityPostedCheck(models.Model):
     _inherit = 'quality.check'
 
-    def _get_unit_admission_error(self, sample):
-        if sample.controlled_unit_id._stock_posted():
-            return _('Виріб уже випущено на склад; повторний допуск заборонено.')
-        return super()._get_unit_admission_error(sample)
-
     def _identify_samples_locked(self, mode, mapping, run, workorder, confirmed):
         units = self.env['quality.production.unit'].browse([row['unit_id'] for row in mapping if row.get('unit_id')])
         units._assert_not_stock_posted()

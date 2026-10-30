@@ -115,6 +115,9 @@ class QualityUnitAdmission(models.Model):
             check._check_unit_admission_access()
             check._lock_unit_admission_scope()
             sample = self.env['quality.check.sample'].browse(vals['sample_id']).exists()
+            # Consumption forbids a NEW permission, not reading the validity
+            # of the immutable confirmation used for that stock release.
+            sample.controlled_unit_id._assert_not_stock_posted()
             error = check._get_unit_admission_error(sample)
             if error:
                 raise ValidationError(error)
