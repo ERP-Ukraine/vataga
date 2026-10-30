@@ -53,4 +53,4 @@ access_quality_unit_continuation_stock,quality.unit.continuation.stock,model_qua
 access_quality_unit_stock_fact_mrp,quality.unit.stock.fact.mrp,model_quality_unit_stock_fact,mrp.group_mrp_user,1,0,1,0
 access_quality_unit_stock_fact_quality,quality.unit.stock.fact.quality,model_quality_unit_stock_fact,quality.group_quality_user,1,0,0,0
 access_quality_unit_stock_fact_stock,quality.unit.stock.fact.stock,model_quality_unit_stock_fact,stock.group_stock_user,1,0,0,0
-access_quality_full_release_wizard,quality.full.release.wizard,model_quality_full_release_wizard,quality.group_quality_user,1,1,1,1
+access_quality_full_release_wizard,quality.full.release.wizard,model_quality_full_release_wizard,quality.group_quality_user,1,0,0,0

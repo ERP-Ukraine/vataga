@@ -4,7 +4,7 @@ from odoo.exceptions import AccessError, UserError, ValidationError
 
 from .native_backorder import native_operation_allows
 
-REQUIRED_ROUTE_MESSAGE = 'Для цього MO обов’язковий поштучний маршрут: потрібні QRUN/QUNIT, чинні допуски інспектора, завершені операції та відсутність відкритих Alert. PASS матриці не дозволяє стандартне завершення або складський випуск. Для готової всієї партії використайте «Повний випуск QUNIT» після окремого дозволу staging-тесту адміністратором.'
+REQUIRED_ROUTE_MESSAGE = 'Завершіть цей MO штатною кнопкою «Виготовити все»: потрібні завершені WO, ідентифіковані QUNIT, усі обов’язкові QC та чинні допуски без утримуючих Alert. Пряме проведення поза перевіреною штатною дією, частковий випуск і Backorder закриті.'
 
 
 def require_quality_manager(env):
@@ -19,7 +19,7 @@ class QualityPointUnitRoutePolicy(models.Model):
         string='Обов’язковий поштучний маршрут', default=False,
         help='Лише для нових міжопераційних QC. Вмикає незворотне обмеження їх MO, '
              'зокрема вже відкритого MO. Наявні QC та завершені MO не змінюються. '
-             'Повний складський випуск потребує окремого дозволу staging-тесту цього MO.')
+             'Повна годна партія випускається штатним завершенням MO після перевірки готовності.')
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -73,7 +73,7 @@ class ProductionUnitRoutePolicy(models.Model):
                 raise UserError(_('Поштучний режим вмикають лише для відкритого MO без попереднього випуску.'))
             if not production.quality_unit_route_required:
                 super(ProductionUnitRoutePolicy, production).write({'quality_unit_route_required': True})
-                production.message_post(body=_('Увімкнено обов’язковий поштучний маршрут. Стандартний складський випуск заборонено.'), subtype_xmlid='mail.mt_note')
+                production.message_post(body=_('Увімкнено обов’язковий поштучний контроль. Повний штатний випуск потребує готових WO, QC, QUNIT та чинних допусків.'), subtype_xmlid='mail.mt_note')
 
     def action_require_quality_unit_route(self):
         require_quality_manager(self.env)
@@ -82,7 +82,8 @@ class ProductionUnitRoutePolicy(models.Model):
 
     def _check_required_unit_route_completion(self):
         # No context bypass. Only the existing validated Python-local native
-        # operation may pass; its public release action remains closed.
+        # operation may pass. The native MO button creates it after readiness
+        # validation; direct state/stock writes cannot manufacture authority.
         for production in self.sorted('id'):
             if native_operation_allows(production):
                 continue

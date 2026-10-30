@@ -23,6 +23,9 @@ class NativeBackorderOperation:
     unit_ids: tuple = ()
     remaining_ids: tuple = ()
     children: set = field(default_factory=set)
+    # Server-validated full batches in a native button_mark_done call. This
+    # transaction-local scope never enters RPC context or persisted settings.
+    standard_full: dict = field(default_factory=dict)
 
     @contextmanager
     def activate(self):
@@ -41,7 +44,8 @@ def native_operation_allows(productions):
     operation = native_operation()
     return bool(operation and productions and all(
         production.env.cr is operation.production.env.cr
-        and (production.id == operation.production.id or production.id in operation.children)
+        and (production.id == operation.production.id or production.id in operation.children
+             or production.id in operation.standard_full)
         for production in productions))
 
 
@@ -68,6 +72,9 @@ class NativeBackorderProduction(models.Model):
 
     def _split_productions(self, amounts=False, cancel_remaining_qty=False, set_consumed_qty=False):
         assert_native_inventory_allowed(self)
+        operation = native_operation()
+        if operation and any(production.id in operation.standard_full for production in self):
+            raise UserError(_('Поштучний контроль дозволяє лише повний штатний випуск. Частковий випуск і Backorder закриті.'))
         return super()._split_productions(amounts=amounts, cancel_remaining_qty=cancel_remaining_qty, set_consumed_qty=set_consumed_qty)
 
     def _get_backorder_mo_vals(self):

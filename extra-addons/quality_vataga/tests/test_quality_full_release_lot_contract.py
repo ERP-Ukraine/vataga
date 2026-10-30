@@ -95,9 +95,9 @@ class TestFullReleaseLotContract(unittest.TestCase):
         code = compile(ast.Module(body=branch.body, type_ignores=[]), 'actual_fact_lot_guard', 'exec')
         production = NS(product_qty=2, lot_producing_id=self.lot)
         unit = NS(product_id=self.product, company_id=self.company, lot_id=False)
-        operation = NS(quantity=2, remaining_ids=())
+        operation = NS(quantity=2, remaining_ids=(), standard_full={})
         line = NS(lot_id=self.lot)
-        scope = {'production': production, 'unit': unit, 'operation': operation, 'line': line,
+        scope = {'production': production, 'unit': unit, 'operation': operation, 'line': line, 'allowed': (),
                  '_read': lambda record: record, 'ValidationError': UserError, '_': lambda text: text}
         exec(code, scope)
         for candidate in (False, Lot(id=99, product_id=self.product, company_id=self.company)):

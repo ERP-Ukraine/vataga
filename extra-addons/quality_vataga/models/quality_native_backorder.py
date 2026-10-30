@@ -100,29 +100,38 @@ class QualityUnitStockFact(models.Model):
         operation = native_operation()
         _require_roles(self.env)
         for values in vals_list:
+            allowed = operation.standard_full.get(values.get('production_id'), ()) if operation and operation.standard_full else (
+                operation.unit_ids if operation and values.get('production_id') == operation.production.id else ())
             if (not operation or set(values) != {'unit_id', 'production_id', 'move_line_id', 'request_key'}
-                    or values['unit_id'] not in operation.unit_ids
-                    or values['production_id'] != operation.production.id or not values['request_key']):
+                    or values['unit_id'] not in allowed or not values['request_key']):
                 raise UserError(_('Складський факт QUNIT створюють лише після штатного проведення.'))
             unit = _read(self.env['quality.production.unit'].browse(values['unit_id']))
             line = _read(self.env['stock.move.line'].browse(values['move_line_id']))
-            production = operation.production
+            production = _read(self.env['mrp.production'].browse(values['production_id']))
             if (production.state != 'done' or line.move_id.state != 'done'
                     or line.move_id.production_id != production or line.move_id.scrapped
                     or line.product_id != unit.product_id or line.company_id != unit.company_id
                     or line.location_dest_id != production.location_dest_id
                     or unit._quality_current_production() != production
                     or line.product_uom_id != unit.product_id.uom_id
-                    or unit.product_id.tracking not in ('none', 'lot') or line.quantity <= 0):
+                    or unit.product_id.tracking not in ('none', 'lot', 'serial') or line.quantity <= 0):
                 raise ValidationError(_('Немає відповідного фактичного складського випуску цього QUNIT.'))
             if unit.product_id.tracking == 'lot':
                 lot = _read(line.lot_id)
-                if (operation.quantity != production.product_qty or operation.remaining_ids
+                full_quantity = len(allowed) if operation.standard_full else operation.quantity
+                if (full_quantity != production.product_qty or operation.remaining_ids
                         or not lot or lot != production.lot_producing_id
                         or lot.product_id != unit.product_id
                         or (lot.company_id and lot.company_id != unit.company_id)
                         or (unit.lot_id and unit.lot_id != lot)):
                     raise ValidationError(_('Складський факт lot-QUNIT потребує повного випуску та правильної фактичної партії у проведеній строкі.'))
+            if unit.product_id.tracking == 'serial':
+                lot = _read(line.lot_id)
+                if (not operation.standard_full or len(allowed) != 1 or production.product_qty != 1
+                        or line.quantity != 1 or not lot or lot != production.lot_producing_id
+                        or lot.product_id != unit.product_id or lot.company_id and lot.company_id != unit.company_id
+                        or unit.lot_id and unit.lot_id != lot):
+                    raise ValidationError(_('Серійний QUNIT повинен однозначно відповідати одному реально проведеному серійному номеру.'))
         records = super(QualityUnitStockFact, self.with_context({
             key: value for key, value in self.env.context.items() if not key.startswith('default_')})).create(vals_list)
         for line in records.move_line_id:
@@ -203,25 +212,14 @@ class NativeQualityProduction(models.Model):
         raise ValidationError(_('Немає підтвердженої преемності робочої операції у цьому MO.'))
 
     def action_open_quality_native_release(self):
-        self.ensure_one()
         self._check_full_release_test_access()
-        if self.state == 'done':
-            return {'type': 'ir.actions.act_window', 'res_model': 'quality.unit.stock.fact',
-                    'name': _('Фактичний випуск QUNIT'), 'view_mode': 'tree,form',
-                    'domain': [('production_id', '=', self.id)]}
-        with self.env.cr.savepoint():
-            units = self._full_release_units()
-            self._validate_quality_full_batch(units)
-            wizard = self.env['quality.full.release.wizard'].create({'production_id': self.id})
-            return {'type': 'ir.actions.act_window', 'res_model': wizard._name,
-                    'name': _('Підтвердити повний випуск QUNIT'), 'view_mode': 'form',
-                    'res_id': wizard.id, 'target': 'new'}
 
     def _quality_native_release(self, units, request_key, confirmed=False, full_only=False, finished_lot=None):
         """Private ORM integration entry, deliberately not an RPC action.
 
-        Public staging confirmation uses full_only; the legacy experimental
-        posting engine and partial public release remain closed.
+        Retained for legacy internal integrations and regression contracts.
+        The old public dialog is retired; normal full completion uses the
+        native MO button. Partial public release remains closed.
         """
         self.ensure_one()
         _require_roles(self.env)

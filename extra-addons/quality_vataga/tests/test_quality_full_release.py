@@ -50,21 +50,25 @@ class QualityFullReleaseCase(QualityCheckInProcessCase):
         receipt.write({'quantity': 40, 'picked': True})
         receipt._action_done()
 
-    def _prepared(self, identify=True, admit=True, finish=True, result='pass', protected=True):
+    def _prepared(self, identify=True, admit=True, finish=True, result='pass', protected=True, quantity=2):
         # Create one explicit real QC from the configured final-operation QCP;
         # verify applicability independently of generation and of this QC row.
         self.point.picking_type_ids = [Command.clear()]
         self.point.quality_unit_route_required = protected
         production = self.env['mrp.production'].create({
-            'product_id': self.product.id, 'product_qty': 2, 'product_uom_id': self.product.uom_id.id,
+            'product_id': self.product.id, 'product_qty': quantity, 'product_uom_id': self.product.uom_id.id,
             'bom_id': self.bom.id, 'picking_type_id': self.warehouse.manu_type_id.id,
             'location_src_id': self.warehouse.lot_stock_id.id,
             'location_dest_id': self.warehouse.lot_stock_id.id})
         production.action_confirm()
-        production.qty_producing = 2
+        production.action_assign()
+        production.qty_producing = quantity
+        production._set_qty_producing()  # Native quantity-entry behavior of the MO form.
         first, second, last = production.workorder_ids.sorted('id')
         self.point.picking_type_ids = [Command.set(self.warehouse.manu_type_id.ids)]
-        check = self._check(production, workorder_id=last.id)
+        check = self.env['quality.check'].search([
+            ('production_id', '=', production.id), ('workorder_id', '=', last.id),
+            ('point_id', '=', self.point.id)], limit=1) or self._check(production, workorder_id=last.id)
         first.button_start()
         first.button_finish()
         second.button_start()
@@ -73,19 +77,22 @@ class QualityFullReleaseCase(QualityCheckInProcessCase):
         if identify:
             self._identify(check, last)
         self._fill(check)
-        if result == 'pass':
+        if result == 'pass' and identify:
             check.do_pass()
-            if identify and admit:
-                self._decision(check).action_apply()
             if finish:
                 last.button_finish()
             else:
                 last.button_pending()
-        else:
+        elif result != 'pass':
             check.update_measurement_visual_result(check.sample_ids[-1].id, 'no' if result == 'fail' else False)
+            if result == 'fail':
+                check.do_fail()
             last.button_pending()
-        if protected:
-            production.action_enable_quality_full_release_test()
+        else:
+            last.button_pending()
+        if not admit:
+            for admission in check.unit_admission_ids:
+                admission._revoke('Disposable missing release admission')
         return production, check
 
     def _snapshot(self, production):
@@ -102,10 +109,10 @@ class QualityFullReleaseCase(QualityCheckInProcessCase):
     def _assert_denied_unchanged(self, production, call=None):
         before = self._snapshot(production)
         with self.assertRaises(UserError), self.env.cr.savepoint():
-            (call or production.action_open_quality_native_release)()
+            (call or production.button_mark_done)()
         self.assertEqual(self._snapshot(production), before)
 
-@tagged('post_install', '-at_install')
+@tagged('post_install', '-at_install', 'quality_stock_phase3')
 class TestQualityFullRelease(QualityFullReleaseCase):
     def test_p1_n8_n9_full_two_last_operation_qc_no_backorder_under_any_policy(self):
         for policy in ('always', 'never'):
@@ -118,13 +125,8 @@ class TestQualityFullRelease(QualityFullReleaseCase):
                 self.assertFalse(production.quality_transfer_controlled)
                 self.assertTrue(production.quality_unit_route_required)
                 self.assertEqual(production.qty_produced, 0)
-                action = production.action_open_quality_native_release()
-                wizard = self.env[action['res_model']].browse(action['res_id'])
-                self.assertEqual(set(wizard.unit_ids.ids), set(check.sample_ids.controlled_unit_id.ids))
-                self._assert_denied_unchanged(production, wizard.action_confirm)
                 before_qty = self.env['stock.quant']._get_available_quantity(self.product, self.warehouse.lot_stock_id)
-                wizard.confirmed = True
-                wizard.action_confirm()
+                production.button_mark_done()
                 self.assertEqual((production.state, production.qty_produced), ('done', 2))
                 self.assertFalse(self.env['mrp.production'].search([('quality_native_parent_id', '=', production.id)]))
                 moves = production.move_finished_ids.filtered(lambda move: move.product_id == self.product and not move.scrapped)
@@ -135,13 +137,12 @@ class TestQualityFullRelease(QualityFullReleaseCase):
                 self.assertEqual(sum(moves.stock_valuation_layer_ids.mapped('quantity')), 2)
                 self.assertEqual(len(production.native_stock_fact_ids), 2)
                 before = self._snapshot(production)
-                wizard.action_confirm()
+                production.button_mark_done()
                 self.assertEqual(self._snapshot(production), before)
-                self.assertEqual(production.action_open_quality_native_release()['res_model'], 'quality.unit.stock.fact')
 
     def test_n1_pass_without_qrun_is_not_released(self):
         production, check = self._prepared(identify=False)
-        self.assertEqual(check.quality_state, 'pass')
+        self.assertEqual(check.quality_state, 'none')
         self.assertFalse(check.operation_run_id)
         self._assert_denied_unchanged(production)
 
@@ -157,7 +158,7 @@ class TestQualityFullRelease(QualityFullReleaseCase):
     def test_n3_no_inspector_admission(self):
         production, check = self._prepared(admit=False)
         self.assertTrue(check.operation_run_id)
-        self.assertFalse(check.unit_admission_ids)
+        self.assertFalse(check.unit_admission_ids.filtered(lambda admission: admission.state == 'confirmed'))
         self._assert_denied_unchanged(production)
 
     def test_n4_pending_and_n5_fail_cannot_release(self):
@@ -173,31 +174,36 @@ class TestQualityFullRelease(QualityFullReleaseCase):
         self.assertTrue(check.unit_admission_ids)
         self._assert_denied_unchanged(production)
 
-    def test_n7_wrong_mo_units_and_forged_wizard_values(self):
+    def test_n7_wrong_mo_units_and_retired_wizard_values(self):
         first, check = self._prepared()
         other, other_check = self._prepared()
-        self._assert_denied_unchanged(first, lambda: first._quality_native_release(
-            other_check.sample_ids.controlled_unit_id, 'foreign-unit-test', confirmed=True, full_only=True))
-        action = first.action_open_quality_native_release()
-        wizard = self.env[action['res_model']].browse(action['res_id'])
-        self._assert_denied_unchanged(first, lambda: wizard.write({'unit_ids': [Command.set(other_check.sample_ids.controlled_unit_id.ids)]}))
+        self._assert_denied_unchanged(first, lambda: first._validate_quality_full_batch(
+            other_check.sample_ids.controlled_unit_id, standard=True))
+        self._assert_denied_unchanged(first, lambda: self.env['quality.full.release.wizard'].create({
+            'production_id': first.id, 'unit_ids': [Command.set(other_check.sample_ids.controlled_unit_id.ids)]}))
         self.assertEqual(other.qty_produced, 0)
 
     def test_n10_ordinary_mo_still_uses_native_standard_completion(self):
-        production, check = self._prepared(identify=False, protected=False)
+        self.point.picking_type_ids = [Command.clear()]
+        self.point[self.operation_field] = False if self.point._fields[self.operation_field].type == 'many2one' else [Command.clear()]
+        production = self.env['mrp.production'].create({
+            'product_id': self.product.id, 'product_qty': 2, 'product_uom_id': self.product.uom_id.id,
+            'bom_id': self.bom.id, 'picking_type_id': self.warehouse.manu_type_id.id,
+            'location_src_id': self.warehouse.lot_stock_id.id, 'location_dest_id': self.warehouse.lot_stock_id.id})
+        production.action_confirm()
+        production.action_assign()
+        production.qty_producing = 2
+        production._set_qty_producing()
         self.assertFalse(production.quality_unit_route_required)
         production.button_mark_done()
         self.assertEqual((production.state, production.qty_produced), ('done', 2))
         self.assertFalse(production.native_stock_fact_ids)
 
-    def test_n11_new_alert_after_pass_blocks_confirmed_wizard(self):
+    def test_n11_new_alert_after_pass_blocks_native_completion(self):
         production, check = self._prepared()
-        action = production.action_open_quality_native_release()
-        wizard = self.env[action['res_model']].browse(action['res_id'])
-        wizard.confirmed = True
         alert = self.env['quality.alert'].create({'name': 'Hold after PASS', 'check_id': check.id, 'team_id': self.team.id})
         alert._bind_matrix_failure_scope(check.sample_ids[:1], 'New unresolved defect before stock posting')
-        self._assert_denied_unchanged(production, wizard.action_confirm)
+        self._assert_denied_unchanged(production)
 
     def test_missing_configured_qc_cannot_be_inferred_as_unnecessary(self):
         production, check = self._prepared()
@@ -209,10 +215,10 @@ class TestQualityFullRelease(QualityFullReleaseCase):
         point[self.operation_field] = False if point._fields[self.operation_field].type == 'many2one' else [Command.clear()]
         self._assert_denied_unchanged(production)  # Sticky requirement survives reconfiguration.
 
-    def test_n12_standard_buttons_and_direct_writes_stay_closed(self):
+    def test_n12_direct_stock_and_state_writes_cannot_bypass_native_button(self):
         production, check = self._prepared()
         move = production.move_finished_ids[:1]
-        for call in (production.button_mark_done, production._post_inventory,
+        for call in (production._post_inventory,
                      lambda: production.write({'state': 'done'}), move._action_done,
                      lambda: move.write({'state': 'done'}),
                      lambda: self.env['stock.move.line'].create({'move_id': move.id, 'state': 'done', 'quantity': 2}),

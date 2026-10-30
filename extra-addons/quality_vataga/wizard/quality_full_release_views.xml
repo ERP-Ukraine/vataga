@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <record id="quality_full_release_wizard_form" model="ir.ui.view">
+        <field name="active" eval="False"/>
         <field name="name">quality.full.release.wizard.form</field>
         <field name="model">quality.full.release.wizard</field>
         <field name="arch" type="xml">
@@ -25,6 +26,7 @@
         </field>
     </record>
     <record id="mrp_production_full_release_test" model="ir.ui.view">
+        <field name="active" eval="False"/>
         <field name="name">mrp.production.full.release.test</field>
         <field name="model">mrp.production</field>
         <field name="inherit_id" ref="mrp.mrp_production_form_view"/>

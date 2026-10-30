@@ -2,7 +2,7 @@ from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 from .native_backorder import native_operation_allows
 
-BOUNDARY_MESSAGE = 'Для цього MO активовано захищений поштучний маршрут. Використайте «Поштучне виконання» з явним вибором прийнятих QUNIT. Стандартне завершення Work Order, зміна виробничої кількості та складський випуск заблоковані.'
+BOUNDARY_MESSAGE = 'Для цього історичного MO активовано окремий захищений маршрут передач QUNIT. Автоматичне переведення на штатний випуск не виконується; його історію та захист збережено.'
 TIMER_CLOSE_TOKEN = object()
 
 

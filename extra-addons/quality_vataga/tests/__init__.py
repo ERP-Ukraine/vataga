@@ -36,3 +36,5 @@ from . import test_quality_full_release
 from . import test_quality_full_release_contract
 from . import test_quality_full_release_lot
 from . import test_quality_full_release_lot_contract
+from . import test_quality_standard_release
+from . import test_quality_standard_release_contract

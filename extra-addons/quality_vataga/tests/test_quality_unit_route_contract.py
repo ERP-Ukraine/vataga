@@ -246,7 +246,7 @@ class TestQualityUnitRouteContract(unittest.TestCase):
         method = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == 'action_open_quality_native_release')
         calls = [node.func.attr for node in ast.walk(method) if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)]
         self.assertIn('_check_full_release_test_access', calls)
-        self.assertIn('_validate_quality_full_batch', calls)
+        self.assertNotIn('create', calls)
         tree = ast.parse((ROOT / 'models/quality_stock_posting.py').read_text(encoding='utf-8'))
         method = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == '_require_enterprise_validation')
         self.assertEqual(method.body[0].value.func.id, 'archive_disabled')

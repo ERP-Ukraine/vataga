@@ -62,8 +62,9 @@ class TestFullBatchReadinessContract(unittest.TestCase):
     def setUp(self):
         cls = shipped_class('models/quality_full_release.py', 'QualityFullReleaseProduction',
                             {'_validate_quality_full_batch', '_check_full_release_test_access'},
-                            math=math, _read=lambda records: records, require_full_release_roles=lambda env: None)
+                            math=math, _read=lambda records: records)
         production = cls()
+        production.id = 1000
         self.production = production
         production.ensure_one = Mock()
         production._lock_quality_transfer_scope = Mock()
@@ -85,6 +86,7 @@ class TestFullBatchReadinessContract(unittest.TestCase):
             operation_id=Record(id=index), time_ids=Rows()) for index, name in ((11, 'Cutting'), (22, 'Crimping'), (33, 'Inspection'))])
         production._full_release_workorders = Mock(return_value=self.workorders)
         production._capture_full_required_qcp = Mock(return_value={(31, 33, 33)})
+        production._applicable_full_qcp = Mock(return_value=set())
         self.run = Record(id=100, workorder_id=self.workorders[-1])
         self.samples = Rows([Record(id=index, controlled_unit_id=unit, sample_result='pass') for index, unit in enumerate(self.units, 1)])
         self.check = Record(id=71, display_name='Final QC', point_id=Record(id=31), operation_run_id=self.run,
@@ -99,10 +101,12 @@ class TestFullBatchReadinessContract(unittest.TestCase):
             return Rows([Record(id=unit_id, _get_effectiveness_error=lambda: self.admission_error)]) if unit_id in self.admitted else Rows()
         class Env:
             companies = Rows([self.company])
-            cr = NS(dbname='staging_test')
+            cr = NS(dbname='staging_test', execute=Mock(), fetchone=Mock(return_value=None))
             def ref(_env, name):
                 return self.uom
             def __getitem__(_env, name):
+                if name == 'quality.stock.posting':
+                    return NS(flush_model=Mock())
                 return NS(search=admissions)
         production.env = Env()
 
@@ -179,11 +183,38 @@ class TestFullBatchReadinessContract(unittest.TestCase):
         with self.assertRaises(UserError):
             self.production._validate_quality_full_batch(self.units)
 
-    def test_staging_authorization_does_not_survive_database_copy(self):
-        self.production._check_full_release_test_access()
-        self.production.quality_full_release_test_database = 'another_database'
+    def test_retired_release_never_uses_stored_admin_authorization(self):
+        for database in ('staging_test', 'another_database', False):
+            self.production.quality_full_release_test_database = database
+            with self.assertRaises(UserError):
+                self.production._check_full_release_test_access()
+
+    def test_native_full_readiness_does_not_reject_already_consumed_native_components(self):
+        self.production._check_named_stock_history.side_effect = AssertionError('blanket native history check')
+        self.assertTrue(self.production._validate_quality_full_batch(self.units, standard=True))
+
+    def test_post_validation_requires_done_and_exact_native_quantity(self):
+        for state, quantity in (('progress', 2), ('done', 1), ('done', 3)):
+            self.production.state, self.production.qty_produced = state, quantity
+            with self.assertRaises(UserError):
+                self.production._validate_quality_full_batch(self.units, standard=True, posted=True)
+        self.production.state, self.production.qty_produced = 'done', 2
+        self.assertTrue(self.production._validate_quality_full_batch(self.units, standard=True, posted=True))
+
+    def test_native_release_preserves_historical_transfer_route_barrier(self):
+        self.production.quality_transfer_controlled = True
         with self.assertRaises(UserError):
-            self.production._check_full_release_test_access()
+            self.production._validate_quality_full_batch(self.units, standard=True)
+
+    def test_qc_fail_state_cannot_release_even_if_inputs_now_all_pass(self):
+        self.check.quality_state = 'fail'
+        with self.assertRaises(UserError):
+            self.production._validate_quality_full_batch(self.units)
+
+    def test_missing_final_qcp_is_not_hidden_by_completed_in_process_qc(self):
+        self.production._applicable_full_qcp.return_value = {(99, 33, 33)}
+        with self.assertRaises(UserError):
+            self.production._validate_quality_full_batch(self.units, standard=True)
 
 
 class TestFullReleaseRoutingContract(unittest.TestCase):
@@ -253,27 +284,17 @@ class TestFullReleaseRoutingContract(unittest.TestCase):
             if policy != 'ask':
                 self.assertTrue(eval(evaluate, {'self': production, 'operation': NS(quantity=1), 'original_quantity': 2}))
 
-    def test_wizard_cannot_change_units_or_request_key_and_requires_confirmation(self):
-        class Parent:
-            def write(self, values):
-                return values
-        cls = shipped_class('wizard/quality_full_release_wizard.py', 'QualityFullReleaseWizard', {'write', 'action_confirm'}, Parent)
+    def test_wizard_is_retired_even_if_old_confirmation_was_saved(self):
+        cls = shipped_class('wizard/quality_full_release_wizard.py', 'QualityFullReleaseWizard', {'action_confirm'})
         wizard = cls()
-        wizard.ensure_one = Mock()
-        owner = object()
-        wizard.create_uid, wizard.env = owner, NS(user=owner)
-        wizard.production_id = NS(_quality_native_release=Mock())
-        wizard.confirmed, wizard.unit_ids, wizard.request_key = False, object(), 'server-nonce'
-        wizard.lot_id = False
-        for values in ({'unit_ids': []}, {'request_key': 'forged'}, {'production_id': 999}):
+        wizard.action_apply = Mock(side_effect=UserError('retired'))
+        for confirmed in (False, True):
+            wizard.confirmed = confirmed
             with self.assertRaises(UserError):
-                wizard.write(values)
-        with self.assertRaises(UserError):
-            wizard.action_confirm()
-        wizard.production_id._quality_native_release.assert_not_called()
-        wizard.confirmed = True
-        wizard.action_confirm()
-        self.assertTrue(wizard.production_id._quality_native_release.call_args.kwargs['full_only'])
+                wizard.action_confirm()
+        tree = ast.parse((ROOT / 'wizard/quality_full_release_wizard.py').read_text(encoding='utf-8'))
+        model = next(node for node in tree.body if isinstance(node, ast.ClassDef))
+        self.assertIn('RetiredDialog', [ast.unparse(base) for base in model.bases])
 
     def test_scheduled_action_has_no_business_mutations(self):
         tree = ast.parse((ROOT / 'scripts/full_release_scheduled_action.py').read_text(encoding='utf-8'))
