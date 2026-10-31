@@ -21,7 +21,7 @@ def main():
                         help='Install the real Community subcontracting override to test its non-subcontract branch.')
     parser.add_argument('--test-tags', default='/quality_partial_probe:TestNativePartialAdapter,'
                         '/quality_partial_probe:TestNativeBackorderBridge,/quality_partial_probe:TestNativePartialProduction,'
-                        '/quality_partial_probe:TestNativeProductionLoss')
+                        '/quality_partial_probe:TestNativeProductionLoss,/quality_partial_probe:TestNativeCostBasis')
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     source = args.odoo_source.resolve()
@@ -46,16 +46,19 @@ def main():
                 'data': ['security/ir.model.access.csv', 'security/rules.xml'],
             }), encoding='utf-8')
             (addon / '__init__.py').write_text('from . import models\nfrom . import tests\n', encoding='utf-8')
-            for name in ('native_backorder.py', 'native_cost_provider.py', 'native_partial_release.py', 'native_production_loss.py'):
+            for name in ('native_backorder.py', 'native_cost_provider.py', 'native_cost_basis.py',
+                         'native_partial_release.py', 'native_production_loss.py', 'native_employee_cost_audit.py'):
                 shutil.copyfile(root / 'models' / name, addon / 'models' / name)
             (addon / 'models/__init__.py').write_text('from . import native_backorder\nfrom . import native_partial_release\n'
-                                                    'from . import native_production_loss\n', encoding='utf-8')
+                                                    'from . import native_production_loss\n'
+                                                    'from . import native_employee_cost_audit\n', encoding='utf-8')
             for name in ('test_stock_release_native_contract.py', 'test_native_partial_adapter.py',
-                         'test_native_backorder_bridge.py', 'test_native_production_loss.py'):
+                         'test_native_backorder_bridge.py', 'test_native_production_loss.py', 'test_native_cost_basis.py'):
                 shutil.copyfile(root / 'tests' / name, addon / 'tests' / name)
             (addon / 'tests/__init__.py').write_text('from . import test_stock_release_native_contract\n'
                                                    'from . import test_native_partial_adapter\nfrom . import test_native_backorder_bridge\n'
-                                                   'from . import test_native_production_loss\n', encoding='utf-8')
+                                                   'from . import test_native_production_loss\n'
+                                                   'from . import test_native_cost_basis\n', encoding='utf-8')
             names = ('release', 'unit', 'cost')
             (addon / 'security/ir.model.access.csv').write_text(
                 'id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink\n' + ''.join(

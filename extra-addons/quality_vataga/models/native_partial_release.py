@@ -16,7 +16,9 @@ from odoo.addons.mrp.models.mrp_workorder import MrpWorkorder as CoreWorkorder
 from odoo.addons.mrp.models.mrp_production import MrpProduction as CoreProduction
 from odoo.addons.mrp_account.models.mrp_production import MrpProduction as AccountProduction
 
-from .native_cost_provider import describe_method, method_definitions, provider_name, reviewed_subcontracting_methods
+from .native_cost_provider import (describe_method, method_definitions, provider_name,
+                                   reviewed_subcontracting_methods, enterprise_cost_candidate)
+from .native_cost_basis import BASIS_VERSION, checkpoint_basis_error
 
 
 _CORE_COST = CoreWorkorder._cal_cost
@@ -156,6 +158,23 @@ class NativePartialCost(models.Model):
                                 'cost_id', 'timer_id', readonly=True)
     _sql_constraints = [('release_wo_unique', 'unique(release_id, workorder_id)', 'Checkpoint WO вже створений.')]
 
+    @api.model_create_multi
+    def create(self, vals_list):
+        operation = partial_operation()
+        if not operation or operation.phase != 'audit':
+            return super().create(vals_list)  # The immutable audit API rejects this.
+        for values in vals_list:
+            wo = _read(self.env['mrp.workorder'].browse(values.get('workorder_id')))
+            commands = values.get('timer_ids') or []
+            if (len(wo) != 1 or wo.production_id != operation.production
+                    or wo.id not in operation.costs
+                    or values.get('cumulative_cost') != operation.costs.get(wo.id)
+                    or values.get('basis') != wo._native_partial_cost_basis()
+                    or len(commands) != 1 or commands[0][0] != 6 or commands[0][1] != 0
+                    or set(commands[0][2]) != set(wo.time_ids.ids)):
+                raise ValidationError(_('Checkpoint не відповідає фактично проведеній вартості та незмінним інтервалам.'))
+        return super().create(vals_list)
+
 
 class NativePartialProduction(models.Model):
     _inherit = 'mrp.production'
@@ -175,6 +194,11 @@ class NativePartialProduction(models.Model):
                       self.env['mrp.production'], '_cal_price', production_allowed, include_source),
                   'mrp.workorder._cal_cost': describe_method(
                       self.env['mrp.workorder'], '_cal_cost', workorder_allowed, include_source),
+                  'enterprise_cost_candidate': enterprise_cost_candidate(self.env['mrp.workorder']),
+                  'analytic_methods': {name: describe_method(self.env['mrp.workorder'], name,
+                                                            include_source=include_source) for name in (
+                      '_compute_duration', 'get_duration', '_create_or_update_analytic_entry',
+                      '_prepare_analytic_line_values')},
                   'fields': {}, 'computed_methods': {}}
         for model in ('mrp.production', 'mrp.workorder', 'mrp.workcenter',
                       'mrp.workcenter.productivity', 'hr.employee'):
@@ -370,6 +394,7 @@ class NativePartialProduction(models.Model):
             checkpoints = {row.workorder_id.id: row for row in history.cost_ids.sorted('id')}
             for workorder in self.workorder_ids:
                 workorder._native_partial_check_checkpoint(checkpoints.get(workorder.id))
+            cost_bases = {wo.id: wo._native_partial_cost_basis() for wo in self.workorder_ids}
             old_finished = self.move_finished_ids.filtered(lambda m: m.state == 'done')
             old_raw = self.move_raw_ids.filtered(lambda m: m.state == 'done')
             if not history and (old_finished or old_raw):
@@ -409,6 +434,7 @@ class NativePartialProduction(models.Model):
                         or old_lines.read(line_fields) != line_snapshot or old_svl.read(svl_fields) != svl_snapshot
                         or self.workorder_ids.time_ids != timers or timers.read(timer_fields) != timer_snapshot
                         or set(operation.costs) != set(self.workorder_ids.ids)
+                        or any(wo._native_partial_cost_basis() != cost_bases[wo.id] for wo in self.workorder_ids)
                         or any(set(l.consume_line_ids.ids) != set(raw.move_line_ids.ids) for l in lines)):
                     raise ValidationError(_('Stock не підтвердив точний новий випуск або змінив його історію.'))
                 operation.new_line_ids = tuple(lines.ids)
@@ -427,7 +453,7 @@ class NativePartialProduction(models.Model):
                 self.env['quality.native.partial.cost'].create([{
                     'release_id': release.id, 'workorder_id': wo.id,
                     'cumulative_cost': operation.costs[wo.id],
-                    'basis': wo._native_partial_cost_basis(), 'timer_ids': [(6, 0, wo.time_ids.ids)],
+                    'basis': cost_bases[wo.id], 'timer_ids': [(6, 0, wo.time_ids.ids)],
                 } for wo in self.workorder_ids])
                 operation.phase = 'facts'
                 self._native_partial_after_post(release, operation)
@@ -524,6 +550,11 @@ class NativePartialWorkorder(models.Model):
                    if provider not in allowed]
         if unknown:
             raise ValidationError(_('Неперевірений постачальник вартості WO.\n%s') % '\n'.join(unknown))
+        return self._native_partial_cost_inputs()
+
+    def _native_partial_cost_inputs(self):
+        """Read inputs for audit; no provider approval or posting capability."""
+        self.ensure_one()
         self.env['mrp.workcenter.productivity'].flush_model()
         self.env.cr.execute('SELECT id FROM mrp_workcenter_productivity WHERE workorder_id=%s ORDER BY id', [self.id])
         timers = _read(self.env['mrp.workcenter.productivity'].browse([r[0] for r in self.env.cr.fetchall()]))
@@ -531,12 +562,29 @@ class NativePartialWorkorder(models.Model):
             raise ValidationError(_('Спочатку закрийте робочі інтервали.'))
         if not timers:
             raise ValidationError(_('Потрібні фактичні закриті інтервали кожної WO; розрахунковий час не створюється.'))
+        if timers.filtered(lambda t: t.workcenter_id != self.workcenter_id or t.company_id != self.company_id):
+            raise ValidationError(_('Інтервали належать іншому робочому центру або компанії.'))
+        if any(not math.isfinite(t.duration) or t.duration < 0 for t in timers):
+            raise ValidationError(_('Фактична тривалість має бути скінченною та невід’ємною.'))
         if not math.isfinite(self.workcenter_id.costs_hour) or self.workcenter_id.costs_hour < 0:
             raise ValidationError(_('Ставка робочого центру має бути скінченною та невід’ємною.'))
-        basis = {'workcenter': self.workcenter_id.id, 'company': self.company_id.id,
+        basis = {'version': BASIS_VERSION, 'workcenter': self.workcenter_id.id, 'company': self.company_id.id,
+                'employee_contract': 'enterprise_employee_v1' if 'employee_cost' in timers._fields else 'none',
                 'rate': self.workcenter_id.costs_hour,
                 'timers': {str(t.id): [fields.Datetime.to_string(t.date_start), fields.Datetime.to_string(t.date_end),
                                      t.loss_id.id, t.workcenter_id.id, t.user_id.id] for t in timers}}
+        basis['timer_values'] = {str(t.id): [t.duration, t.loss_type, t.loss_id.loss_type, t.company_id.id,
+                                           t.workcenter_id.resource_calendar_id.id] for t in timers}
+        dependencies = [(self, '_cal_cost'), (self, 'get_duration'), (self, '_compute_duration'),
+            (self, '_create_or_update_analytic_entry'), (self, '_prepare_analytic_line_values'),
+            (timers, '_compute_duration'), (timers.loss_id, '_convert_to_duration')]
+        if 'employee_cost' in timers._fields:
+            dependencies.extend((timers, name) for name in (
+                '_compute_employee', '_compute_employee_cost', '_compute_total_cost'))
+        basis['dependencies'] = {records._name + '.' + name: [
+            {'provider': row['provider'], 'sources': [wrapper.get('source_sha256', wrapper.get('source_error'))
+                                                    for wrapper in row['wrappers']]}
+            for row in describe_method(records, name)] for records, name in dependencies}
         if 'employee_cost' in timers._fields:
             # Fields and formulas supplied by the staging diagnostic. This
             # snapshots their inputs; it does NOT authorize an unknown _cal_cost.
@@ -551,6 +599,7 @@ class NativePartialWorkorder(models.Model):
             if any(not math.isfinite(value) or value < 0 for value in amounts):
                 raise ValidationError(_('Ставки, час та вартість працівника мають бути скінченними та невід’ємними.'))
             basis['employee_rates'] = {str(e.id): e.hourly_cost for e in timers.employee_id}
+            basis['employee_companies'] = {str(e.id): e.company_id.id for e in timers.employee_id}
             basis['employee_fallback_rate'] = self.workcenter_id.employee_costs_hour
             basis['employee_timers'] = {str(t.id): [t.employee_id.id, t.employee_cost, t.duration,
                                                    t.total_cost, t.loss_type, t.company_id.id] for t in timers}
@@ -559,20 +608,20 @@ class NativePartialWorkorder(models.Model):
     def _native_partial_check_checkpoint(self, checkpoint):
         basis = self._native_partial_cost_basis()
         if checkpoint:
-            old = checkpoint.basis
-            if (any(basis[k] != old[k] for k in ('workcenter', 'company', 'rate'))
-                    or basis.get('employee_fallback_rate') != old.get('employee_fallback_rate')
-                    or any(basis.get('employee_rates', {}).get(k) != v for k, v in old.get('employee_rates', {}).items())
-                    or bool(basis.get('employee_timers')) != bool(old.get('employee_timers'))
-                    or any(basis.get('employee_timers', {}).get(k) != v for k, v in old.get('employee_timers', {}).items())
-                    or any(basis['timers'].get(k) != v for k, v in old['timers'].items())):
-                raise ValidationError(_('Змінено вже капіталізовані інтервали або ставку WO.'))
-            cutoff = max(value[1] for value in old['timers'].values())
-            if any(value[0] < cutoff for key, value in basis['timers'].items() if key not in old['timers']):
-                raise ValidationError(_('Новий інтервал перекриває вже капіталізовану роботу.'))
-        cumulative = self._cal_cost()
+            error = checkpoint_basis_error(basis, checkpoint.basis)
+            if error:
+                raise ValidationError(_(error))
+        return self._native_partial_check_cost_values(basis, checkpoint, self._cal_cost())
+
+    def _native_partial_check_cost_values(self, basis, checkpoint, cumulative):
+        """Validate captured native inputs/cost, without conferring authority."""
+        if checkpoint:
+            error = checkpoint_basis_error(basis, checkpoint.basis)
+            if error:
+                raise ValidationError(_(error))
         booked = checkpoint.cumulative_cost if checkpoint else 0
-        if not math.isfinite(cumulative) or not math.isfinite(booked) or cumulative < booked:
+        if (not math.isfinite(cumulative) or not math.isfinite(booked)
+                or cumulative < 0 or booked < 0 or cumulative < booked):
             raise ValidationError(_('Вартість WO має від’ємну або нечислову різницю.'))
         return cumulative
 
@@ -583,7 +632,8 @@ class NativePartialWorkorder(models.Model):
             return cumulative
         checkpoint = operation.previous_costs.get(self.id)
         booked = checkpoint.cumulative_cost if checkpoint else 0
-        if not math.isfinite(cumulative) or cumulative < booked or self.id in operation.costs:
+        if (not math.isfinite(cumulative) or not math.isfinite(booked)
+                or cumulative < 0 or booked < 0 or cumulative < booked or self.id in operation.costs):
             raise ValidationError(_('Некоректний або повторний розрахунок вартості WO.'))
         operation.costs[self.id] = cumulative
         return cumulative - booked
@@ -715,7 +765,7 @@ class NativePartialTimer(models.Model):
     def _compute_field_value(self, field):
         # Stored recomputations bypass Model.write(). Guard them separately so
         # changing hr.employee.hourly_cost cannot silently rewrite booked labor.
-        if (field.store and field.name in {'employee_cost', 'employee_id', 'duration'}
+        if (field.store and field.name in {'employee_cost', 'employee_id', 'duration', 'loss_type'}
                 and self._native_partial_capitalized()):
             raise UserError(_('Перерахунок вже капіталізованого часу або ставки працівника заборонений.'))
         return super()._compute_field_value(field)

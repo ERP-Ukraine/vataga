@@ -1,0 +1,12 @@
+Source: FULL ENTERPRISE MRP COST MRO, supplied from odoo17-vataga-staging.
+Provider: odoo.addons.mrp_workorder.models.mrp_workorder.MrpProductionWorkcenterLine._cal_cost
+File: /mnt/enterprise-addons/mrp_workorder/models/mrp_workorder.py
+Line: 805
+SHA-256: 71c4a9b3bfda60a38874a601ca26620730a9c121de75e030de7c13c593049d12
+Source (including the four-space indentation and final newline):
+    def _cal_cost(self):
+        return super()._cal_cost() + sum(self.time_ids.mapped('total_cost'))
+
+The source hash is reproduced from this method text in local verification.
+Source recognition is NOT production authorization. Enterprise ORM compatibility
+and analytic-entry behavior still require the rollback-only staging audit.

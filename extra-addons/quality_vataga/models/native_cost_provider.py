@@ -4,6 +4,31 @@ import inspect
 import ast
 import textwrap
 
+ENTERPRISE_COST_MODULE = 'odoo.addons.mrp_workorder.models.mrp_workorder'
+ENTERPRISE_COST_QUALNAME = 'MrpProductionWorkcenterLine._cal_cost'
+ENTERPRISE_COST_SHA256 = '71c4a9b3bfda60a38874a601ca26620730a9c121de75e030de7c13c593049d12'
+
+
+def enterprise_cost_candidate(records):
+    """Attest the supplied staging source for an audit, NEVER approve it."""
+    matches = []
+    for owner, implementation in method_definitions(records, '_cal_cost'):
+        if (owner.__module__ != ENTERPRISE_COST_MODULE
+                or getattr(implementation, '__qualname__', None) != ENTERPRISE_COST_QUALNAME):
+            continue
+        row = {'provider': provider_name(owner, implementation), 'production_authorized': False,
+               'expected_sha256': ENTERPRISE_COST_SHA256, 'source_matches': False}
+        try:
+            source = inspect.getsource(implementation)
+            row['actual_sha256'] = hashlib.sha256(source.encode('utf-8')).hexdigest()
+            row['source_matches'] = (row['actual_sha256'] == ENTERPRISE_COST_SHA256
+                                     and getattr(implementation, '__wrapped__', None) is None
+                                     and implementation.__module__ == ENTERPRISE_COST_MODULE)
+        except (TypeError, OSError) as error:
+            row['source_error'] = type(error).__name__
+        matches.append(row)
+    return matches
+
 
 def reviewed_subcontracting_methods(records):
     """Only the reviewed Community 17 override, for non-subcontract MOs.
