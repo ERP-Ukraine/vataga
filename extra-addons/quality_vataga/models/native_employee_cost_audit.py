@@ -4,6 +4,7 @@ No PartialPosting capability, price override, Stock posting or fake checkpoint
 is used. The comparison reference is in memory, not a booked cost document.
 Real immutable-checkpoint and 4+1 acceptance remain gated until Enterprise QA.
 """
+import copy
 import json
 import math
 import traceback
@@ -18,6 +19,8 @@ from odoo.exceptions import AccessError, UserError, ValidationError
 
 from .native_partial_release import _CORE_COST, _read
 from .native_cost_provider import describe_method
+from .native_analytic_diagnostic import analytic_state_difference, trace_duration_calls
+from .native_analytic_sync import analytic_sync_scope
 
 
 _FIXTURE_SCOPE = ContextVar('quality_employee_audit_fixture', default=None)
@@ -200,6 +203,9 @@ class NativeEmployeeCostAudit(models.Model):
         self._native_employee_audit_stage('setup.workorder_read')
         workorder = production.workorder_ids
         workorder.ensure_one()
+        self._native_employee_audit_fixture_scope()['diagnostics']['duration_sync'] = {
+            'reviewed_enterprise_duration_chain': workorder._native_analytic_duration_chain_reviewed(),
+            'fixture_workorder_ids': workorder.ids, 'cost_provider_authorized': False}
         self._native_employee_audit_stage('setup.loss_type_create', workorder_id=workorder.id)
         loss_type = self._native_employee_audit_loss_type('productive')
         self._native_employee_audit_stage('setup.loss_reason_create')
@@ -209,13 +215,97 @@ class NativeEmployeeCostAudit(models.Model):
                  'employees': employees, 'accounts': accounts, 'products': products, 'loss': loss,
                  'previous_analytic_id': previous_analytic_id,
                  'anchor': fields.Datetime.now().replace(microsecond=0) - timedelta(hours=6)}
-        self._native_employee_audit_stage('setup.interval_a_create')
-        first_timer = self._native_employee_audit_timer(scene, 0, 30, employees[0])
-        self._native_employee_audit_stage('setup.interval_b_create')
-        scene['timers'] = first_timer | self._native_employee_audit_timer(scene, 30, 60, employees[1])
-        self._native_employee_audit_stage('setup.flush')
-        self.env.flush_all()
+        with analytic_sync_scope(workorder), self._native_employee_audit_trace(workorder, 'setup.timers_and_flush'):
+            self._native_employee_audit_stage('setup.interval_a_create')
+            first_timer = self._native_employee_audit_timer(scene, 0, 30, employees[0])
+            self._native_employee_audit_stage('setup.interval_b_create')
+            scene['timers'] = first_timer | self._native_employee_audit_timer(scene, 30, 60, employees[1])
+            self._native_employee_audit_stage('setup.flush')
+            self.env.flush_all()
         return scene
+
+    @contextmanager
+    def _native_employee_audit_trace(self, workorder, label):
+        diagnostics = self._native_employee_audit_fixture_scope()['diagnostics']
+        with trace_duration_calls(workorder) as trace:
+            diagnostics.setdefault('native_call_traces', {})[label] = trace
+            yield trace
+
+    @api.model
+    def _native_employee_audit_compare_states(self, label, before, after):
+        comparison = {'comparison': label, **analytic_state_difference(before, after),
+                      'before_values': {name: before.get(name) for name in (
+                          'native_cost', 'equipment_cost', 'employee_cost', 'duration')},
+                      'after_values': {name: after.get(name) for name in (
+                          'native_cost', 'equipment_cost', 'employee_cost', 'duration')}}
+        self._native_employee_audit_fixture_scope()['diagnostics'].setdefault(
+            'state_comparisons', []).append(copy.deepcopy(comparison))
+        return comparison['equal']
+
+    @api.model
+    def _native_employee_audit_assert_comparisons(self, unchanged, message, labels):
+        if not unchanged:
+            comparisons = self._native_employee_audit_fixture_scope()['diagnostics']['state_comparisons']
+            differences = [row for row in comparisons if row['comparison'] in labels and not row['equal']]
+            # Existing Scheduled Actions that print only check['error'] still
+            # expose the exact diff without needing their code replaced.
+            raise ValidationError(message + '\nSTATE_DIFF: ' + json.dumps(
+                differences, ensure_ascii=False, sort_keys=True, default=str))
+
+    @api.model
+    def _native_employee_audit_stored_state(self, scene, line_ids, columns):
+        """SELECT only, after ordinary record/field access checks. NEVER flush.
+
+        Compare actual persisted values with ORM values, including effects
+        that occur while the rest of the state is read. No computed field is
+        accessed to construct this evidence.
+        """
+        wo = _read(scene['workorder'])
+        Line = self.env['account.analytic.line']
+        quote = lambda name: '"' + name.replace('"', '""') + '"'
+        clauses, params = ['ref=%s'], [scene['production'].name]
+        for name, field in Line._fields.items():
+            if (field.type == 'many2one' and field.comodel_name == 'account.analytic.account'
+                    and field.store and field.column_type):
+                clauses.append(quote(name) + ' IN %s')
+                params.append(tuple(scene['accounts'].ids))
+        self.env.cr.execute('SELECT id FROM ' + quote(Line._table) + ' WHERE ' + ' OR '.join(clauses), params)
+        discovered_ids = set(line_ids) | {row[0] for row in self.env.cr.fetchall()}
+        relations = {}
+        for name, field in wo._fields.items():
+            if field.comodel_name != 'account.analytic.line' or not field.store:
+                continue
+            if field.type == 'many2many' and field.relation:
+                self.env.cr.execute('SELECT ' + quote(field.column2) + ' FROM ' + quote(field.relation)
+                                    + ' WHERE ' + quote(field.column1) + '=%s', [wo.id])
+            elif field.type == 'one2many' and field.inverse_name:
+                self.env.cr.execute('SELECT id FROM ' + quote(Line._table) + ' WHERE '
+                                    + quote(field.inverse_name) + '=%s', [wo.id])
+            else:
+                continue
+            relations[name] = sorted(row[0] for row in self.env.cr.fetchall())
+            discovered_ids.update(relations[name])
+        _assert(all(line_id > scene['previous_analytic_id'] for line_id in discovered_ids),
+                'Audit stored snapshot unexpectedly links an existing analytic line')
+        lines = _read(Line.browse(sorted(discovered_ids)))
+        lines.check_field_access_rights('read', columns)
+        stored_columns = sorted({'id', *(name for name in columns
+            if lines._fields[name].store and lines._fields[name].column_type)})
+        duration_columns = [name for name in ('id', 'duration', 'duration_unit', 'duration_percent')
+                            if wo._fields[name].store and wo._fields[name].column_type]
+        wo.check_field_access_rights('read', duration_columns)
+        rows = []
+        if lines:
+            self.env.cr.execute('SELECT ' + ','.join(map(quote, stored_columns)) + ' FROM '
+                + quote(lines._table) + ' WHERE id IN %s ORDER BY id', [tuple(lines.ids)])
+            rows = self.env.cr.dictfetchall()
+        self.env.cr.execute('SELECT ' + ','.join(map(quote, duration_columns)) + ' FROM '
+                            + quote(wo._table) + ' WHERE id=%s', [wo.id])
+        return {'analytic_lines': rows, 'analytic_relations': relations,
+                'workorder': self.env.cr.dictfetchall(),
+                'unstored_analytic_fields': sorted(set(columns) - set(stored_columns)),
+                'unstored_workorder_fields': sorted(set(('duration', 'duration_unit', 'duration_percent'))
+                                                   - set(duration_columns))}
 
     @api.model
     def _native_employee_audit_timer(self, scene, start_minutes, end_minutes, employee):
@@ -275,23 +365,33 @@ class NativeEmployeeCostAudit(models.Model):
                          'product_uom': product_uom.name, 'product_uom_category_id': product_uom.category_id.id,
                          'same_category': bool(native_uom and product_uom
                                                and native_uom.category_id == product_uom.category_id)})
-        return {'analytic_lines': lines.read(columns), 'analytic_relations': relations,
-                'analytic_uoms': uoms}
+        rows = lines.read(columns)
+        return {'analytic_lines': rows, 'analytic_relations': relations, 'analytic_uoms': uoms,
+                '_read_columns': columns,
+                'stored_before_cost_reads': self._native_employee_audit_stored_state(scene, lines.ids, columns)}
 
     @api.model
     def _native_employee_audit_state(self, scene):
         analytics = self._native_employee_audit_analytics(scene)
+        columns = analytics.pop('_read_columns')
         wo, production = scene['workorder'], scene['production']
-        return {**analytics, 'native_cost': wo._cal_cost(), 'equipment_cost': _CORE_COST(wo),
+        state = {**analytics, 'native_cost': wo._cal_cost(), 'equipment_cost': _CORE_COST(wo),
                 'employee_cost': sum(wo.time_ids.mapped('total_cost')),
                 'duration': wo.duration, 'basis': wo._native_partial_cost_inputs(),
                 'mo': production.read(['state', 'qty_producing', 'qty_produced', 'quality_native_partial_revision'])}
+        # Preserve the original read/flush order. This additional SQL evidence
+        # observes it; it never heals analytics or invalidates a compute cache.
+        state['stored_after_cost_reads'] = self._native_employee_audit_stored_state(
+            scene, [row['id'] for row in analytics['analytic_lines']], columns)
+        return copy.deepcopy(state)
 
     @api.model
     def _native_employee_audit_case(self, scene, name, callback):
         self._native_employee_audit_stage('checks.' + name + '.baseline')
         before = self._native_employee_audit_state(scene)
         result = {'name': name, 'result': 'FAIL'}
+        comparisons = self._native_employee_audit_fixture_scope()['diagnostics'].setdefault('state_comparisons', [])
+        start_comparison = len(comparisons)
         try:
             with self.env.cr.savepoint():
                 self._native_employee_audit_stage('checks.' + name + '.execute')
@@ -303,6 +403,8 @@ class NativeEmployeeCostAudit(models.Model):
         except Exception as error:
             stage = self._native_employee_audit_fixture_scope()['diagnostics']['stage']
             result.update(_audit_exception(error, stage))
+        if len(comparisons) > start_comparison:
+            result['state_comparisons'] = copy.deepcopy(comparisons[start_comparison:])
         self._native_employee_audit_stage('checks.' + name + '.verify_rollback')
         self.env.invalidate_all(flush=False)
         _assert(self._native_employee_audit_state(scene) == before, 'Nested cost/analytic case did not roll back: ' + name)
@@ -321,23 +423,33 @@ class NativeEmployeeCostAudit(models.Model):
         checks = []
 
         def stable_analytics():
-            wo._compute_duration()
-            first = self._native_employee_audit_state(scene)
-            wo._compute_duration()
-            second = self._native_employee_audit_state(scene)
-            _assert(baseline == first == second,
-                    'Analytic lines or quantities are stale until an extra duration recomputation')
+            with self._native_employee_audit_trace(wo, 'repeat_duration_analytics.first'):
+                wo._compute_duration()
+                first = self._native_employee_audit_state(scene)
+            with self._native_employee_audit_trace(wo, 'repeat_duration_analytics.second'):
+                wo._compute_duration()
+                second = self._native_employee_audit_state(scene)
+            unchanged_first = self._native_employee_audit_compare_states('repeat.baseline_to_first', baseline, first)
+            unchanged_second = self._native_employee_audit_compare_states('repeat.first_to_second', first, second)
+            self._native_employee_audit_assert_comparisons(unchanged_first and unchanged_second,
+                'Analytic lines or quantities are stale until an extra duration recomputation',
+                ('repeat.baseline_to_first', 'repeat.first_to_second'))
             return {'before': baseline['analytic_lines'], 'after': first['analytic_lines']}
         checks.append(self._native_employee_audit_case(scene, 'repeat_duration_analytics', stable_analytics))
 
         def new_work():
-            self._native_employee_audit_timer(scene, 60, 75, scene['employees'][1])
-            first = self._native_employee_audit_state(scene)
+            with self._native_employee_audit_trace(wo, 'new_closed_work_and_analytics.automatic'):
+                self._native_employee_audit_timer(scene, 60, 75, scene['employees'][1])
+                first = self._native_employee_audit_state(scene)
             _assert(math.isclose(first['native_cost'], 115), 'New native 15-minute work did not add 15 WC + 10 employee')
             wo._native_partial_check_cost_values(first['basis'], reference, first['native_cost'])
-            wo._compute_duration()
-            _assert(self._native_employee_audit_state(scene) == first,
-                    'Analytic values are stale after new work and change on an extra duration recomputation')
+            with self._native_employee_audit_trace(wo, 'new_closed_work_and_analytics.explicit'):
+                wo._compute_duration()
+                second = self._native_employee_audit_state(scene)
+            self._native_employee_audit_assert_comparisons(
+                self._native_employee_audit_compare_states('new_work.automatic_to_explicit', first, second),
+                'Analytic values are stale after new work and change on an extra duration recomputation',
+                ('new_work.automatic_to_explicit',))
             return {'cumulative': 115, 'delta': 25, 'analytics': first['analytic_lines']}
         checks.append(self._native_employee_audit_case(scene, 'new_closed_work_and_analytics', new_work))
 
@@ -444,6 +556,7 @@ class NativeEmployeeCostAudit(models.Model):
                 ('account.analytic.account', ('_perform_analytic_distribution',)),
                 ('account.analytic.line', ('create', 'write', '_compute_unit_quantity_amount',
                                            '_compute_unit_quantity_applicable')),
+                ('mrp.workorder', ('_set_duration', '_native_analytic_duration_chain_reviewed')),
                 ('uom.uom', ('_compute_quantity',))):
             for method in methods:
                 sources['analytic_methods'][model + '.' + method] = describe_method(
@@ -488,7 +601,8 @@ class NativeEmployeeCostAudit(models.Model):
                 try:
                     with env.cr.savepoint():
                         scene = audit._native_employee_audit_setup()
-                        report.update(audit._native_employee_audit_scenario(scene))
+                        with analytic_sync_scope(scene['workorder']):
+                            report.update(audit._native_employee_audit_scenario(scene))
                         audit._native_employee_audit_stage('checks.final_flush')
                         env.flush_all()
                         raise _AuditRollback()

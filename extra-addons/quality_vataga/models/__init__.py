@@ -36,6 +36,7 @@ from . import quality_unit_route_policy
 from . import quality_full_release
 from . import quality_native_workorder
 from . import native_partial_release
+from . import native_analytic_sync
 from . import native_production_loss
 from . import quality_partial_release
 from . import quality_partial_release_probe

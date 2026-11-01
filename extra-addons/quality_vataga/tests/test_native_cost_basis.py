@@ -1,5 +1,7 @@
 """Actual Community ORM regression for cost snapshots and native analytics."""
 import json
+import sys
+from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -11,6 +13,10 @@ from . import test_native_partial_adapter as adapter
 from ..models.native_employee_cost_audit import (
     _AUDIT_CHECKS, _audit_case_outcome, _audit_check_summary, _audit_exception, _audit_fixture_transaction,
 )
+from ..models.native_analytic_diagnostic import analytic_state_difference, trace_duration_calls
+from ..models.native_analytic_sync import analytic_sync_scope
+from odoo.addons.mrp.models.mrp_workorder import MrpWorkorder as CoreWorkorder
+from odoo.addons.mrp_account.models.mrp_workorder import MrpWorkorder as AccountWorkorder
 
 
 @tagged('post_install', '-at_install', 'native_cost_basis')
@@ -281,3 +287,183 @@ class TestNativeCostBasis(StockReleaseNativeCase):
         self.assertIn('_native_employee_audit_setup', failure['traceback'])
         self.assertEqual(diagnostics['transaction_rollback'], 'COMPLETE')
         self.assertEqual(actor.search([]).ids, before)
+
+    def _diagnostic_scene(self):
+        self.env.cr.execute('SELECT COALESCE(MAX(id), 0) FROM account_analytic_line')
+        previous = self.env.cr.fetchone()[0]
+        accounts = self.env['account.analytic.account'].create([
+            {'name': 'Own diagnostic ' + label, 'plan_id': self.env.ref('analytic.analytic_plan_projects').id}
+            for label in ('MO', 'WC')])
+        self.workcenter.analytic_distribution = {str(accounts[1].id): 100}
+        production = self._timed()
+        production.analytic_distribution = {str(accounts[0].id): 100}
+        self.env.flush_all()
+        return {'production': production, 'workorder': production.workorder_ids,
+                'accounts': accounts, 'previous_analytic_id': previous}
+
+    def test_real_duration_trace_keeps_mro_and_analytics_stable(self):
+        scene = self._diagnostic_scene()
+        production, wo = scene['production'], scene['workorder']
+        before = production._native_employee_audit_analytics(scene)
+        basis = wo._native_partial_cost_basis()
+        with trace_duration_calls(wo) as trace:
+            wo._compute_duration()
+        after = production._native_employee_audit_analytics(scene)
+        self.assertEqual(trace['status'], 'COMPLETE')
+        events = trace['events']
+        self.assertTrue(events)
+        self.assertTrue(all(row['cached_duration'] == {str(wo.id): 60} for row in events))
+        core_return = next(index for index, row in enumerate(events)
+            if row['event'] == 'return' and any('odoo.addons.mrp.models.' in name
+            and name.endswith('._compute_duration') for name in row['providers']))
+        helper_enter = max(index for index, row in enumerate(events)
+            if row['event'] == 'call' and any(name.endswith('._create_or_update_analytic_entry')
+                                             for name in row['providers']))
+        self.assertLess(core_return, helper_enter)
+        self.assertTrue(analytic_state_difference(before, after)['equal'])
+        self.assertEqual(wo._native_partial_cost_basis(), basis)
+        self.assertEqual(wo._cal_cost(), 60)
+
+    def test_real_new_work_reports_exact_line_values_duration_basis_and_cost(self):
+        scene = self._diagnostic_scene()
+        production, wo = scene['production'], scene['workorder']
+        before = {**production._native_employee_audit_analytics(scene),
+                  'duration': wo.duration, 'native_cost': wo._cal_cost(), 'basis': wo._native_partial_cost_basis()}
+        self._new_work(production)
+        after = {**production._native_employee_audit_analytics(scene),
+                 'duration': wo.duration, 'native_cost': wo._cal_cost(), 'basis': wo._native_partial_cost_basis()}
+        change = analytic_state_difference(before, after)
+        self.assertEqual(change['analytic_lines']['added'], [])
+        self.assertEqual(change['analytic_lines']['removed'], [])
+        self.assertEqual(len(change['analytic_lines']['changed_by_id']), 2)
+        for differences in change['analytic_lines']['changed_by_id'].values():
+            values = {row['path']: (row['before'], row['after']) for row in differences}
+            self.assertEqual(values['/amount'], (-60, -75))
+            self.assertEqual(values['/unit_amount'], (1, 1.25))
+        self.assertIn('basis', change['sections'])
+        self.assertEqual(change['sections']['duration'], [{'path': '/duration', 'before': 60, 'after': 75}])
+        self.assertEqual(change['sections']['native_cost'], [{'path': '/native_cost', 'before': 60, 'after': 75}])
+        self.assertNotIn('analytic_relations', change['sections'])
+        with _audit_fixture_transaction(self._audit_actor()) as audit:
+            unchanged = audit._native_employee_audit_compare_states('own.real_change', before, after)
+            with self.assertRaisesRegex(ValidationError, 'STATE_DIFF:') as caught:
+                audit._native_employee_audit_assert_comparisons(unchanged, 'Own changed state', ('own.real_change',))
+            reported = json.loads(str(caught.exception).split('STATE_DIFF: ', 1)[1])
+            self.assertEqual(reported[0]['analytic_lines']['changed_by_id'],
+                             json.loads(json.dumps(change['analytic_lines']['changed_by_id'])))
+            self.assertEqual(reported[0]['before_values']['native_cost'], 60)
+            self.assertEqual(reported[0]['after_values']['native_cost'], 75)
+
+    def test_stored_analytic_diagnostic_observes_fault_without_healing_or_recomputing(self):
+        scene = self._diagnostic_scene()
+        production, wo = scene['production'], scene['workorder']
+        initial = production._native_employee_audit_analytics(scene)
+        line_id = initial['analytic_lines'][0]['id']
+        line = self.env['account.analytic.line'].browse(line_id)
+        line.amount = -1  # Deliberate fault in a disposable analytic fixture only.
+        self.env.flush_all()
+        with trace_duration_calls(wo) as trace:
+            stored = production._native_employee_audit_stored_state(
+                scene, [row['id'] for row in initial['analytic_lines']], initial['_read_columns'])
+        self.assertEqual(trace['events'], [])
+        self.assertEqual(next(row['amount'] for row in stored['analytic_lines'] if row['id'] == line_id), -1)
+        self.assertEqual(line.amount, -1)
+        self.assertEqual(wo._cal_cost(), 60)
+        self.assertEqual({row['id'] for row in stored['analytic_lines']},
+                         {row['id'] for row in initial['analytic_lines']})
+
+    def test_native_trace_restores_profiler_on_exception_and_preserves_existing_profiler(self):
+        scene = self._diagnostic_scene()
+        wo = scene['workorder']
+        previous = sys.getprofile()
+        with self.assertRaises(UserError):
+            with trace_duration_calls(wo):
+                wo._compute_duration()
+                raise UserError('Own diagnostic fault')
+        self.assertIs(sys.getprofile(), previous)
+        observer = lambda frame, event, argument: None
+        try:
+            sys.setprofile(observer)
+            with trace_duration_calls(wo) as trace:
+                wo._compute_duration()
+            self.assertIs(sys.getprofile(), observer)
+            self.assertEqual(trace['status'], 'NOT_RUN')
+            self.assertIn('existing thread profiler', trace['reason'])
+        finally:
+            sys.setprofile(previous)
+
+    @staticmethod
+    def _pre_super_duration_pattern(workorders):
+        # Reproduce the supplied call ORDER against real Community analytics.
+        # This is not an Enterprise provider, source attestation or cost mock.
+        workorders._create_or_update_analytic_entry()
+        return CoreWorkorder._compute_duration(workorders)
+
+    def test_pre_super_order_reproduces_stale_values_on_unmanaged_wo(self):
+        scene = self._diagnostic_scene()
+        production, wo = scene['production'], scene['workorder']
+        before = production._native_employee_audit_analytics(scene)
+        with patch.object(AccountWorkorder, '_compute_duration', self._pre_super_duration_pattern), \
+                patch.object(type(wo), '_native_analytic_duration_chain_reviewed', return_value=True):
+            self._new_work(production)
+            after = production._native_employee_audit_analytics(scene)
+            self.assertEqual((wo.duration, wo._cal_cost()), (75, 75))
+            self.assertEqual([row['amount'] for row in after['analytic_lines']], [-60, -60])
+            self.assertEqual([row['unit_amount'] for row in after['analytic_lines']], [1, 1])
+            self.assertEqual([row['id'] for row in before['analytic_lines']],
+                             [row['id'] for row in after['analytic_lines']])
+
+    def test_managed_duration_sync_updates_once_after_real_compute_without_replacing_lines(self):
+        scene = self._diagnostic_scene()
+        production, wo = scene['production'], scene['workorder']
+        before = production._native_employee_audit_analytics(scene)
+        ids = [row['id'] for row in before['analytic_lines']]
+        self.assertFalse(wo._native_analytic_duration_chain_reviewed())  # Community is not Enterprise.
+        with patch.object(AccountWorkorder, '_compute_duration', self._pre_super_duration_pattern), \
+                patch.object(type(wo), '_native_analytic_duration_chain_reviewed', return_value=True), \
+                analytic_sync_scope(wo):
+            with trace_duration_calls(wo) as trace:
+                self._new_work(production)
+                after = production._native_employee_audit_analytics(scene)
+            self.assertEqual((wo.duration, wo._cal_cost()), (75, 75))
+            self.assertEqual([row['id'] for row in after['analytic_lines']], ids)
+            self.assertEqual([row['amount'] for row in after['analytic_lines']], [-75, -75])
+            self.assertEqual([row['unit_amount'] for row in after['analytic_lines']], [1.25, 1.25])
+            native_helper_calls = [row for row in trace['events'] if row['event'] == 'call' and row['ids']
+                and any(name == 'odoo.addons.mrp_account.models.mrp_workorder.MrpWorkorder._create_or_update_analytic_entry'
+                        for name in row['providers'])]
+            self.assertEqual(len(native_helper_calls), 1)
+            self.assertEqual(native_helper_calls[0]['cached_duration'], {str(wo.id): 75})
+            wo._compute_duration()  # Stability check AFTER taking the automatic-update snapshot.
+            repeated = production._native_employee_audit_analytics(scene)
+            self.assertTrue(analytic_state_difference(after, repeated)['equal'])
+        self.assertFalse(wo._native_analytic_duration_chain_reviewed())
+
+    def test_managed_analytic_sync_error_rolls_back_and_does_not_leave_deferred_callbacks(self):
+        scene = self._diagnostic_scene()
+        production, wo = scene['production'], scene['workorder']
+        before = production._native_employee_audit_analytics(scene)
+        timer = wo.time_ids
+        original_end = timer.date_end
+        native_helper = AccountWorkorder._create_or_update_analytic_entry
+
+        def failing_helper(records):
+            if records:
+                raise UserError('Own post-duration analytic fault')
+            return native_helper(records)
+
+        with patch.object(AccountWorkorder, '_compute_duration', self._pre_super_duration_pattern), \
+                patch.object(type(wo), '_native_analytic_duration_chain_reviewed', return_value=True), \
+                analytic_sync_scope(wo):
+            with self.assertRaisesRegex(UserError, 'Own post-duration'), self.env.cr.savepoint():
+                with patch.object(AccountWorkorder, '_create_or_update_analytic_entry', failing_helper):
+                    timer.date_end = original_end + timedelta(minutes=15)
+                    self.env.flush_all()
+            self.assertEqual(timer.date_end, original_end)
+            self.assertEqual(wo._cal_cost(), 60)
+            self.assertEqual(production._native_employee_audit_analytics(scene), before)
+            timer.date_end = original_end + timedelta(minutes=15)
+            after = production._native_employee_audit_analytics(scene)
+            self.assertEqual([row['amount'] for row in after['analytic_lines']], [-75, -75])
+            self.assertEqual([row['id'] for row in after['analytic_lines']],
+                             [row['id'] for row in before['analytic_lines']])

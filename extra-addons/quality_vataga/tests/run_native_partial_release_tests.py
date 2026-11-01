@@ -56,9 +56,11 @@ def main():
             }), encoding='utf-8')
             (addon / '__init__.py').write_text('from . import models\nfrom . import tests\n', encoding='utf-8')
             for name in ('native_backorder.py', 'native_cost_provider.py', 'native_cost_basis.py',
-                         'native_partial_release.py', 'native_production_loss.py', 'native_employee_cost_audit.py'):
+                         'native_partial_release.py', 'native_production_loss.py', 'native_employee_cost_audit.py',
+                         'native_analytic_diagnostic.py', 'native_analytic_sync.py'):
                 shutil.copyfile(root / 'models' / name, addon / 'models' / name)
             (addon / 'models/__init__.py').write_text('from . import native_backorder\nfrom . import native_partial_release\n'
+                                                    'from . import native_analytic_sync\n'
                                                     'from . import native_production_loss\n'
                                                     'from . import native_employee_cost_audit\n', encoding='utf-8')
             for name in ('test_stock_release_native_contract.py', 'test_native_partial_adapter.py',

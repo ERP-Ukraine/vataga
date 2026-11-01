@@ -1,0 +1,9 @@
+..............................................................................................................................................................................................................
+----------------------------------------------------------------------
+Ran 206 tests in 0.973s
+
+OK
+SYNTAX: 146 Python; 40 XML
+MODEL DEFINITIONS: quality_vataga and account_analytic_uom imported; no Enterprise ORM claim
+SCHEDULED ACTIONS: safe_eval compilation OK
+14 checks; original explicit recomputation counts 2 + 1; no cost/create/write/sudo override; version .62
