@@ -6,6 +6,7 @@ Real immutable-checkpoint and 4+1 acceptance remain gated until Enterprise QA.
 """
 import json
 import math
+import traceback
 import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -16,6 +17,7 @@ from odoo import _, api, fields, models
 from odoo.exceptions import AccessError, UserError, ValidationError
 
 from .native_partial_release import _CORE_COST, _read
+from .native_cost_provider import describe_method
 
 
 _FIXTURE_SCOPE = ContextVar('quality_employee_audit_fixture', default=None)
@@ -30,7 +32,7 @@ _AUDIT_CHECKS = (
 
 
 @contextmanager
-def _audit_fixture_transaction(model):
+def _audit_fixture_transaction(model, diagnostics=None):
     """Own cursor, ordinary actor, narrowly tracked temporary categories only.
 
     Never yield the caller's cursor: even a successful probe must roll back
@@ -38,15 +40,18 @@ def _audit_fixture_transaction(model):
     """
     context = {'allowed_company_ids': model.env.companies.ids,
                'lang': model.env.lang, 'tz': model.env.user.tz}
+    if diagnostics is None:
+        diagnostics = {'stage': 'transaction.open', 'stages': []}
     with model.env.registry.cursor() as audit_cr:
         env = api.Environment(audit_cr, model.env.uid, context)
         audit = env[model._name].with_company(model.env.company.id)
-        token = _FIXTURE_SCOPE.set({'env': audit.env, 'loss_type_ids': set()})
+        token = _FIXTURE_SCOPE.set({'env': audit.env, 'loss_type_ids': set(), 'diagnostics': diagnostics})
         try:
             yield audit
         finally:
             try:
                 audit_cr.rollback()
+                diagnostics['transaction_rollback'] = 'COMPLETE'
             finally:
                 _FIXTURE_SCOPE.reset(token)
 
@@ -70,6 +75,15 @@ def _audit_case_outcome(detail):
     return {'result': 'NOT_RUN' if detail.get('exercised') is False else 'PASS', 'detail': detail}
 
 
+def _audit_exception(error, stage):
+    # No locals: return code locations and the native exception, never a dump
+    # of user records or credentials from frame environments.
+    return {'error_type': type(error).__name__, 'error': str(error), 'error_stage': stage,
+            'traceback': ''.join(traceback.format_exception(type(error), error, error.__traceback__)),
+            'error_frames': [{'file': frame.filename, 'line': frame.lineno, 'method': frame.name}
+                             for frame in traceback.extract_tb(error.__traceback__)]}
+
+
 class _AuditRollback(Exception):
     def __init__(self, value=None):
         self.value = value
@@ -91,6 +105,20 @@ class NativeEmployeeCostAudit(models.Model):
                 or scope['env'].company != self.env.company):
             raise AccessError(_('Тимчасові категорії дозволені лише у транзакції аудиту з відкатом.'))
         return scope
+
+    @api.model
+    def _native_employee_audit_stage(self, stage, **details):
+        diagnostics = self._native_employee_audit_fixture_scope()['diagnostics']
+        diagnostics['stage'] = stage
+        diagnostics['stages'].append({'stage': stage, **details})
+
+    @api.model
+    def _native_employee_audit_uoms(self, products):
+        products = _read(products)
+        return [{'product_id': product.id, 'product': product.name,
+                 'uom_id': product.uom_id.id, 'uom': product.uom_id.name,
+                 'category_id': product.uom_id.category_id.id,
+                 'category': product.uom_id.category_id.name} for product in products]
 
     @api.model
     def _native_employee_audit_loss_type(self, loss_type):
@@ -119,53 +147,73 @@ class NativeEmployeeCostAudit(models.Model):
         Creating a new plan can change the registry/schema; a savepoint does
         not restore Python registry fields. This probe must not do that.
         """
-        self._native_employee_audit_fixture_scope()
+        self._native_employee_audit_stage('setup.validate_enterprise_fields')
         if not {'employee_cost', 'employee_id', 'total_cost'}.issubset(self.env['mrp.workcenter.productivity']._fields):
             raise ValidationError(_('Потрібні справжні Enterprise-поля вартості працівників.'))
+        self._native_employee_audit_stage('setup.analytic_baseline')
         self.env.cr.execute('SELECT COALESCE(MAX(id), 0) FROM account_analytic_line')
         previous_analytic_id = self.env.cr.fetchone()[0]
         suffix = 'QCOST-' + uuid.uuid4().hex[:12]
+        self._native_employee_audit_stage('setup.analytic_plan_read')
         plan = _read(self.env.ref('analytic.analytic_plan_projects'))
+        self._native_employee_audit_stage('setup.analytic_accounts_create')
         accounts = self.env['account.analytic.account'].create([
             {'name': suffix + ' ' + label, 'plan_id': plan.id, 'company_id': self.env.company.id}
             for label in ('MO', 'WC')])
+        self._native_employee_audit_stage('setup.workcenter_create')
         center = self.env['mrp.workcenter'].create({
             'name': suffix, 'costs_hour': 60, 'employee_costs_hour': 50,
             'analytic_distribution': {str(accounts[1].id): 100}})
+        self._native_employee_audit_stage('setup.employees_create')
         employees = self.env['hr.employee'].create([
             {'name': suffix + ' A', 'company_id': self.env.company.id, 'hourly_cost': 20},
             {'name': suffix + ' B', 'company_id': self.env.company.id, 'hourly_cost': 40}])
+        self._native_employee_audit_stage('setup.product_category_create')
         category = self.env['product.category'].create({
             'name': suffix, 'property_cost_method': 'fifo', 'property_valuation': 'manual_periodic'})
+        self._native_employee_audit_stage('setup.products_create')
         products = self.env['product.product'].create([
             {'name': suffix + ' finished', 'type': 'product', 'categ_id': category.id},
             {'name': suffix + ' component', 'type': 'product', 'categ_id': category.id, 'standard_price': 10}])
+        self._native_employee_audit_stage('setup.product_uoms_read')
+        fixture_uoms = self._native_employee_audit_uoms(products)
+        self._native_employee_audit_fixture_scope()['diagnostics']['fixture_product_uoms'] = fixture_uoms
+        self._native_employee_audit_stage('setup.bom_create')
         bom = self.env['mrp.bom'].create({
             'product_tmpl_id': products[0].product_tmpl_id.id, 'product_qty': 1,
             'product_uom_id': products[0].uom_id.id,
             'bom_line_ids': [(0, 0, {'product_id': products[1].id, 'product_qty': 2})],
             'operation_ids': [(0, 0, {'name': suffix, 'workcenter_id': center.id, 'time_cycle': 12})]})
+        self._native_employee_audit_stage('setup.warehouse_read')
         warehouse = _read(self.env['stock.warehouse'].search([('company_id', '=', self.env.company.id)], limit=1))
         if not warehouse:
             raise ValidationError(_('Немає доступного складу цієї компанії.'))
+        self._native_employee_audit_stage('setup.production_create')
         production = self.create({
             'name': suffix, 'product_id': products[0].id, 'product_qty': 5,
             'product_uom_id': products[0].uom_id.id, 'bom_id': bom.id,
             'picking_type_id': warehouse.manu_type_id.id,
             'location_src_id': warehouse.lot_stock_id.id, 'location_dest_id': warehouse.lot_stock_id.id,
             'analytic_distribution': {str(accounts[0].id): 100}})
+        self._native_employee_audit_stage('setup.production_confirm', production_id=production.id)
         production.action_confirm()
+        self._native_employee_audit_stage('setup.workorder_read')
         workorder = production.workorder_ids
         workorder.ensure_one()
+        self._native_employee_audit_stage('setup.loss_type_create', workorder_id=workorder.id)
         loss_type = self._native_employee_audit_loss_type('productive')
+        self._native_employee_audit_stage('setup.loss_reason_create')
         loss = self.env['mrp.workcenter.productivity.loss'].create({
             'name': suffix, 'loss_id': loss_type.id, 'manual': False})
         scene = {'production': production, 'workorder': workorder, 'center': center,
                  'employees': employees, 'accounts': accounts, 'products': products, 'loss': loss,
                  'previous_analytic_id': previous_analytic_id,
                  'anchor': fields.Datetime.now().replace(microsecond=0) - timedelta(hours=6)}
-        scene['timers'] = (self._native_employee_audit_timer(scene, 0, 30, employees[0])
-                           | self._native_employee_audit_timer(scene, 30, 60, employees[1]))
+        self._native_employee_audit_stage('setup.interval_a_create')
+        first_timer = self._native_employee_audit_timer(scene, 0, 30, employees[0])
+        self._native_employee_audit_stage('setup.interval_b_create')
+        scene['timers'] = first_timer | self._native_employee_audit_timer(scene, 30, 60, employees[1])
+        self._native_employee_audit_stage('setup.flush')
         self.env.flush_all()
         return scene
 
@@ -214,8 +262,21 @@ class NativeEmployeeCostAudit(models.Model):
                 'Audit fixture unexpectedly links an existing analytic line')
         lines = _read(Line.browse(sorted(line_ids)))
         columns = ['amount', 'unit_amount', 'ref', 'company_id', 'product_id', 'product_uom_id'] + account_fields
-        columns += [name for name in ('employee_id', 'user_id') if name in Line._fields]
-        return {'analytic_lines': lines.read(columns), 'analytic_relations': relations}
+        columns += [name for name in ('employee_id', 'user_id', 'unit_quantity_amount',
+                                     'unit_quantity_applicable') if name in Line._fields]
+        uoms = []
+        for line in lines:
+            product_uom = line.product_id.uom_id
+            native_uom = line.product_uom_id
+            uoms.append({'line_id': line.id, 'category': line.category,
+                         'analytic_uom_id': native_uom.id, 'analytic_uom': native_uom.name,
+                         'analytic_uom_category_id': native_uom.category_id.id,
+                         'product_id': line.product_id.id, 'product_uom_id': product_uom.id,
+                         'product_uom': product_uom.name, 'product_uom_category_id': product_uom.category_id.id,
+                         'same_category': bool(native_uom and product_uom
+                                               and native_uom.category_id == product_uom.category_id)})
+        return {'analytic_lines': lines.read(columns), 'analytic_relations': relations,
+                'analytic_uoms': uoms}
 
     @api.model
     def _native_employee_audit_state(self, scene):
@@ -228,17 +289,21 @@ class NativeEmployeeCostAudit(models.Model):
 
     @api.model
     def _native_employee_audit_case(self, scene, name, callback):
+        self._native_employee_audit_stage('checks.' + name + '.baseline')
         before = self._native_employee_audit_state(scene)
         result = {'name': name, 'result': 'FAIL'}
         try:
             with self.env.cr.savepoint():
+                self._native_employee_audit_stage('checks.' + name + '.execute')
                 detail = callback()
                 self.env.flush_all()
                 raise _AuditRollback(detail)
         except _AuditRollback as rollback:
             result.update(_audit_case_outcome(rollback.value))
         except Exception as error:
-            result.update(error_type=type(error).__name__, error=str(error))
+            stage = self._native_employee_audit_fixture_scope()['diagnostics']['stage']
+            result.update(_audit_exception(error, stage))
+        self._native_employee_audit_stage('checks.' + name + '.verify_rollback')
         self.env.invalidate_all(flush=False)
         _assert(self._native_employee_audit_state(scene) == before, 'Nested cost/analytic case did not roll back: ' + name)
         return result
@@ -246,6 +311,7 @@ class NativeEmployeeCostAudit(models.Model):
     @api.model
     def _native_employee_audit_scenario(self, scene):
         wo = scene['workorder']
+        self._native_employee_audit_stage('checks.baseline_cost_and_analytics')
         baseline = self._native_employee_audit_state(scene)
         _assert(math.isclose(baseline['equipment_cost'], 60) and math.isclose(baseline['employee_cost'], 30)
                 and math.isclose(baseline['native_cost'], 90), 'Native two-employee cost is not 60 + 30 = 90')
@@ -372,10 +438,34 @@ class NativeEmployeeCostAudit(models.Model):
         if self.env.cr.dbname != expected_database or not self.env.user.has_group('base.group_system'):
             raise AccessError(_('Потрібні системний адміністратор і точна назва staging-бази.'))
         sources = self._native_partial_cost_provider_report(expected_database, include_source=True)
+        # Inspect actual registered analytic/conversion providers as well as
+        # WO methods. These metadata never authorize a production provider.
+        for model, methods in (
+                ('account.analytic.account', ('_perform_analytic_distribution',)),
+                ('account.analytic.line', ('create', 'write', '_compute_unit_quantity_amount',
+                                           '_compute_unit_quantity_applicable')),
+                ('uom.uom', ('_compute_quantity',))):
+            for method in methods:
+                sources['analytic_methods'][model + '.' + method] = describe_method(
+                    self.env[model], method, include_source=True)
+        analytic_fields = {}
+        for name in ('product_id', 'product_uom_id', 'unit_amount', 'amount',
+                     'unit_quantity_amount', 'unit_quantity_applicable'):
+            field = self.env['account.analytic.line']._fields.get(name)
+            if field is None:
+                continue
+            compute = field.compute
+            analytic_fields[name] = {'type': field.type, 'store': bool(field.store),
+                                     'compute': compute if isinstance(compute, str) else repr(compute),
+                                     'depends': self.env.registry.field_depends.get(field, ())}
+            if isinstance(compute, str):
+                sources['analytic_methods']['account.analytic.line.' + compute] = describe_method(
+                    self.env['account.analytic.line'], compute, include_source=True)
         report = {**_audit_check_summary([]), 'checks': [], 'scope': 'native_employee_cost_and_analytics_only',
                   'production_provider_authorized': False, 'stock_posting_exercised': False,
                   'persisted_checkpoint_exercised': False, 'terminal_loss_flow_proven': False,
-                  'sources': sources}
+                  'sources': sources, 'diagnostics': {'stage': 'preflight.source_mro', 'stages': [],
+                                                      'analytic_uom_fields': analytic_fields}}
         candidate = sources['enterprise_cost_candidate']
         unapproved = [row for row in sources['mrp.workorder._cal_cost'] if not row['approved']]
         if (len(candidate) != 1 or not candidate[0]['source_matches'] or len(unapproved) != 1
@@ -389,21 +479,32 @@ class NativeEmployeeCostAudit(models.Model):
             'quality.native.partial.release', 'quality.native.partial.cost')
         # Own transaction: finally rolls it back and clears its postcommit
         # callbacks as well. Caller transaction receives only the plain report.
-        with _audit_fixture_transaction(self) as audit:
-            env = audit.env
-            before = {name: env[name].search_count([]) for name in names}
-            try:
-                with env.cr.savepoint():
-                    scene = audit._native_employee_audit_setup()
-                    report.update(audit._native_employee_audit_scenario(scene))
-                    env.flush_all()
-                    raise _AuditRollback()
-            except _AuditRollback:
-                pass
-            except Exception as error:
-                report.update(result='FAIL', error_type=type(error).__name__, error=str(error))
-            env.invalidate_all(flush=False)
-            if before != {name: env[name].search_count([]) for name in names}:
-                raise ValidationError(_('Не підтверджено відкат аудиту працівників та аналітики.'))
-            report['rollback'] = 'COMPLETE'
+        diagnostics = report['diagnostics']
+        try:
+            with _audit_fixture_transaction(self, diagnostics) as audit:
+                env = audit.env
+                audit._native_employee_audit_stage('transaction.snapshot_before')
+                before = {name: env[name].search_count([]) for name in names}
+                try:
+                    with env.cr.savepoint():
+                        scene = audit._native_employee_audit_setup()
+                        report.update(audit._native_employee_audit_scenario(scene))
+                        audit._native_employee_audit_stage('checks.final_flush')
+                        env.flush_all()
+                        raise _AuditRollback()
+                except _AuditRollback:
+                    pass
+                except Exception as error:
+                    report.update(result='FAIL', **_audit_exception(error, diagnostics['stage']))
+                env.invalidate_all(flush=False)
+                audit._native_employee_audit_stage('transaction.verify_rollback')
+                if before != {name: env[name].search_count([]) for name in names}:
+                    raise ValidationError(_('Не підтверджено відкат аудиту працівників та аналітики.'))
+        except Exception as error:
+            report.update(result='FAIL', **_audit_exception(error, diagnostics['stage']))
+        if report['result'] == 'FAIL' and 'traceback' not in report:
+            failed = next((check for check in report['checks'] if check['result'] == 'FAIL'), {})
+            report.update({key: failed[key] for key in (
+                'error_type', 'error', 'error_stage', 'traceback', 'error_frames') if key in failed})
+        report['rollback'] = diagnostics.get('transaction_rollback', 'NOT_CONFIRMED')
         return report

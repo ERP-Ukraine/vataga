@@ -1,0 +1,8 @@
+......................................................................................................................................................................................................
+----------------------------------------------------------------------
+Ran 198 tests in 1.005s
+
+OK
+SYNTAX: 143 Python; 40 XML
+MODEL DEFINITIONS: quality_vataga and account_analytic_uom imported; no Enterprise ORM claim
+SCHEDULED ACTIONS: safe_eval compilation OK

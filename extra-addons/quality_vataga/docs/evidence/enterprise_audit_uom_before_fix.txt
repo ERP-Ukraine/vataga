@@ -1,0 +1,50 @@
+DISPOSABLE DATABASE: qunit_partial_9b792475e7fe4164 127.0.0.1: 55433
+2026-11-01 00:42:42,798 4364 INFO ? odoo.service.server: HTTP service (werkzeug) running on kubernetes.docker.internal:52331
+<string>:38: (ERROR/3) Unexpected indentation.
+<string>:43: (WARNING/2) Block quote ends without a blank line; unexpected unindent.
+2026-11-01 00:43:10,844 4364 WARNING qunit_partial_9b792475e7fe4164 odoo.addons.base.models.ir_ui_view: An alert (class alert-*) must have an alert, alertdialog or status role or an alert-link class. Please use alert and alertdialog only for what expects to stop any activity to be read immediately.
+View error context:
+{'file': 'c:\\users\\vadim\\.codex\\worktrees\\quality-13-enterprise\\vataga\\extra-addons\\mrp_vataga\\wizard\\component_availability_views.xml',
+ 'line': 18,
+ 'name': 'mrp.component.availability.form',
+ 'view': ir.ui.view(1136,),
+ 'view.model': 'mrp.component.availability',
+ 'view.parent': ir.ui.view(),
+ 'xmlid': 'view_mrp_component_availability_form'}
+2026-11-01 00:43:12,187 4364 INFO qunit_partial_9b792475e7fe4164 odoo.service.server: Starting post tests
+2026-11-01 00:43:12,394 4364 INFO qunit_partial_9b792475e7fe4164 odoo.addons.quality_partial_probe.tests.test_native_cost_basis: Starting TestNativeCostBasis.test_real_native_analytics_are_cumulative_while_stock_uses_incremental_cost ...
+2026-11-01 00:43:12,598 4364 INFO qunit_partial_9b792475e7fe4164 odoo.addons.quality_partial_probe.tests.test_native_cost_basis: ======================================================================
+2026-11-01 00:43:12,598 4364 ERROR qunit_partial_9b792475e7fe4164 odoo.addons.quality_partial_probe.tests.test_native_cost_basis: ERROR: TestNativeCostBasis.test_real_native_analytics_are_cumulative_while_stock_uses_incremental_cost
+Traceback (most recent call last):
+  File "c:\users\vadim\appdata\local\temp\qunit_partial_sh04u6l1\quality_partial_probe\tests\test_native_cost_basis.py", line 34, in test_real_native_analytics_are_cumulative_while_stock_uses_incremental_cost
+    self.env.flush_all()
+  File "C:\Users\Vadim\Desktop\vataga\output\stock-minimum-evidence\odoo17\odoo\api.py", line 737, in flush_all
+    self._recompute_all()
+  File "C:\Users\Vadim\Desktop\vataga\output\stock-minimum-evidence\odoo17\odoo\api.py", line 733, in _recompute_all
+    self[field.model_name]._recompute_field(field)
+  File "C:\Users\Vadim\Desktop\vataga\output\stock-minimum-evidence\odoo17\odoo\models.py", line 6994, in _recompute_field
+    field.recompute(records)
+  File "C:\Users\Vadim\Desktop\vataga\output\stock-minimum-evidence\odoo17\odoo\fields.py", line 1377, in recompute
+    apply_except_missing(self.compute_value, recs)
+  File "C:\Users\Vadim\Desktop\vataga\output\stock-minimum-evidence\odoo17\odoo\fields.py", line 1350, in apply_except_missing
+    func(records)
+  File "C:\Users\Vadim\Desktop\vataga\output\stock-minimum-evidence\odoo17\odoo\fields.py", line 1399, in compute_value
+    records._compute_field_value(self)
+  File "C:\Users\Vadim\Desktop\vataga\output\stock-minimum-evidence\odoo17\odoo\models.py", line 4940, in _compute_field_value
+    fields.determine(field.compute, self)
+  File "C:\Users\Vadim\Desktop\vataga\output\stock-minimum-evidence\odoo17\odoo\fields.py", line 102, in determine
+    return needle(*args)
+           ^^^^^^^^^^^^^
+  File "c:\users\vadim\.codex\worktrees\quality-13-enterprise\vataga\extra-addons\account_analytic_uom\models\analytic_line.py", line 12, in _compute_unit_quantity_amount
+    line.unit_quantity_amount = line.product_uom_id._compute_quantity(line.unit_amount, line.product_id.product_tmpl_id.uom_id)
+                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\users\vadim\desktop\vataga\output\stock-minimum-evidence\odoo17\addons\uom\models\uom_uom.py", line 225, in _compute_quantity
+    raise UserError(_(
+odoo.exceptions.UserError: The unit of measure Hours defined on the order line doesn't belong to the same category as the unit of measure Units defined on the product. Please correct the unit of measure defined on the order line or on the product, they should belong to the same category.
+
+2026-11-01 00:43:12,722 4364 INFO qunit_partial_9b792475e7fe4164 odoo.service.server: 1 post-tests in 0.53s, 458 queries
+2026-11-01 00:43:12,723 4364 INFO qunit_partial_9b792475e7fe4164 odoo.tests.stats: quality_partial_probe: 3 tests 0.48s 458 queries
+2026-11-01 00:43:12,723 4364 ERROR qunit_partial_9b792475e7fe4164 odoo.tests.result: 0 failed, 1 error(s) of 1 tests when loading database 'qunit_partial_9b792475e7fe4164'
+2026-11-01 00:43:12,723 4364 INFO qunit_partial_9b792475e7fe4164 odoo.service.server: Initiating shutdown
+2026-11-01 00:43:12,723 4364 INFO qunit_partial_9b792475e7fe4164 odoo.service.server: Hit CTRL-C again or send a second signal to force the shutdown.
+DROPPED DISPOSABLE DATABASE: qunit_partial_9b792475e7fe4164

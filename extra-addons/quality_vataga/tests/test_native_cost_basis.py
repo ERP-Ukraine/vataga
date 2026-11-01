@@ -9,7 +9,7 @@ from odoo.tests import tagged
 from .test_stock_release_native_contract import StockReleaseNativeCase
 from . import test_native_partial_adapter as adapter
 from ..models.native_employee_cost_audit import (
-    _AUDIT_CHECKS, _audit_case_outcome, _audit_check_summary, _audit_fixture_transaction,
+    _AUDIT_CHECKS, _audit_case_outcome, _audit_check_summary, _audit_exception, _audit_fixture_transaction,
 )
 
 
@@ -108,6 +108,13 @@ class TestNativeCostBasis(StockReleaseNativeCase):
         self.assertFalse(report['stock_posting_exercised'])
         self.assertEqual((report['expected_checks'], report['passed'], report['failed'], report['not_run']),
                          (14, 0, 0, 14))
+        sources = report['sources']['analytic_methods']
+        self.assertIn('account.analytic.line.create', sources)
+        self.assertIn('account.analytic.line._compute_unit_quantity_amount', sources)
+        conversion = sources['uom.uom._compute_quantity']
+        self.assertTrue(any('_compute_quantity' in row['provider'] for row in conversion))
+        self.assertTrue(all(row['wrappers'][0].get('source') for row in conversion))
+        self.assertIn('product_uom_id', report['diagnostics']['analytic_uom_fields'])
         self.assertEqual(before, {name: self.env[name].search([]).ids for name in before})
 
     def _audit_actor(self):
@@ -228,3 +235,49 @@ class TestNativeCostBasis(StockReleaseNativeCase):
         self.assertEqual((summary['passed'], summary['failed'], summary['not_run']), (12, 1, 1))
         with self.assertRaises(ValidationError):
             _audit_check_summary(checks + [checks[0]])
+
+    def test_audit_diagnostics_keep_failed_stage_and_native_traceback_after_rollback(self):
+        actor = self._audit_actor()
+        before = self._audit_categories()
+        diagnostics = {'stage': 'transaction.open', 'stages': []}
+        try:
+            with _audit_fixture_transaction(actor, diagnostics) as audit:
+                audit._native_employee_audit_stage('setup.loss_type_create')
+                category_id = audit._native_employee_audit_loss_type('productive').id
+                audit._native_employee_audit_stage('setup.flush')
+                # Actual native validator, not a fabricated traceback/error.
+                audit.env.ref('uom.product_uom_hour')._compute_quantity(1, audit.env.ref('uom.product_uom_unit'))
+        except UserError as error:
+            failure = _audit_exception(error, diagnostics['stage'])
+        else:
+            self.fail('Native hour-to-piece validation unexpectedly succeeded')
+        self.assertEqual(failure['error_stage'], 'setup.flush')
+        self.assertEqual(failure['error_type'], 'UserError')
+        self.assertIn('uom_uom.py', failure['traceback'])
+        self.assertIn('_compute_quantity', failure['traceback'])
+        self.assertEqual(failure['error_frames'][-1]['method'], '_compute_quantity')
+        self.assertTrue(all(set(frame) == {'file', 'line', 'method'} for frame in failure['error_frames']))
+        self.assertEqual(diagnostics['transaction_rollback'], 'COMPLETE')
+        self.assertEqual([row['stage'] for row in diagnostics['stages']],
+                         ['setup.loss_type_create', 'setup.flush'])
+        self.env.invalidate_all(flush=False)
+        self.assertEqual(self._audit_categories(), before)
+        self.assertFalse(self.env['mrp.workcenter.productivity.loss.type'].browse(category_id).exists())
+
+    def test_actual_setup_missing_enterprise_fields_reports_its_stage_without_fixture(self):
+        if 'employee_cost' in self.env['mrp.workcenter.productivity']._fields:
+            self.skipTest('This missing-field regression requires Community; Enterprise uses the staging audit')
+        actor = self._audit_actor()
+        before = actor.search([]).ids
+        diagnostics = {'stage': 'transaction.open', 'stages': []}
+        try:
+            with _audit_fixture_transaction(actor, diagnostics) as audit:
+                audit._native_employee_audit_setup()
+        except ValidationError as error:
+            failure = _audit_exception(error, diagnostics['stage'])
+        else:
+            self.fail('Community fixture accepted missing Enterprise employee fields')
+        self.assertEqual(failure['error_stage'], 'setup.validate_enterprise_fields')
+        self.assertIn('_native_employee_audit_setup', failure['traceback'])
+        self.assertEqual(diagnostics['transaction_rollback'], 'COMPLETE')
+        self.assertEqual(actor.search([]).ids, before)

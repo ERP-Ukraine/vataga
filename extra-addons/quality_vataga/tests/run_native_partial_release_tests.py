@@ -19,6 +19,8 @@ def main():
     parser.add_argument('--run-disposable-tests', action='store_true', required=True)
     parser.add_argument('--with-subcontracting', action='store_true',
                         help='Install the real Community subcontracting override to test its non-subcontract branch.')
+    parser.add_argument('--with-analytic-uom', action='store_true',
+                        help='Install the actual account_analytic_uom addon for native MRP hour/unit regressions.')
     parser.add_argument('--test-tags', default='/quality_partial_probe:TestNativePartialAdapter,'
                         '/quality_partial_probe:TestNativeBackorderBridge,/quality_partial_probe:TestNativePartialProduction,'
                         '/quality_partial_probe:TestNativeProductionLoss,/quality_partial_probe:TestNativeCostBasis')
@@ -37,12 +39,19 @@ def main():
         print('DISPOSABLE DATABASE:', database, '127.0.0.1:', args.port, flush=True)
         with tempfile.TemporaryDirectory(prefix='qunit_partial_') as directory:
             temp = Path(directory)
+            if args.with_analytic_uom:
+                # Real addon, isolated from unrelated auto-install addons in
+                # the repository. No substitute analytic or conversion code.
+                shutil.copytree(root.parent / 'account_analytic_uom', temp / 'account_analytic_uom',
+                                ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
             addon = temp / 'quality_partial_probe'
             for part in ('models', 'tests', 'security'):
                 (addon / part).mkdir(parents=True)
             (addon / '__manifest__.py').write_text(repr({
                 'name': 'Disposable incremental native MRP tests', 'version': '17.0.2.62',
-                'license': 'LGPL-3', 'depends': ['mrp_account'] + (['mrp_subcontracting_account'] if args.with_subcontracting else []),
+                'license': 'LGPL-3', 'depends': ['mrp_account']
+                    + (['mrp_subcontracting_account'] if args.with_subcontracting else [])
+                    + (['account_analytic_uom'] if args.with_analytic_uom else []),
                 'data': ['security/ir.model.access.csv', 'security/rules.xml'],
             }), encoding='utf-8')
             (addon / '__init__.py').write_text('from . import models\nfrom . import tests\n', encoding='utf-8')
@@ -53,12 +62,14 @@ def main():
                                                     'from . import native_production_loss\n'
                                                     'from . import native_employee_cost_audit\n', encoding='utf-8')
             for name in ('test_stock_release_native_contract.py', 'test_native_partial_adapter.py',
-                         'test_native_backorder_bridge.py', 'test_native_production_loss.py', 'test_native_cost_basis.py'):
+                         'test_native_backorder_bridge.py', 'test_native_production_loss.py', 'test_native_cost_basis.py',
+                         'test_native_analytic_uom.py'):
                 shutil.copyfile(root / 'tests' / name, addon / 'tests' / name)
             (addon / 'tests/__init__.py').write_text('from . import test_stock_release_native_contract\n'
                                                    'from . import test_native_partial_adapter\nfrom . import test_native_backorder_bridge\n'
                                                    'from . import test_native_production_loss\n'
-                                                   'from . import test_native_cost_basis\n', encoding='utf-8')
+                                                   'from . import test_native_cost_basis\n'
+                                                   'from . import test_native_analytic_uom\n', encoding='utf-8')
             names = ('release', 'unit', 'cost')
             (addon / 'security/ir.model.access.csv').write_text(
                 'id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink\n' + ''.join(
@@ -79,7 +90,9 @@ def main():
                 '--addons-path=' + ','.join(str(p) for p in (source / 'odoo/addons', source / 'addons', temp)),
                 '--data-dir=' + str(temp / 'data'), '-i', 'quality_partial_probe', '--without-demo=all',
                 '--no-http', '--http-interface=127.0.0.1', '--http-port=0', '--max-cron-threads=0',
-                '--test-enable', '--test-tags=' + args.test_tags, '--stop-after-init', '--log-level=warn',
+                '--test-enable', '--test-tags=' + args.test_tags
+                    + (',native_analytic_uom/quality_partial_probe:TestNativeAnalyticUom' if args.with_analytic_uom else ''),
+                '--stop-after-init', '--log-level=warn',
                 '--log-handler=odoo.tests:INFO', '--log-handler=odoo.service.server:INFO',
                 '--log-handler=odoo.addons.quality_partial_probe.tests:INFO',
             ], cwd=source, env=environment, check=False)
