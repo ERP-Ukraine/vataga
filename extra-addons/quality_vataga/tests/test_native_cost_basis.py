@@ -3,11 +3,14 @@ import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from odoo.exceptions import UserError
+from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tests import tagged
 
 from .test_stock_release_native_contract import StockReleaseNativeCase
 from . import test_native_partial_adapter as adapter
+from ..models.native_employee_cost_audit import (
+    _AUDIT_CHECKS, _audit_case_outcome, _audit_check_summary, _audit_fixture_transaction,
+)
 
 
 @tagged('post_install', '-at_install', 'native_cost_basis')
@@ -103,4 +106,125 @@ class TestNativeCostBasis(StockReleaseNativeCase):
         self.assertEqual(report['rollback'], 'NO_FIXTURE_CREATED')
         self.assertFalse(report['production_provider_authorized'])
         self.assertFalse(report['stock_posting_exercised'])
+        self.assertEqual((report['expected_checks'], report['passed'], report['failed'], report['not_run']),
+                         (14, 0, 0, 14))
         self.assertEqual(before, {name: self.env[name].search([]).ids for name in before})
+
+    def _audit_actor(self):
+        # Installed admin is an ordinary uid, not uid=1 / sudo. Its native
+        # MRP manager ACL still cannot create or write loss categories.
+        actor = self.env['mrp.production'].with_user(self.env.ref('base.user_admin'))
+        self.assertFalse(actor.env.su)
+        categories = actor.env['mrp.workcenter.productivity.loss.type']
+        self.assertTrue(categories.check_access_rights('read', raise_exception=False))
+        self.assertFalse(categories.check_access_rights('create', raise_exception=False))
+        self.assertFalse(categories.check_access_rights('write', raise_exception=False))
+        return actor
+
+    def _audit_categories(self):
+        return self.env['mrp.workcenter.productivity.loss.type'].search([]).read(['loss_type'])
+
+    def test_audit_temporary_categories_allow_normal_actor_and_rollback_on_success(self):
+        actor = self._audit_actor()
+        before = self._audit_categories()
+        existing_id = before[0]['id']
+        with _audit_fixture_transaction(actor) as audit:
+            self.assertFalse(audit.env.su)
+            self.assertEqual(audit.env.uid, actor.env.uid)
+            self.assertIsNot(audit.env.cr, actor.env.cr)
+            with self.assertRaises(AccessError), audit.env.cr.savepoint():
+                audit.env['mrp.workcenter.productivity.loss.type'].create({'loss_type': 'productive'})
+            productive = audit._native_employee_audit_loss_type('productive')
+            quality = audit._native_employee_audit_loss_type('quality')
+            created_ids = (productive | quality).ids
+            self.assertEqual((productive.loss_type, quality.loss_type), ('productive', 'quality'))
+            self.assertFalse(productive.env.su)
+            self.assertFalse(quality.env.su)
+            # Reasons and operations keep the actor's permissions. Both
+            # fixture setup and native-duration conversion use these rows.
+            reasons = audit.env['mrp.workcenter.productivity.loss'].create([
+                {'name': 'Own audit productive reason', 'loss_id': productive.id},
+                {'name': 'Own audit quality reason', 'loss_id': quality.id}])
+            self.assertFalse(reasons.env.su)
+            self.assertEqual(reasons.mapped('loss_id').ids, created_ids)
+            existing = audit.env['mrp.workcenter.productivity.loss.type'].browse(existing_id)
+            with self.assertRaises(AccessError):
+                audit._native_employee_audit_change_loss_category(existing)
+            with self.assertRaises(AccessError), audit.env.cr.savepoint():
+                productive.write({'loss_type': 'performance'})
+            with self.assertRaises(UserError), audit.env.cr.savepoint():
+                audit._native_employee_audit_change_loss_category(productive)
+                audit.env.flush_all()
+                self.assertEqual(productive.loss_type, 'performance')
+                raise UserError('Nested audit rollback')
+            self.assertEqual(productive.loss_type, 'productive')
+            audit._native_employee_audit_change_loss_category(productive)
+            self.assertEqual(productive.loss_type, 'performance')
+        self.env.invalidate_all(flush=False)
+        self.assertEqual(self._audit_categories(), before)
+        self.assertFalse(self.env['mrp.workcenter.productivity.loss.type'].browse(created_ids).exists())
+        self.assertFalse(self.env['mrp.workcenter.productivity.loss'].browse(reasons.ids).exists())
+
+    def test_audit_categories_rollback_on_exception_and_clear_postcommit_callbacks(self):
+        actor = self._audit_actor()
+        before = self._audit_categories()
+        called = []
+        with self.assertRaisesRegex(UserError, 'Fixture fault'):
+            with _audit_fixture_transaction(actor) as audit:
+                category = audit._native_employee_audit_loss_type('quality')
+                category_id = category.id
+                audit.env.cr.postcommit.add(lambda: called.append(True))
+                audit._native_employee_audit_change_loss_category(category)
+                audit.env.flush_all()
+                raise UserError('Fixture fault')
+        self.env.invalidate_all(flush=False)
+        self.assertFalse(called)
+        self.assertFalse(audit.env.cr.postcommit._funcs)
+        self.assertEqual(self._audit_categories(), before)
+        self.assertFalse(self.env['mrp.workcenter.productivity.loss.type'].browse(category_id).exists())
+        with self.assertRaises(AccessError):
+            actor._native_employee_audit_loss_type('productive')
+
+    def test_audit_elevation_cannot_escape_own_cursor_actor_or_created_categories(self):
+        actor = self._audit_actor()
+        with self.assertRaises(AccessError):
+            actor._native_employee_audit_loss_type('quality')
+        before_mo = actor.search([]).ids
+        with self.assertRaises(AccessError):
+            actor._native_employee_audit_setup()
+        self.assertEqual(actor.search([]).ids, before_mo)
+        with _audit_fixture_transaction(actor) as audit:
+            category = audit._native_employee_audit_loss_type('productive')
+            with self.assertRaises(AccessError):
+                actor._native_employee_audit_loss_type('quality')
+            with self.assertRaises(AccessError):
+                actor._native_employee_audit_change_loss_category(category)
+            with self.assertRaises(AccessError):
+                audit.sudo()._native_employee_audit_change_loss_category(category)
+            with self.assertRaises(ValidationError):
+                audit._native_employee_audit_loss_type('availability')
+            foreign = audit.env['mrp.workcenter.productivity.loss.type'].browse(self._audit_categories()[0]['id'])
+            with self.assertRaises(AccessError):
+                audit._native_employee_audit_change_loss_category(foreign)
+        with self.assertRaises(AccessError):
+            actor._native_employee_audit_change_loss_category(category.with_env(actor.env))
+
+    def test_unexecuted_or_missing_audit_checks_never_count_as_pass(self):
+        checks = [{'name': name, **_audit_case_outcome({'verified': True})} for name in _AUDIT_CHECKS]
+        complete = _audit_check_summary(checks)
+        self.assertEqual((complete['result'], complete['passed'], complete['not_run']), ('AUDIT_PASS', 14, 0))
+        mapping = next(check for check in checks if check['name'] == 'native_user_employee_mapping')
+        mapping.update(_audit_case_outcome({'exercised': False, 'reason': 'Actor has no employee'}))
+        summary = _audit_check_summary(checks)
+        self.assertEqual((mapping['result'], summary['result'], summary['passed'], summary['not_run']),
+                         ('NOT_RUN', 'FAIL', 13, 1))
+        checks.pop()
+        summary = _audit_check_summary(checks)
+        self.assertEqual((summary['result'], summary['passed'], summary['not_run']), ('FAIL', 12, 2))
+        for empty in (None, {}, []):
+            self.assertEqual(_audit_case_outcome(empty)['result'], 'FAIL')
+        mapping.update(_audit_case_outcome(None))
+        summary = _audit_check_summary(checks)
+        self.assertEqual((summary['passed'], summary['failed'], summary['not_run']), (12, 1, 1))
+        with self.assertRaises(ValidationError):
+            _audit_check_summary(checks + [checks[0]])

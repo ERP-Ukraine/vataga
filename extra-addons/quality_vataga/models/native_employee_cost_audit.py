@@ -7,6 +7,8 @@ Real immutable-checkpoint and 4+1 acceptance remain gated until Enterprise QA.
 import json
 import math
 import uuid
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import timedelta
 from types import SimpleNamespace
 
@@ -14,6 +16,58 @@ from odoo import _, api, fields, models
 from odoo.exceptions import AccessError, UserError, ValidationError
 
 from .native_partial_release import _CORE_COST, _read
+
+
+_FIXTURE_SCOPE = ContextVar('quality_employee_audit_fixture', default=None)
+_AUDIT_CHECKS = (
+    'repeat_duration_analytics', 'new_closed_work_and_analytics',
+    'overlap_wc_union_employee_sum', 'employee_fallback_rate',
+    'native_loss_duration_conversion', 'native_user_employee_mapping',
+    'hourly_rate', 'compensating_rates_same_total', 'employee_assignment',
+    'interval_duration', 'effective_employee_cost', 'loss_category',
+    'injected_error_rollback', 'production_gate_remains_closed',
+)
+
+
+@contextmanager
+def _audit_fixture_transaction(model):
+    """Own cursor, ordinary actor, narrowly tracked temporary categories only.
+
+    Never yield the caller's cursor: even a successful probe must roll back
+    its fixture and discard its postcommit callbacks before returning.
+    """
+    context = {'allowed_company_ids': model.env.companies.ids,
+               'lang': model.env.lang, 'tz': model.env.user.tz}
+    with model.env.registry.cursor() as audit_cr:
+        env = api.Environment(audit_cr, model.env.uid, context)
+        audit = env[model._name].with_company(model.env.company.id)
+        token = _FIXTURE_SCOPE.set({'env': audit.env, 'loss_type_ids': set()})
+        try:
+            yield audit
+        finally:
+            try:
+                audit_cr.rollback()
+            finally:
+                _FIXTURE_SCOPE.reset(token)
+
+
+def _audit_check_summary(checks):
+    names = [check['name'] for check in checks]
+    _assert(len(names) == len(set(names)) and set(names).issubset(_AUDIT_CHECKS),
+            'Unexpected or duplicate employee audit check')
+    _assert(all(check['result'] in ('PASS', 'FAIL', 'NOT_RUN') for check in checks),
+            'Unexpected employee audit result')
+    passed = sum(check['result'] == 'PASS' for check in checks)
+    failed = sum(check['result'] == 'FAIL' for check in checks)
+    not_run = len(_AUDIT_CHECKS) - passed - failed
+    return {'expected_checks': len(_AUDIT_CHECKS), 'passed': passed, 'failed': failed,
+            'not_run': not_run, 'result': 'AUDIT_PASS' if passed == len(_AUDIT_CHECKS) else 'FAIL'}
+
+
+def _audit_case_outcome(detail):
+    if not isinstance(detail, dict) or not detail:
+        return {'result': 'FAIL', 'error': 'Audit case returned no verification detail'}
+    return {'result': 'NOT_RUN' if detail.get('exercised') is False else 'PASS', 'detail': detail}
 
 
 class _AuditRollback(Exception):
@@ -30,12 +84,42 @@ class NativeEmployeeCostAudit(models.Model):
     _inherit = 'mrp.production'
 
     @api.model
+    def _native_employee_audit_fixture_scope(self):
+        scope = _FIXTURE_SCOPE.get()
+        if (not scope or scope['env'].cr is not self.env.cr
+                or scope['env'].uid != self.env.uid or scope['env'].su != self.env.su
+                or scope['env'].company != self.env.company):
+            raise AccessError(_('Тимчасові категорії дозволені лише у транзакції аудиту з відкатом.'))
+        return scope
+
+    @api.model
+    def _native_employee_audit_loss_type(self, loss_type):
+        scope = self._native_employee_audit_fixture_scope()
+        _assert(loss_type in ('productive', 'quality'), 'Unexpected fixture loss category')
+        # Native ACL intentionally allows only reading categories, even for
+        # MRP managers. Elevate only creation of this fresh temporary row.
+        category = self.env['mrp.workcenter.productivity.loss.type'].sudo().create({'loss_type': loss_type})
+        scope['loss_type_ids'].add(category.id)
+        return category.with_env(self.env)
+
+    @api.model
+    def _native_employee_audit_change_loss_category(self, category):
+        scope = self._native_employee_audit_fixture_scope()
+        if (category._name != 'mrp.workcenter.productivity.loss.type' or len(category) != 1
+                or category.env.cr is not self.env.cr or category.id not in scope['loss_type_ids']):
+            raise AccessError(_('Дозволена зміна лише власної тимчасової категорії аудиту.'))
+        # Never elevate a search or an existing category; these IDs came only
+        # from this cursor's fixture creation and cannot survive its rollback.
+        return category.sudo().write({'loss_type': 'performance'})
+
+    @api.model
     def _native_employee_audit_setup(self):
         """Only fresh fixture rows. Reuse an existing analytic plan read-only.
 
         Creating a new plan can change the registry/schema; a savepoint does
         not restore Python registry fields. This probe must not do that.
         """
+        self._native_employee_audit_fixture_scope()
         if not {'employee_cost', 'employee_id', 'total_cost'}.issubset(self.env['mrp.workcenter.productivity']._fields):
             raise ValidationError(_('Потрібні справжні Enterprise-поля вартості працівників.'))
         self.env.cr.execute('SELECT COALESCE(MAX(id), 0) FROM account_analytic_line')
@@ -73,7 +157,7 @@ class NativeEmployeeCostAudit(models.Model):
         production.action_confirm()
         workorder = production.workorder_ids
         workorder.ensure_one()
-        loss_type = self.env['mrp.workcenter.productivity.loss.type'].create({'loss_type': 'productive'})
+        loss_type = self._native_employee_audit_loss_type('productive')
         loss = self.env['mrp.workcenter.productivity.loss'].create({
             'name': suffix, 'loss_id': loss_type.id, 'manual': False})
         scene = {'production': production, 'workorder': workorder, 'center': center,
@@ -152,7 +236,7 @@ class NativeEmployeeCostAudit(models.Model):
                 self.env.flush_all()
                 raise _AuditRollback(detail)
         except _AuditRollback as rollback:
-            result.update(result='PASS', detail=rollback.value)
+            result.update(_audit_case_outcome(rollback.value))
         except Exception as error:
             result.update(error_type=type(error).__name__, error=str(error))
         self.env.invalidate_all(flush=False)
@@ -213,7 +297,7 @@ class NativeEmployeeCostAudit(models.Model):
         checks.append(self._native_employee_audit_case(scene, 'employee_fallback_rate', fallback))
 
         def native_conversion():
-            category = self.env['mrp.workcenter.productivity.loss.type'].create({'loss_type': 'quality'})
+            category = self._native_employee_audit_loss_type('quality')
             reason = self.env['mrp.workcenter.productivity.loss'].create({
                 'name': 'QCOST native conversion ' + uuid.uuid4().hex[:8], 'loss_id': category.id})
             timer = self._native_employee_audit_timer(dict(scene, loss=reason), 60, 90, scene['employees'][1])
@@ -247,7 +331,7 @@ class NativeEmployeeCostAudit(models.Model):
             'employee_assignment': lambda: scene['timers'][0].write({'employee_id': scene['employees'][1].id}),
             'interval_duration': lambda: scene['timers'][0].write({'date_end': scene['anchor'] + timedelta(minutes=40)}),
             'effective_employee_cost': lambda: scene['timers'][0].write({'employee_cost': 25}),
-            'loss_category': lambda: scene['loss'].loss_id.write({'loss_type': 'performance'}),
+            'loss_category': lambda: self._native_employee_audit_change_loss_category(scene['loss'].loss_id),
         }
         for name, change in changes.items():
             def changed_inputs(change=change, name=name):
@@ -281,15 +365,14 @@ class NativeEmployeeCostAudit(models.Model):
                 return {'production_provider_authorized': False}
             raise ValidationError('Pending Enterprise provider was unexpectedly authorized')
         checks.append(self._native_employee_audit_case(scene, 'production_gate_remains_closed', provider_gate))
-        return {'checks': checks, 'baseline': baseline,
-                'result': 'AUDIT_PASS' if all(c['result'] == 'PASS' for c in checks) else 'FAIL'}
+        return {'checks': checks, 'baseline': baseline, **_audit_check_summary(checks)}
 
     @api.model
     def _run_native_employee_cost_audit(self, expected_database):
         if self.env.cr.dbname != expected_database or not self.env.user.has_group('base.group_system'):
             raise AccessError(_('Потрібні системний адміністратор і точна назва staging-бази.'))
         sources = self._native_partial_cost_provider_report(expected_database, include_source=True)
-        report = {'result': 'FAIL', 'scope': 'native_employee_cost_and_analytics_only',
+        report = {**_audit_check_summary([]), 'checks': [], 'scope': 'native_employee_cost_and_analytics_only',
                   'production_provider_authorized': False, 'stock_posting_exercised': False,
                   'persisted_checkpoint_exercised': False, 'terminal_loss_flow_proven': False,
                   'sources': sources}
@@ -306,27 +389,21 @@ class NativeEmployeeCostAudit(models.Model):
             'quality.native.partial.release', 'quality.native.partial.cost')
         # Own transaction: finally rolls it back and clears its postcommit
         # callbacks as well. Caller transaction receives only the plain report.
-        context = {'allowed_company_ids': self.env.companies.ids,
-                   'lang': self.env.lang, 'tz': self.env.user.tz}
-        with self.env.registry.cursor() as audit_cr:
-            env = api.Environment(audit_cr, self.env.uid, context)
-            audit = env[self._name].with_company(self.env.company.id)
+        with _audit_fixture_transaction(self) as audit:
+            env = audit.env
+            before = {name: env[name].search_count([]) for name in names}
             try:
-                before = {name: env[name].search_count([]) for name in names}
-                try:
-                    with audit_cr.savepoint():
-                        scene = audit._native_employee_audit_setup()
-                        report.update(audit._native_employee_audit_scenario(scene))
-                        env.flush_all()
-                        raise _AuditRollback()
-                except _AuditRollback:
-                    pass
-                except Exception as error:
-                    report.update(result='FAIL', error_type=type(error).__name__, error=str(error))
-                env.invalidate_all(flush=False)
-                if before != {name: env[name].search_count([]) for name in names}:
-                    raise ValidationError(_('Не підтверджено відкат аудиту працівників та аналітики.'))
-                report['rollback'] = 'COMPLETE'
-            finally:
-                audit_cr.rollback()
+                with env.cr.savepoint():
+                    scene = audit._native_employee_audit_setup()
+                    report.update(audit._native_employee_audit_scenario(scene))
+                    env.flush_all()
+                    raise _AuditRollback()
+            except _AuditRollback:
+                pass
+            except Exception as error:
+                report.update(result='FAIL', error_type=type(error).__name__, error=str(error))
+            env.invalidate_all(flush=False)
+            if before != {name: env[name].search_count([]) for name in names}:
+                raise ValidationError(_('Не підтверджено відкат аудиту працівників та аналітики.'))
+            report['rollback'] = 'COMPLETE'
         return report
