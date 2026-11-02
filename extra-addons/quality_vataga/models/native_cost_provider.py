@@ -7,6 +7,32 @@ import textwrap
 ENTERPRISE_COST_MODULE = 'odoo.addons.mrp_workorder.models.mrp_workorder'
 ENTERPRISE_COST_QUALNAME = 'MrpProductionWorkcenterLine._cal_cost'
 ENTERPRISE_COST_SHA256 = '71c4a9b3bfda60a38874a601ca26620730a9c121de75e030de7c13c593049d12'
+ENTERPRISE_COST_FILE = '/mnt/enterprise-addons/mrp_workorder/models/mrp_workorder.py'
+
+
+def reviewed_enterprise_cost(records, native, core):
+    """Exact reviewed three-definition chain; recognition grants no capability.
+
+    Check every definition, including shadowed overrides. Neither matching
+    names nor a matching method embedded in a different MRO is sufficient.
+    """
+    definitions = method_definitions(records, '_cal_cost')
+    if len(definitions) != 3 or definitions[0][1] is not native or definitions[-1][1] is not core:
+        return None
+    owner, implementation = definitions[1]
+    if (owner.__module__ != ENTERPRISE_COST_MODULE
+            or owner.__qualname__ != 'MrpProductionWorkcenterLine'
+            or implementation.__module__ != ENTERPRISE_COST_MODULE
+            or implementation.__qualname__ != ENTERPRISE_COST_QUALNAME
+            or getattr(implementation, '__wrapped__', None) is not None):
+        return None
+    try:
+        if inspect.getsourcefile(implementation) != ENTERPRISE_COST_FILE:
+            return None
+        digest = hashlib.sha256(inspect.getsource(implementation).encode('utf-8')).hexdigest()
+    except (TypeError, OSError):
+        return None
+    return implementation if digest == ENTERPRISE_COST_SHA256 else None
 
 
 def enterprise_cost_candidate(records):

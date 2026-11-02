@@ -57,7 +57,7 @@ def main():
             (addon / '__init__.py').write_text('from . import models\nfrom . import tests\n', encoding='utf-8')
             for name in ('native_backorder.py', 'native_cost_provider.py', 'native_cost_basis.py',
                          'native_partial_release.py', 'native_production_loss.py', 'native_employee_cost_audit.py',
-                         'native_analytic_diagnostic.py', 'native_analytic_sync.py'):
+                         'native_analytic_diagnostic.py', 'native_analytic_sync.py', 'native_enterprise_integration.py'):
                 shutil.copyfile(root / 'models' / name, addon / 'models' / name)
             (addon / 'models/__init__.py').write_text('from . import native_backorder\nfrom . import native_partial_release\n'
                                                     'from . import native_analytic_sync\n'

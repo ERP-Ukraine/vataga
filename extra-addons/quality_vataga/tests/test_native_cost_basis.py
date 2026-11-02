@@ -15,6 +15,10 @@ from ..models.native_employee_cost_audit import (
 )
 from ..models.native_analytic_diagnostic import analytic_state_difference, trace_duration_calls
 from ..models.native_analytic_sync import analytic_sync_scope
+from ..models.native_enterprise_integration import (
+    _INTEGRATION, _FixtureScope, enterprise_fixture_transaction,
+)
+from ..models import native_enterprise_integration as integration
 from odoo.addons.mrp.models.mrp_workorder import MrpWorkorder as CoreWorkorder
 from odoo.addons.mrp_account.models.mrp_workorder import MrpWorkorder as AccountWorkorder
 
@@ -26,6 +30,65 @@ class TestNativeCostBasis(StockReleaseNativeCase):
     _release = adapter.TestNativePartialAdapter._release
     _denied = adapter.TestNativePartialAdapter._denied
     _snapshot = adapter.TestNativePartialAdapter._snapshot
+
+    def test_enterprise_capability_rejects_existing_productions_and_community_chain(self):
+        production = self._timed()
+        scope = _FixtureScope(production, {})
+        with self.assertRaises(AccessError):
+            scope.register(production)
+        # A capability for an explicit ID is still insufficient: actual
+        # Enterprise source, file, complete MRO and duration chain are required.
+        scope.production_ids.add(production.id)
+        token = _INTEGRATION.set(scope)
+        try:
+            with self.assertRaisesRegex(ValidationError, 'Enterprise cost source'):
+                production.workorder_ids._native_partial_cost_basis()
+        finally:
+            _INTEGRATION.reset(token)
+        self.assertEqual(production.workorder_ids._cal_cost(), 60)
+        production.workorder_ids._native_partial_cost_basis()
+
+    def test_enterprise_transaction_rejects_nonstaging_before_opening_cursor(self):
+        with self.assertRaises(AccessError):
+            with enterprise_fixture_transaction(self.env['mrp.production'], {}):
+                self.fail('Disposable Community database must not receive Enterprise admission')
+        self.assertIsNone(_INTEGRATION.get())
+
+    def _rollback_fixture_transaction(self, fail=False):
+        diagnostics, callbacks = {}, []
+        production_id = None
+        def exercise():
+            nonlocal production_id
+            with enterprise_fixture_transaction(self.env['mrp.production'], diagnostics) as (model, scope):
+                product = model.env['product.product'].create({'name': 'Disposable transaction fixture', 'type': 'product'})
+                production = model.create({'product_id': product.id, 'product_qty': 5,
+                                           'product_uom_id': product.uom_id.id})
+                production_id = production.id
+                scope.register(production)
+                scope.remember(product)
+                model.env.cr.postcommit.add(lambda: callbacks.append('MUST NOT RUN'))
+                model.env.flush_all()
+                if fail:
+                    raise RuntimeError('injected fixture exception')
+        # Test only the transaction mechanism against this disposable DB.
+        # Cost source/MRO admission is not changed or exercised here.
+        with patch.object(integration, 'STAGING_DATABASE', self.env.cr.dbname):
+            if fail:
+                with self.assertRaisesRegex(RuntimeError, 'injected fixture exception'):
+                    exercise()
+            else:
+                exercise()
+        self.assertEqual(diagnostics['rollback'], 'COMPLETE')
+        self.assertEqual(diagnostics['rollback_verified_absent']['mrp_production'], 1)
+        self.assertFalse(callbacks)
+        self.assertIsNone(_INTEGRATION.get())
+        self.assertFalse(self.env['mrp.production'].browse(production_id).exists())
+
+    def test_integration_own_transaction_rolls_back_success_and_discards_callbacks(self):
+        self._rollback_fixture_transaction()
+
+    def test_integration_own_transaction_rolls_back_exception_and_restores_scope(self):
+        self._rollback_fixture_transaction(fail=True)
 
     def test_real_native_analytics_are_cumulative_while_stock_uses_incremental_cost(self):
         self.env.cr.execute('SELECT COALESCE(MAX(id), 0) FROM account_analytic_line')

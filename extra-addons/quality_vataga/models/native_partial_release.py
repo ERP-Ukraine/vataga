@@ -19,6 +19,7 @@ from odoo.addons.mrp_account.models.mrp_production import MrpProduction as Accou
 from .native_cost_provider import (describe_method, method_definitions, provider_name,
                                    reviewed_subcontracting_methods, enterprise_cost_candidate)
 from .native_cost_basis import BASIS_VERSION, checkpoint_basis_error
+from .native_enterprise_integration import integration_cost_methods
 
 
 _CORE_COST = CoreWorkorder._cal_cost
@@ -546,6 +547,7 @@ class NativePartialWorkorder(models.Model):
     def _native_partial_cost_basis(self):
         self.ensure_one()
         allowed = {NativePartialWorkorder._cal_cost, _CORE_COST}
+        allowed.update(integration_cost_methods(self, NativePartialWorkorder._cal_cost, _CORE_COST))
         unknown = [provider_name(owner, provider) for owner, provider in method_definitions(self, '_cal_cost')
                    if provider not in allowed]
         if unknown:
