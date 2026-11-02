@@ -6,6 +6,11 @@ reviewed_enterprise_duration_chain=True, cost_provider_authorized=False.
 Это подтверждает предварительный аудит; **полный Enterprise Stock/QC цикл
 этим сообщением ещё не подтверждён**.
 
+Повторный реальный запуск на `62d6696`: employee audit 14/14 PASS;
+integration none/lot остановились до сценариев (0/24) на подготовке образцов,
+оба rollback COMPLETE; source/MRO подтверждены. Исправление fixture и порядок
+повторного запуска описаны в `enterprise_qc_fixture_2026-11-02.md`.
+
 ## Граница допуска
 
 Разрешается только фактически проверенная реализация:

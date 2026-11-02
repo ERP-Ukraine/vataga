@@ -5,6 +5,7 @@ modified. The server helper owns exception handling; the safe_eval snippet
 contains only a call and one log(). This is NOT run by module installation.
 """
 from datetime import timedelta
+import json
 import uuid
 
 from odoo import _, api, fields, models
@@ -22,6 +23,45 @@ def _assert(condition, message):
 
 class QualityPartialProbe(models.Model):
     _inherit = 'mrp.production'
+
+    @api.model
+    def _quality_partial_probe_initialize_qc(self, production, workorder, check):
+        """Prepare only this fixture via the normal snapshot/matrix/identity APIs."""
+        stage = 'preconditions'
+        try:
+            _assert(production.qty_producing == 5, 'Expected actual qty_producing = 5 before QC generation')
+            _assert(check.production_id == production and check.workorder_id == workorder
+                    and workorder.production_id == production and check.product_id == production.product_id,
+                    'QC must belong to the exact fixture MO/WO/product')
+            _assert(check.x_control_stage == 'in_process', 'Expected in_process QC')
+            stage = 'snapshot'
+            check._initialize_measurement_snapshot()
+            _assert(check.measurement_matrix_required, 'QC snapshot did not enable measurement_matrix_required')
+            stage = 'matrix'
+            check.initialize_in_process_measurement_matrix()
+            _assert(len(check.sample_ids) == 5, 'Expected five QC samples')
+            quantity, error = check._get_in_process_sample_quantity()
+            _assert(quantity == 5 and not error, 'Native QC sample quantity differs from five: %s' % error)
+            error = check._get_in_process_batch_error(validate_current=True)
+            _assert(not error, 'Native QC batch is invalid: %s' % error)
+            stage = 'identity'
+            check.initialize_qc_unit_identity()
+            _assert(len(check.sample_ids.controlled_unit_id) == 5, 'Expected five identified real QUNIT')
+        except Exception as error:
+            detail = {'stage': stage, 'production_id': production.id,
+                'qty_producing': production.qty_producing, 'workorder_id': workorder.id,
+                'qc_id': check.id, 'qc_production_id': check.production_id.id,
+                'qc_workorder_id': check.workorder_id.id, 'x_control_stage': check.x_control_stage,
+                'measurement_matrix_required': check.measurement_matrix_required,
+                'sample_ids': check.sample_ids.ids}
+            for name, kwargs in (('_get_in_process_sample_quantity', {}),
+                                 ('_get_in_process_batch_error', {'validate_current': True})):
+                try:
+                    detail[name] = getattr(check, name)(**kwargs)
+                except Exception as diagnostic_error:
+                    detail[name] = {'error_type': type(diagnostic_error).__name__, 'error': str(diagnostic_error)}
+            raise ValidationError('QC fixture stage=%s: %s\nQC_BATCH: %s' % (
+                stage, error, json.dumps(detail, ensure_ascii=False, default=str))) from error
 
     @api.model
     def _quality_partial_probe_timer(self, workorder):
@@ -121,8 +161,7 @@ class QualityPartialProbe(models.Model):
                 'workorder_id': orders[1].id, 'measure_on': 'product'})
         orders[1].button_start(bypass=True)
         self._quality_partial_probe_timer(orders[1])
-        check.initialize_qc_unit_identity()
-        _assert(len(check.sample_ids) == 5, 'Expected five identified real QC samples')
+        self._quality_partial_probe_initialize_qc(production, orders[1], check)
         for sample in check.sample_ids:
             check.update_measurement_visual_result(sample.id, 'yes')
         if all_pass:
