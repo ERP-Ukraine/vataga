@@ -26,6 +26,8 @@ class NativeBackorderOperation:
     # Server-validated full batches in a native button_mark_done call. This
     # transaction-local scope never enters RPC context or persisted settings.
     standard_full: dict = field(default_factory=dict)
+    # Only the actual-batch adapter sets this after validating physical units.
+    actual_batch: bool = False
 
     @contextmanager
     def activate(self):
@@ -107,7 +109,7 @@ class NativeBackorderProduction(models.Model):
                         or child.bom_id != operation.production.bom_id
                         or child.product_uom_id != operation.production.product_uom_id):
                     raise ValidationError(_('Замовлення на залишок не відповідає вихідному виробничому замовленню.'))
-            if 'quality_transfer_controlled' in children._fields:
+            if 'quality_transfer_controlled' in children._fields and not operation.actual_batch:
                 for child in children:
                     child._enable_quality_transfer_control()
                     if ('quality_unit_route_required' in operation.production._fields

@@ -110,6 +110,6 @@ class TestPartialProbeContract(unittest.TestCase):
         self.assertEqual(tree.body[1].value.func.attr, '_run_quality_partial_release_probe')
         self.assertEqual(tree.body[2].value.func.id, 'log')
 
-    def test_version_stays_62_until_enterprise_acceptance(self):
+    def test_actual_batch_fix_has_separate_patch_version(self):
         manifest = ast.literal_eval((ROOT / '__manifest__.py').read_text(encoding='utf-8'))
-        self.assertEqual(manifest['version'], '17.0.2.62')
+        self.assertEqual(manifest['version'], '17.0.2.63')

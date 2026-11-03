@@ -55,3 +55,4 @@ from . import test_native_cost_basis_contract
 from . import test_quality_production_loss
 from . import test_quality_partial_release
 from . import test_quality_partial_release_contract
+from . import test_quality_actual_batch_release
