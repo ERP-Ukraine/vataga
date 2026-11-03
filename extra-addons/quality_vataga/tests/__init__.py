@@ -43,6 +43,7 @@ from . import test_quality_posted_admission_contract
 from . import test_quality_partial_workorder
 from . import test_quality_partial_workorder_contract
 from . import test_quality_automatic_workorder_contract
+from . import test_quality_interface_contract
 from . import test_native_open_mo_feasibility
 from . import test_native_open_mo_cost_basis
 from . import test_native_partial_adapter

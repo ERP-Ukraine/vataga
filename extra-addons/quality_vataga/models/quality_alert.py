@@ -28,6 +28,14 @@ class QualityAlert(models.Model):
     vataga_matrix_failure_snapshot = fields.Text(
         string='Невідповідності на момент створення', readonly=True, copy=False,
     )
+    vataga_matrix_alert_key = fields.Char(
+        string='Ключ захисту від повторного сповіщення', copy=False, readonly=True, index=True,
+    )
+
+    _sql_constraints = [(
+        'matrix_alert_request_unique', 'unique(check_id, vataga_matrix_alert_key)',
+        'Сповіщення про ці невідповідності вже створено. Оновіть перевірку та відкрийте наявне сповіщення.',
+    )]
 
     stage_id = fields.Many2one(
         default=lambda self: self.env.ref(NEW_STAGE_XMLID), copy=False,
@@ -136,8 +144,10 @@ class QualityAlert(models.Model):
                    if any(name not in vals for vals in vals_list)]
         defaults = self.default_get(missing) if missing else {}
         for vals in vals_list:
+            if 'vataga_matrix_alert_key' in vals:
+                raise UserError(_('Захист від повторного створення сповіщення встановлює система.'))
             if 'vataga_matrix_failure_snapshot' in vals:
-                raise UserError(_('Snapshot невідповідностей формується лише системою.'))
+                raise UserError(_('Знімок невідповідностей формується лише системою.'))
             if any(vals.get(name) for name in AUDIT_FIELDS):
                 raise AccessError(_('Поля аудиту встановлюють лише відповідні дії затвердження та закриття.'))
             # Normalize explicit stage_id as well as context defaults. Native
@@ -148,9 +158,19 @@ class QualityAlert(models.Model):
                 vataga_matrix_failure_snapshot=False,
             )
             check_id = values.get('check_id', defaults.get('check_id'))
+            values['vataga_matrix_alert_key'] = False
             if check_id:
                 check = self.env['quality.check'].browse(check_id)
                 in_process = check.x_control_stage == 'in_process'
+                if self.env.context.get('quality_matrix_alert'):
+                    if not in_process or not check._get_current_matrix_failure_data():
+                        raise UserError(_('Невідповідності вже усунуто. Оновіть перевірку якості.'))
+                    values['vataga_matrix_alert_key'] = check._matrix_alert_request_key()
+                    if self.search_count([
+                        ('check_id', '=', check.id),
+                        ('vataga_matrix_alert_key', '=', values['vataga_matrix_alert_key']),
+                    ], limit=1):
+                        raise UserError(_('Сповіщення про ці невідповідності вже створено. Оновіть перевірку та відкрийте наявне сповіщення.'))
                 if in_process:
                     failure_data = check._get_current_matrix_failure_data()
                     values['vataga_matrix_failure_snapshot'] = check._format_matrix_failure_data(
@@ -192,8 +212,10 @@ class QualityAlert(models.Model):
             self.invalidate_recordset()
 
     def write(self, vals):
+        if 'vataga_matrix_alert_key' in vals:
+            raise UserError(_('Захист від повторного створення сповіщення не можна змінювати вручну.'))
         if 'vataga_matrix_failure_snapshot' in vals:
-            raise UserError(_('Snapshot невідповідностей не можна змінювати вручну.'))
+            raise UserError(_('Знімок невідповідностей не можна змінювати вручну.'))
         if AUDIT_FIELDS.intersection(vals):
             raise AccessError(_('Поля аудиту не можна змінювати вручну.'))
         source_fields = {'check_id', 'production_id', 'workorder_id'}
@@ -243,7 +265,7 @@ class QualityAlert(models.Model):
 
     def _validate_production_resolution(self):
         self.ensure_one()
-        raise UserError(_('Міжопераційний Alert потребує підтвердженої процедури етапу 13.4. PASS або рішення ТР не замінюють виконання ремонту / списання.'))
+        raise UserError(_('Міжопераційне сповіщення про якість потребує підтвердженої процедури етапу 13.4. Результат «Придатний» або рішення Технічної ради не замінюють виконання ремонту / списання.'))
 
     def _get_alert_closure_values(self):
         self.ensure_one()

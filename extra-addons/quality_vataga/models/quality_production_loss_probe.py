@@ -85,7 +85,7 @@ class QualityProductionLossProbe(models.Model):
     def _quality_loss_probe_setup(self, tracking='none', all_pass=False):
         scope = _PROBE.get()
         if not scope or scope['cursor'] is not self.env.cr:
-            raise AccessError('Production loss fixtures require the private rollback transaction')
+            raise AccessError('Перевірка виробничих втрат потребує окремої тестової транзакції з відкатом.')
         scope['report']['stage'] = 'setup.qc_and_workorders'
         self.env.cr.execute('SELECT COALESCE(MAX(id), 0) FROM account_analytic_line')
         previous_analytic_id = self.env.cr.fetchone()[0]
@@ -94,7 +94,7 @@ class QualityProductionLossProbe(models.Model):
         scope['report']['stage'] = 'setup.employee_and_analytics'
         Timer = self.env['mrp.workcenter.productivity']
         if not {'employee_id', 'employee_cost', 'total_cost'}.issubset(Timer._fields):
-            raise ValidationError(_('Тест потребує реального Enterprise-обліку вартості працівника.'))
+            raise ValidationError(_('Тест потребує реального обліку в розширеній редакції Odoo вартості працівника.'))
         suffix = uuid.uuid4().hex[:10]
         employee = self.env['hr.employee'].create({
             'name': 'QLOSS employee ' + suffix,
@@ -193,7 +193,7 @@ class QualityProductionLossProbe(models.Model):
         orders, good, failed = (scene[n] for n in ('orders', 'good', 'failed'))
         # Recognition alone (even on this cursor) grants no access.
         self._quality_loss_probe_denied(scene, 'unregistered_provider_blocked',
-            orders[0]._native_partial_cost_basis, message='Неперевірений постачальник вартості WO')
+            orders[0]._native_partial_cost_basis, message='Неперевірений постачальник вартості робочого завдання')
         admission.register(production)
         scope['production_ids'].add(production.id)
         report['stage'] = 'provider.admitted_fixture_only'
@@ -229,7 +229,7 @@ class QualityProductionLossProbe(models.Model):
                 'check_id': check.id, 'team_id': alert.team_id.id, 'decision_type': 'repair'})
             alert.action_scrap_defective_units()
         self._quality_loss_probe_denied(scene, 'conflicting_alert', conflicting_alert,
-            message='Інший відкритий Alert')
+            message='Інше відкрите сповіщення про якість')
         def incomplete_consumption():
             production.move_raw_ids.write({'quantity': 8, 'picked': True})
             alert.action_scrap_defective_units()
@@ -320,9 +320,9 @@ class QualityProductionLossProbe(models.Model):
     def _run_quality_production_loss_probe(self, expected_database, tracking='none'):
         if (self.env.cr.dbname != expected_database or expected_database != STAGING_DATABASE
                 or not self.env.user.has_group('base.group_system')):
-            raise AccessError(_('Потрібні системний адміністратор і точна назва staging-бази.'))
+            raise AccessError(_('Потрібні системний адміністратор і точна назва тестової бази.'))
         if tracking not in ('none', 'lot'):
-            raise ValidationError(_('Тест підтримує none або lot.'))
+            raise ValidationError(_('Тест підтримує товари без відстеження або з відстеженням за партіями.'))
         report = {'result': 'FAIL', 'tracking': tracking, 'database': self.env.cr.dbname,
                   'production_provider_authorized': False, 'admission': 'rollback_fixture_only',
                   'stage': 'preflight', 'checks': [], 'expected_checks': len(_LOSS_CHECKS),

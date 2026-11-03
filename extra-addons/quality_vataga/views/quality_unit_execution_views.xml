@@ -9,8 +9,8 @@
                 <page name="quality_unit_execution" string="Поштучне виконання" groups="mrp.group_mrp_user" invisible="not quality_transfer_controlled">
                     <field name="quality_transfer_controlled" invisible="1"/>
                     <div class="alert alert-info">
-                        Обробка лише явно обраних прийнятих QUNIT. Залежності операцій зберігаються.
-                        Оброблено — індивідуальне виконання операції; складський випуск і стандартне завершення MO заблоковані.
+                        Обробка лише явно обраних прийнятих виробів. Залежності операцій зберігаються.
+                        Оброблено — індивідуальне виконання операції; складський випуск і стандартне завершення виробничого замовлення заблоковані.
                     </div>
                     <widget name="quality_unit_execution_buttons"/>
                     <group>

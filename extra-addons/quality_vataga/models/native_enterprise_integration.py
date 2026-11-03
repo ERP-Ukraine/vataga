@@ -32,7 +32,7 @@ class _FixtureScope:
                 or production.create_uid.id != self.env.uid
                 or production.company_id not in self.env.companies
                 or production._native_partial_history()):
-            raise AccessError('Only new, unposted productions from this rollback fixture may be admitted')
+            raise AccessError('Для тесту дозволені лише нові виробничі замовлення без складських проведень, створені цією перевіркою з відкатом.')
         self.production_ids.add(production.id)
         self.remember(production)
 
@@ -47,7 +47,7 @@ class _FixtureScope:
 @contextmanager
 def enterprise_fixture_transaction(model, diagnostics):
     if model.env.cr.dbname != STAGING_DATABASE or not model.env.user.has_group('base.group_system'):
-        raise AccessError('Enterprise integration is restricted to the staging administrator')
+        raise AccessError('Інтеграція розширеної редакції Odoo доступна лише адміністратору тестового середовища.')
     context = {'allowed_company_ids': model.env.companies.ids,
                'lang': model.env.lang, 'tz': model.env.user.tz}
     with model.env.registry.cursor() as cursor:
@@ -88,5 +88,5 @@ def integration_cost_methods(workorder, native, core):
         return ()
     provider = reviewed_enterprise_cost(workorder, native, core)
     if not provider or not workorder._native_analytic_duration_chain_reviewed():
-        raise ValidationError('Enterprise cost source, file, MRO or duration chain differs from the reviewed staging source')
+        raise ValidationError('Джерело розрахунку вартості або тривалості відрізняється від перевіреної версії тестового середовища.')
     return (provider,)

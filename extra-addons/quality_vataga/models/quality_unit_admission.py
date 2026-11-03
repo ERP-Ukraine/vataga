@@ -73,7 +73,7 @@ class QualityUnitAdmission(models.Model):
     controlled_unit_id = fields.Many2one('quality.production.unit', string='Виріб', required=True, readonly=True, ondelete='restrict', check_company=True, index=True)
     operation_run_id = fields.Many2one('quality.production.run', string='Запуск', required=True, readonly=True, ondelete='restrict', check_company=True, index=True)
     workorder_id = fields.Many2one('mrp.workorder', string='Робоче завдання', required=True, readonly=True, ondelete='restrict', check_company=True)
-    production_id = fields.Many2one('mrp.production', string='MO', required=True, readonly=True, ondelete='restrict', check_company=True)
+    production_id = fields.Many2one('mrp.production', string='Виробниче замовлення', required=True, readonly=True, ondelete='restrict', check_company=True)
     product_id = fields.Many2one('product.product', required=True, readonly=True, ondelete='restrict', check_company=True)
     company_id = fields.Many2one('res.company', required=True, readonly=True, ondelete='restrict', index=True)
     inspector_id = fields.Many2one('res.users', string='Інспектор', required=True, readonly=True, ondelete='restrict')
@@ -131,7 +131,7 @@ class QualityUnitAdmission(models.Model):
                 inspector_id=self.env.uid, confirmed_at=fields.Datetime.now(), state='confirmed',
                 required_check_ids=[(6, 0, checks.ids)],
                 evidence_snapshot='\n'.join(
-                    '%s: %s — PASS; %s' % (
+                    '%s: %s — Придатний; %s' % (
                         item.display_name, unit.name,
                         ', '.join(filter(None, item.equipment_selection_ids.mapped('equipment_display_snapshot')))
                         or ', '.join(item.equipment_selection_ids.equipment_ids.mapped('display_name'))
@@ -237,4 +237,4 @@ class QualityUnitAdmission(models.Model):
                 or record.product_id != run.product_id or record.product_id != unit.product_id
                 or record.company_id != run.company_id or record.company_id != unit.company_id
             ):
-                raise ValidationError(_('Допуск, зразок, виріб, запуск, MO і робоче завдання повинні відповідати одне одному.'))
+                raise ValidationError(_('Допуск, зразок, виріб, запуск, виробниче замовлення і робоче завдання повинні відповідати одне одному.'))

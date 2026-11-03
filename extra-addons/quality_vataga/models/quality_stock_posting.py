@@ -10,7 +10,7 @@ class QualityStockCostScope(models.Model):
     _inherit = 'quality.stock.cost.scope'
 
     unit_ids = fields.Many2many('quality.production.unit', 'quality_stock_cost_scope_unit_rel',
-                               'scope_id', 'unit_id', string='Зафіксовані QUNIT', readonly=True)
+                               'scope_id', 'unit_id', string='Зафіксовані вироби', readonly=True)
 
 
     def check_access_rule(self, operation):
@@ -28,7 +28,7 @@ class QualityStockPosting(models.Model):
     permission_id = fields.Many2one('quality.unit.release.line', required=True, readonly=True, ondelete='restrict')
     plan_id = fields.Many2one('quality.unit.stock.release.plan', required=True, readonly=True, ondelete='restrict')
     _sql_constraints = [
-        ('qunit_unique', 'unique(unit_id)', 'QUNIT вже має фактичний випуск.'),
+        ('qunit_unique', 'unique(unit_id)', 'Виріб уже має фактичний випуск.'),
         ('permission_id_unique', 'unique(permission_id)', 'Дозвіл 13.4А вже використано.'),
     ]
 

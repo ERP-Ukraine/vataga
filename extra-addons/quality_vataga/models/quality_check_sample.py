@@ -267,7 +267,7 @@ class QualityCheckSample(models.Model):
                 super(QualityCheckSample, sample).write({'x_was_reworked': True})
             check.sudo(False).message_post(
                 body=_(
-                    'Статус зразка №%(number)s змінено з FAIL на PASS після доопрацювання.',
+                    'Статус зразка №%(number)s змінено з «Непридатний» на «Придатний» після доопрацювання.',
                     number=sample.sample_number,
                 ),
                 subtype_xmlid='mail.mt_note',

@@ -11,7 +11,7 @@
                     <field name="operation_run_id"/>
                     <field name="workorder_id"/>
                 </group>
-                <p class="text-muted">Оберіть конкретні вироби. PASS сам по собі не є допуском. Підтвердження не завершує операцію та не переміщує вироби.</p>
+                <p class="text-muted">Оберіть конкретні вироби. Результат «Придатний» сам по собі не є допуском. Підтвердження не завершує операцію та не переміщує вироби.</p>
                 <field name="line_ids" nolabel="1">
                     <tree editable="bottom" create="0" delete="0">
                         <field name="sample_id" column_invisible="True" force_save="1"/>

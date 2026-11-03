@@ -95,8 +95,8 @@ class TestNativePartialProduction(StockReleaseNativeCase):
         self.assertEqual(self._stock(), (10, 5))
         self.assertEqual(self.env['mrp.production'].search([]).ids, ids)
 
-    def test_public_partial_quantity_requires_backorder_instead_of_same_open_mo(self):
-        production = self._prepare_native(4)
+    def test_public_three_of_five_requires_backorder_and_consumes_only_six_components(self):
+        production = self._prepare_native(3)
         ids = self.env['mrp.production'].search([]).ids
         action = production.button_mark_done()
         self.assertEqual(action['res_model'], 'mrp.production.backorder')
@@ -107,10 +107,14 @@ class TestNativePartialProduction(StockReleaseNativeCase):
         wizard.action_backorder()
         remaining = self.env['mrp.production'].search([('id', 'not in', ids)])
         self.assertEqual(len(remaining), 1)
-        self.assertEqual(remaining.product_qty, 1)
+        self.assertEqual(remaining.product_qty, 2)
         self.assertNotIn(remaining.state, ('done', 'cancel'))
-        self.assertEqual((production.state, production.qty_produced), ('done', 4))
-        self.assertEqual(self._stock(), (12, 4))
+        self.assertEqual((production.state, production.qty_produced), ('done', 3))
+        self.assertEqual(self._stock(), (14, 3))
+        self.assertEqual(sum(production.move_raw_ids.filtered(
+            lambda move: move.state == 'done').mapped('quantity')), 6)
+        self.assertEqual(sum(production.move_finished_ids.filtered(
+            lambda move: move.state == 'done').mapped('quantity')), 3)
 
     def test_repeated_native_completion_does_not_duplicate_stock_or_documents(self):
         production = self._prepare_native(5)

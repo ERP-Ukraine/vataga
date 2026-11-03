@@ -2,7 +2,7 @@ from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 from .native_backorder import native_operation_allows
 
-BOUNDARY_MESSAGE = 'Для цього історичного MO активовано окремий захищений маршрут передач QUNIT. Автоматичне переведення на штатний випуск не виконується; його історію та захист збережено.'
+BOUNDARY_MESSAGE = 'Для цього історичного виробничого замовлення активовано окремий захищений маршрут передач виробів. Автоматичне переведення на штатний випуск не виконується; його історію та захист збережено.'
 TIMER_CLOSE_TOKEN = object()
 
 
@@ -317,7 +317,7 @@ class MrpProductivityTransferBoundary(models.Model):
                 and vals.get('date_end')
             )
             if (vals.get('quality_execution_batch_id') or self.env.context.get('default_quality_execution_batch_id')) and not stopping:
-                raise UserError(_('Робочий інтервал QUNIT встановлює система.'))
+                raise UserError(_('Робочий інтервал виробів встановлює система.'))
             if not stopping:
                 workorder._check_quality_native_start()
         return super().create(vals_list)
@@ -344,7 +344,7 @@ class MrpProductivityTransferBoundary(models.Model):
         # and performance intervals. Permit only that private operation, with
         # normal ACLs, so an active source timer can always be stopped.
         if self.quality_execution_batch_id.execution_ids.filtered(lambda row: row.state == 'progress'):
-            raise UserError(_('Активні QUNIT потрібно завершити або зупинити через «Поштучне виконання».'))
+            raise UserError(_('Активні вироби потрібно завершити або зупинити через «Поштучне виконання».'))
         return super(MrpProductivityTransferBoundary, self.with_context(
             quality_vataga_timer_close=TIMER_CLOSE_TOKEN,
             quality_vataga_closing_workorders=tuple(self.workorder_id.ids),

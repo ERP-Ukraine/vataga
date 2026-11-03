@@ -6,7 +6,7 @@ from ..models.quality_archive import RetiredDialog
 
 class QualityFullReleaseWizard(RetiredDialog, models.TransientModel):
     _name = 'quality.full.release.wizard'
-    _description = 'Підтвердження повного випуску QUNIT'
+    _description = 'Підтвердження повного випуску виробів'
 
     production_id = fields.Many2one('mrp.production', required=True, readonly=True)
     unit_ids = fields.Many2many('quality.production.unit', readonly=True)

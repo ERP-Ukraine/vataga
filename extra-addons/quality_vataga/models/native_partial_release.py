@@ -74,7 +74,7 @@ class PartialPosting:
 
 class NativePartialAuditAccess(models.AbstractModel):
     _name = 'quality.native.partial.access'
-    _description = 'Native partial posting evidence access'
+    _description = 'Доступ до підтверджень часткового складського випуску'
 
     @api.model
     def _search(self, domain, offset=0, limit=None, order=None, access_rights_uid=None):
@@ -94,26 +94,26 @@ class NativePartialAuditAccess(models.AbstractModel):
     def create(self, vals_list):
         operation = partial_operation()
         if not operation or operation.phase != 'audit':
-            raise UserError(_('Докази часткового випуску створює лише сервер після Stock.'))
+            raise UserError(_('Підтвердження часткового випуску створює лише система після складського проведення.'))
         for values in vals_list:
             production = values.get('production_id') if self._name == 'quality.native.partial.release' else (
                 self.env['quality.native.partial.release'].browse(values.get('release_id')).production_id.id)
             if production != operation.production.id:
-                raise ValidationError(_('Доказ часткового випуску належить іншому MO.'))
+                raise ValidationError(_('Доказ часткового випуску належить іншому виробничому замовленню.'))
         clean = {key: value for key, value in self.env.context.items() if not key.startswith('default_')}
         return super(NativePartialAuditAccess, self.with_context(clean)).create(vals_list)
 
     def write(self, vals):
-        raise UserError(_('Докази часткового випуску та checkpoint незмінні.'))
+        raise UserError(_('Докази часткового випуску та знімок розрахунку вартості незмінні.'))
 
     def unlink(self):
-        raise UserError(_('Докази часткового випуску та checkpoint не видаляють.'))
+        raise UserError(_('Докази часткового випуску та знімок розрахунку вартості не видаляють.'))
 
 
 class NativePartialRelease(models.Model):
     _name = 'quality.native.partial.release'
     _inherit = 'quality.native.partial.access'
-    _description = 'Confirmed native incremental manufacturing posting'
+    _description = 'Підтверджений поетапний складський випуск'
     _order = 'id'
 
     production_id = fields.Many2one('mrp.production', required=True, readonly=True, ondelete='restrict', index=True)
@@ -133,7 +133,7 @@ class NativePartialRelease(models.Model):
 class NativePartialUnit(models.Model):
     _name = 'quality.native.partial.unit'
     _inherit = 'quality.native.partial.access'
-    _description = 'Identity key linked to a real native finished line'
+    _description = 'Виріб, пов’язаний з фактичним рухом готової продукції'
 
     release_id = fields.Many2one('quality.native.partial.release', required=True, readonly=True, ondelete='restrict')
     production_id = fields.Many2one(related='release_id.production_id', store=True, readonly=True, index=True)
@@ -146,7 +146,7 @@ class NativePartialUnit(models.Model):
 class NativePartialCost(models.Model):
     _name = 'quality.native.partial.cost'
     _inherit = 'quality.native.partial.access'
-    _description = 'Append-only native WO cost checkpoint'
+    _description = 'Незмінний знімок вартості робочого завдання'
     _order = 'id'
 
     release_id = fields.Many2one('quality.native.partial.release', required=True, readonly=True, ondelete='restrict')
@@ -157,7 +157,7 @@ class NativePartialCost(models.Model):
     basis = fields.Json(required=True, readonly=True)
     timer_ids = fields.Many2many('mrp.workcenter.productivity', 'quality_partial_cost_timer_rel',
                                 'cost_id', 'timer_id', readonly=True)
-    _sql_constraints = [('release_wo_unique', 'unique(release_id, workorder_id)', 'Checkpoint WO вже створений.')]
+    _sql_constraints = [('release_wo_unique', 'unique(release_id, workorder_id)', 'Знімок розрахунку вартості робочого завдання вже створений.')]
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -173,7 +173,7 @@ class NativePartialCost(models.Model):
                     or values.get('basis') != wo._native_partial_cost_basis()
                     or len(commands) != 1 or commands[0][0] != 6 or commands[0][1] != 0
                     or set(commands[0][2]) != set(wo.time_ids.ids)):
-                raise ValidationError(_('Checkpoint не відповідає фактично проведеній вартості та незмінним інтервалам.'))
+                raise ValidationError(_('Знімок розрахунку вартості не відповідає фактично проведеній вартості та незмінним інтервалам.'))
         return super().create(vals_list)
 
 
@@ -186,7 +186,7 @@ class NativePartialProduction(models.Model):
     def _native_partial_cost_provider_report(self, expected_database, include_source=False):
         """Read-only registry evidence, callable from Odoo shell/Scheduled Action."""
         if self.env.cr.dbname != expected_database or not self.env.user.has_group('base.group_system'):
-            raise AccessError(_('Потрібні системний адміністратор і точна назва тестової staging-бази.'))
+            raise AccessError(_('Потрібні системний адміністратор і точна назва тестової бази.'))
         production_allowed = {NativePartialProduction._cal_price, *_CORE_PRICES, *reviewed_subcontracting_methods(self)}
         workorder_allowed = {NativePartialWorkorder._cal_cost, _CORE_COST}
         report = {'database': self.env.cr.dbname, 'mode': 'READ ONLY',
@@ -236,7 +236,7 @@ class NativePartialProduction(models.Model):
                 'lot_producing_id', 'move_finished_ids', 'move_raw_ids', 'workorder_ids',
                 'location_src_id', 'location_dest_id', 'state', 'extra_cost', 'qty_produced'}.intersection(vals):
             if self._native_partial_history():
-                raise UserError(_('Після часткового випуску конфігурацію та стан MO вручну не змінюють.'))
+                raise UserError(_('Після часткового випуску конфігурацію та стан виробничого замовлення вручну не змінюють.'))
         return super().write(vals)
 
     def _native_partial_history(self):
@@ -317,12 +317,11 @@ class NativePartialProduction(models.Model):
                 or self.location_src_id.usage != 'internal' or self.location_dest_id.usage != 'internal'
                 or self.location_dest_id.scrap_location or not self.workorder_ids
                 or self.warehouse_id.manufacture_steps != 'mrp_one_step'):
-            raise ValidationError(_('Частковий випуск підтримує лише перевірений FIFO/periodic MO: один товар, '
-                                    'цілі штуки, автоматичне споживання без serial/побічної продукції.'))
+            raise ValidationError(_('Частковий випуск підтримується лише для перевіреного виробничого замовлення з оцінкою за методом «Першим надійшов — першим вибув» та періодичним обліком запасів: один товар, цілі штуки, автоматичне споживання, без серійного відстеження та побічної продукції.'))
         if self.product_id.tracking == 'lot':
             lot = _read(self.lot_producing_id)
             if not lot or lot.product_id != self.product_id or (lot.company_id and lot.company_id != self.company_id):
-                raise ValidationError(_('Потрібна реальна партія товару та компанії у MO.'))
+                raise ValidationError(_('Потрібна реальна партія товару та компанії у виробничому замовленні.'))
         elif self.lot_producing_id:
             raise ValidationError(_('Товар без tracking не потребує партії.'))
         # The reviewed subcontracting override is a no-op only for this exact
@@ -336,7 +335,7 @@ class NativePartialProduction(models.Model):
             unknown = [provider_name(owner, provider) for owner, provider in method_definitions(self, method)
                        if provider not in allowed]
             if unknown:
-                raise ValidationError(_('Неперевірений постачальник розрахунку ціни MRP.\n%s') % '\n'.join(unknown))
+                raise ValidationError(_('Неперевірений постачальник розрахунку виробничої собівартості.\n%s') % '\n'.join(unknown))
         for workorder in self.workorder_ids:
             workorder._native_partial_cost_basis()
         for move in self.move_raw_ids | self.move_finished_ids:
@@ -344,7 +343,7 @@ class NativePartialProduction(models.Model):
             if move.company_id != self.company_id or move.scrapped or (
                     move.production_id and (move.product_id != self.product_id
                                            or move.location_dest_id != self.location_dest_id)):
-                raise ValidationError(_('Рухи не відповідають товару, призначенню або компанії MO.'))
+                raise ValidationError(_('Рухи не відповідають товару, призначенню або компанії виробничого замовлення.'))
 
     def _native_partial_before_post(self, operation):
         """QUNIT integration validates identities before capability activation."""
@@ -373,7 +372,7 @@ class NativePartialProduction(models.Model):
             self._native_partial_lock()
             history = self._native_partial_history()
             if 'disposition' in history._fields and history.filtered(lambda r: r.disposition == 'terminal_loss'):
-                raise UserError(_('MO вже закрито з виробничими втратами. Новий випуск заборонений.'))
+                raise UserError(_('Виробниче замовлення вже закрито з виробничими втратами. Новий випуск заборонений.'))
             previous = history.filtered(lambda r: r.request_key == request_key)
             if previous:
                 if set(previous.unit_ids.mapped('unit_key')) != set(keys):
@@ -391,7 +390,7 @@ class NativePartialProduction(models.Model):
                 raise ValidationError(_('Змінено конфігурацію раніше підтвердженого випуску.'))
             before = len(history.unit_ids)
             if self.qty_produced != before or before + len(keys) > self.product_qty:
-                raise ValidationError(_('Фактичний випуск MO не відповідає захищеній історії виробів.'))
+                raise ValidationError(_('Фактичний випуск виробничого замовлення не відповідає захищеній історії виробів.'))
             checkpoints = {row.workorder_id.id: row for row in history.cost_ids.sorted('id')}
             for workorder in self.workorder_ids:
                 workorder._native_partial_check_checkpoint(checkpoints.get(workorder.id))
@@ -437,7 +436,7 @@ class NativePartialProduction(models.Model):
                         or set(operation.costs) != set(self.workorder_ids.ids)
                         or any(wo._native_partial_cost_basis() != cost_bases[wo.id] for wo in self.workorder_ids)
                         or any(set(l.consume_line_ids.ids) != set(raw.move_line_ids.ids) for l in lines)):
-                    raise ValidationError(_('Stock не підтвердив точний новий випуск або змінив його історію.'))
+                    raise ValidationError(_('Складський облік не підтвердив точний новий випуск або змінив його історію.'))
                 operation.new_line_ids = tuple(lines.ids)
                 self._native_partial_after_stock(operation)
                 operation.phase = 'audit'
@@ -489,7 +488,7 @@ class NativePartialProduction(models.Model):
                 or lines != moves.move_line_ids or layers != moves.stock_valuation_layer_ids
                 or timers != self.workorder_ids.time_ids
                 or before != (lines.read(line_fields), layers.read(layer_fields), timers.read(timer_fields))):
-            raise ValidationError(_('Штатне завершення не підтверджене або повторно змінило Stock/час.'))
+            raise ValidationError(_('Штатне завершення не підтверджене або повторно змінило складські факти або робочі інтервали.'))
 
     def _cal_price(self, consumed_moves):
         operation = partial_operation(self)
@@ -516,7 +515,7 @@ class NativePartialProduction(models.Model):
                 raise ValidationError(_('Не підтверджено попереднє повне складське проведення.'))
             return True  # The native closing button must not post Stock twice.
         if self._native_partial_history() and not partial_operation_allows(self):
-            raise UserError(_('MO має частковий випуск: використайте захищену операцію продовження.'))
+            raise UserError(_('Виробниче замовлення має частковий випуск: використайте захищену операцію продовження.'))
         if partial_operation_allows(self) and (any(partial_operation(p).phase != 'post' for p in self)
                 or any(bool(cancel_backorder) != bool(partial_operation(p).loss_keys) for p in self)):
             raise UserError(_('Невірна фаза часткового проведення або скасування залишку.'))
@@ -524,7 +523,7 @@ class NativePartialProduction(models.Model):
 
     def _split_productions(self, amounts=False, cancel_remaining_qty=False, set_consumed_qty=False):
         if partial_operation_allows(self) or self._native_partial_history():
-            raise UserError(_('Перевірений частковий випуск не створює Backorder.'))
+            raise UserError(_('Перевірений частковий випуск не створює замовлення на залишок.'))
         return super()._split_productions(amounts=amounts, cancel_remaining_qty=cancel_remaining_qty,
                                           set_consumed_qty=set_consumed_qty)
 
@@ -551,7 +550,7 @@ class NativePartialWorkorder(models.Model):
         unknown = [provider_name(owner, provider) for owner, provider in method_definitions(self, '_cal_cost')
                    if provider not in allowed]
         if unknown:
-            raise ValidationError(_('Неперевірений постачальник вартості WO.\n%s') % '\n'.join(unknown))
+            raise ValidationError(_('Неперевірений постачальник вартості робочого завдання.\n%s') % '\n'.join(unknown))
         return self._native_partial_cost_inputs()
 
     def _native_partial_cost_inputs(self):
@@ -563,7 +562,7 @@ class NativePartialWorkorder(models.Model):
         if timers.filtered(lambda t: not t.date_end or t.date_end < t.date_start):
             raise ValidationError(_('Спочатку закрийте робочі інтервали.'))
         if not timers:
-            raise ValidationError(_('Потрібні фактичні закриті інтервали кожної WO; розрахунковий час не створюється.'))
+            raise ValidationError(_('Потрібні фактичні закриті інтервали кожного робочого завдання; розрахунковий час не створюється.'))
         if timers.filtered(lambda t: t.workcenter_id != self.workcenter_id or t.company_id != self.company_id):
             raise ValidationError(_('Інтервали належать іншому робочому центру або компанії.'))
         if any(not math.isfinite(t.duration) or t.duration < 0 for t in timers):
@@ -624,7 +623,7 @@ class NativePartialWorkorder(models.Model):
         booked = checkpoint.cumulative_cost if checkpoint else 0
         if (not math.isfinite(cumulative) or not math.isfinite(booked)
                 or cumulative < 0 or booked < 0 or cumulative < booked):
-            raise ValidationError(_('Вартість WO має від’ємну або нечислову різницю.'))
+            raise ValidationError(_('Вартість робочого завдання має від’ємну або нечислову різницю.'))
         return cumulative
 
     def _cal_cost(self):
@@ -636,7 +635,7 @@ class NativePartialWorkorder(models.Model):
         booked = checkpoint.cumulative_cost if checkpoint else 0
         if (not math.isfinite(cumulative) or not math.isfinite(booked)
                 or cumulative < 0 or booked < 0 or cumulative < booked or self.id in operation.costs):
-            raise ValidationError(_('Некоректний або повторний розрахунок вартості WO.'))
+            raise ValidationError(_('Некоректний або повторний розрахунок вартості робочого завдання.'))
         operation.costs[self.id] = cumulative
         return cumulative - booked
 
@@ -644,7 +643,7 @@ class NativePartialWorkorder(models.Model):
         if {'production_id', 'operation_id', 'workcenter_id', 'product_uom_id',
                 'blocked_by_workorder_ids', 'needed_by_workorder_ids'}.intersection(vals):
             if self.production_id._native_partial_history():
-                raise UserError(_('Ідентичність маршруту частково випущеного MO незмінна.'))
+                raise UserError(_('Ідентичність маршруту частково випущеного виробничого замовлення незмінна.'))
         return super().write(vals)
 
 
@@ -694,7 +693,7 @@ class NativePartialMoveLine(models.Model):
             raise UserError(_('До проведених рухів часткового випуску не додають строки.'))
         for production in moves.production_id:
             if production._native_partial_history() and not partial_operation(production):
-                raise UserError(_('Нові готові строки часткового MO створює лише серверний випуск.'))
+                raise UserError(_('Нові рядки готової продукції часткового виробничого замовлення створює лише серверний випуск.'))
         return super().create(vals_list)
 
     def unlink(self):
@@ -722,7 +721,7 @@ class NativePartialMove(models.Model):
                 values[n] for n in ('production_id', 'raw_material_production_id') if values.get(n)])
             for production in parents:
                 if production._native_partial_history() and not partial_operation(production):
-                    raise UserError(_('Структура рухів частково випущеного MO незмінна.'))
+                    raise UserError(_('Структура рухів частково випущеного виробничого замовлення незмінна.'))
         return super().create(vals_list)
 
     def write(self, vals):
@@ -734,7 +733,7 @@ class NativePartialMove(models.Model):
                 if vals.get(name):
                     production = self.env['mrp.production'].browse(vals[name])
                     if production._native_partial_history() and not partial_operation(production):
-                        raise UserError(_('Не можна приєднати сторонній рух до часткового MO.'))
+                        raise UserError(_('Не можна приєднати сторонній рух до часткового виробничого замовлення.'))
         if {'quantity', 'product_uom_qty', 'price_unit', 'product_id', 'product_uom', 'company_id', 'picked',
                 'production_id', 'raw_material_production_id', 'move_line_ids', 'state',
                 'location_id', 'location_dest_id'}.intersection(vals) and self.move_line_ids._native_partial_protected():

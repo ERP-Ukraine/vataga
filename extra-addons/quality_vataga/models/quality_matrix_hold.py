@@ -12,7 +12,7 @@ class QualityMatrixHoldAlert(models.Model):
 
     vataga_failure_sample_ids = fields.Many2many(
         'quality.check.sample', 'quality_alert_failure_sample_rel', 'alert_id', 'sample_id',
-        string='Зразки, яких стосується Alert', readonly=True, copy=False)
+        string='Зразки, яких стосується сповіщення про якість', readonly=True, copy=False)
     can_bind_matrix_failure_scope = fields.Boolean(compute='_compute_can_bind_matrix_failure_scope')
 
     @api.depends('check_id', 'check_id.x_control_stage', 'vataga_failure_sample_ids')
@@ -55,15 +55,15 @@ class QualityMatrixHoldAlert(models.Model):
 
     def write(self, vals):
         if 'vataga_failure_sample_ids' in vals:
-            raise UserError(_('Зафіксовані зразки Alert не змінюють вручну.'))
+            raise UserError(_('Зафіксовані зразки сповіщення про якість не змінюють вручну.'))
         if 'check_id' in vals and any(alert.check_id.x_control_stage == 'in_process'
                 and alert.check_id.id != vals['check_id'] for alert in self):
-            raise UserError(_('Перевірку міжопераційного Alert не переприв’язують.'))
+            raise UserError(_('Перевірку міжопераційного сповіщення про якість не переприв’язують.'))
         return super().write(vals)
 
     def unlink(self):
         if any(alert.check_id.x_control_stage == 'in_process' and alert._matrix_hold_is_open() for alert in self):
-            raise UserError(_('Відкритий міжопераційний Alert не видаляють для обходу утримання.'))
+            raise UserError(_('Відкрите міжопераційне сповіщення про якість не видаляють для обходу утримання.'))
         return super().unlink()
 
     def _matrix_hold_is_open(self):
@@ -78,12 +78,12 @@ class QualityMatrixHoldAlert(models.Model):
     def _bind_matrix_failure_scope(self, samples, reason):
         self.ensure_one()
         if not self.env.user.has_group('quality.group_quality_manager'):
-            raise AccessError(_('Уточнення історичної сфери Alert доступне керівнику якості.'))
+            raise AccessError(_('Уточнення історичної сфери сповіщення про якість доступне керівнику якості.'))
         self.check_access_rights('write')
         self.check_access_rule('write')
         check = self.check_id
         if not check or check.x_control_stage != 'in_process':
-            raise ValidationError(_('Уточнення стосується лише міжопераційного Alert.'))
+            raise ValidationError(_('Уточнення стосується лише міжопераційного сповіщення про якість.'))
         check.check_access_rights('read')
         check.check_access_rule('read')
         samples.check_access_rights('read')
@@ -93,11 +93,11 @@ class QualityMatrixHoldAlert(models.Model):
         self.invalidate_recordset(['vataga_failure_sample_ids'])
         if (self.vataga_failure_sample_ids or check.x_control_stage != 'in_process'
                 or not samples or samples.quality_check_id != check or not reason.strip()):
-            raise ValidationError(_('Потрібні ще не визначена сфера міжопераційного Alert, явні зразки його перевірки та підстава.'))
+            raise ValidationError(_('Потрібні ще не визначена сфера міжопераційного сповіщення про якість, явні зразки його перевірки та підстава.'))
         # Current PASS is not evidence of what failed when an old Alert was
         # created. This is an explicit audited identification, not inference.
         super(QualityMatrixHoldAlert, self).write({'vataga_failure_sample_ids': [Command.set(samples.ids)]})
-        self.message_post(body=_('Уточнено зразки Alert: %(samples)s. Підстава: %(reason)s',
+        self.message_post(body=_('Уточнено зразки сповіщення про якість: %(samples)s. Підстава: %(reason)s',
             samples=', '.join(str(number) for number in samples.mapped('sample_number')), reason=reason.strip()), subtype_xmlid='mail.mt_note')
 
     def action_open_matrix_failure_scope(self):
@@ -107,7 +107,7 @@ class QualityMatrixHoldAlert(models.Model):
         self.check_access_rights('write')
         self.check_access_rule('write')
         return dict(type='ir.actions.act_window', res_model='quality.matrix.failure.scope.wizard',
-            name=_('Уточнити вироби Alert'), view_mode='form', target='new',
+            name=_('Уточнити вироби сповіщення про якість'), view_mode='form', target='new',
             views=[(self.env.ref('quality_vataga.matrix_failure_scope_wizard_form').id, 'form')],
             context={'default_alert_id': self.id})
 
@@ -124,7 +124,7 @@ class QualityMatrixHoldCheck(models.Model):
             alerts.check_access_rights('read')
             alerts.check_access_rule('read')
             if any(alert._matrix_hold_is_open() for alert in alerts):
-                raise UserError(_('Перевірку з відкритим Alert не видаляють для обходу утримання.'))
+                raise UserError(_('Перевірку з відкритим сповіщенням про якість не видаляють для обходу утримання.'))
         return super().unlink()
 
     def _matrix_alert_hold_error(self, sample):
@@ -180,8 +180,8 @@ class QualityMatrixHoldCheck(models.Model):
         for alert in alerts:
             if alert._matrix_hold_is_open():
                 if not alert.vataga_failure_sample_ids:
-                    return _('Сферу відкритого Alert %(alert)s ще не уточнено. Потрібна явна прив’язка проблемних зразків.', alert=alert.display_name)
-                return _('Виріб утримується відкритим Alert %(alert)s до завершення його обробки.', alert=alert.display_name)
+                    return _('Сферу відкритого сповіщення про якість %(alert)s ще не уточнено. Потрібна явна прив’язка зразків з невідповідностями.', alert=alert.display_name)
+                return _('Виріб утримується відкритим сповіщенням про якість %(alert)s до завершення його обробки.', alert=alert.display_name)
         return False
 
     def _get_unit_admission_error(self, sample):
@@ -191,7 +191,7 @@ class QualityMatrixHoldCheck(models.Model):
         try:
             return self._matrix_alert_hold_error(sample)
         except AccessError:
-            return _('Немає доступу до всіх Alert цього виробу; передача заборонена.')
+            return _('Немає доступу до всіх сповіщень про якість цього виробу; передача заборонена.')
 
 
 class MatrixNativeCompletion(models.Model):
@@ -254,7 +254,7 @@ class MatrixNativeCompletion(models.Model):
                         or requested > check.x_passed_qty
                         or not math.isfinite(reported) or reported < 0 or reported > check.x_passed_qty
                         or any(sample.sample_result != 'pass' for sample in check.sample_ids)):
-                    raise UserError(_('Стандартне завершення всієї партії не дозволене: є FAIL/pending або некоректна матриця. Годні вироби передаються окремо; часткове складське проведення без передчасного Backorder очікує Enterprise-перевірки.'))
+                    raise UserError(_('Стандартне завершення всієї партії не дозволене: є непридатні та ще не перевірені вироби або некоректна матриця. Придатні вироби передаються окремо; часткове складське проведення без передчасного замовлення на залишок очікує перевірки в розширеній редакції Odoo.'))
                 check._validate_measurement_can_pass()
                 for sample in check.sample_ids:
                     error = check._matrix_alert_hold_error(sample)

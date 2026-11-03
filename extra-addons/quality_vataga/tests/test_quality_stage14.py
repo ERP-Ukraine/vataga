@@ -26,7 +26,7 @@ class TestQualityStage14(QualityCheckInProcessCase):
 
     def _messages(self, check):
         return check.message_ids.filtered(
-            lambda message: 'змінено з FAIL на PASS після доопрацювання.' in (message.body or ''),
+            lambda message: 'змінено з «Непридатний» на «Придатний» після доопрацювання.' in (message.body or ''),
         )
 
     def _alert(self, check, **values):
@@ -70,7 +70,7 @@ class TestQualityStage14(QualityCheckInProcessCase):
                 self.assertTrue(data['samples'][0]['x_was_reworked'])
                 messages = self._messages(check)
                 self.assertEqual(len(messages), 1)
-                self.assertIn('Статус зразка №1 змінено з FAIL на PASS після доопрацювання.', messages.body)
+                self.assertIn('Статус зразка №1 змінено з «Непридатний» на «Придатний» після доопрацювання.', messages.body)
                 fix()
                 self.assertEqual(self._messages(check), messages)
 

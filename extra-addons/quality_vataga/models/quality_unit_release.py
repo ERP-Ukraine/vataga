@@ -6,7 +6,7 @@ from .quality_archive import ARCHIVE_MESSAGE, archive_disabled
 
 class QualityReleaseAccess(models.AbstractModel):
     _name = 'quality.release.access'
-    _description = 'Доступ до дозволів через MO'
+    _description = 'Доступ до дозволів через виробниче замовлення'
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -58,11 +58,11 @@ class QualityReleaseAccess(models.AbstractModel):
 class QualityUnitReleaseBatch(models.Model):
     _name = 'quality.unit.release.batch'
     _inherit = 'quality.release.access'
-    _description = 'Пакет дозволу випуску QUNIT (без складського проведення)'
+    _description = 'Пакет дозволу випуску виробів (без складського проведення)'
     _order = 'id desc'
 
     name = fields.Char(string='Пакет дозволу', required=True, readonly=True)
-    production_id = fields.Many2one('mrp.production', string='MO', required=True, readonly=True, ondelete='restrict', index=True)
+    production_id = fields.Many2one('mrp.production', string='Виробниче замовлення', required=True, readonly=True, ondelete='restrict', index=True)
     company_id = fields.Many2one(related='production_id.company_id', store=True, readonly=True, compute_sudo=False)
     authorized_by_id = fields.Many2one('res.users', string='Дозволив', required=True, readonly=True, ondelete='restrict')
     authorized_at = fields.Datetime(string='Дата дозволу', required=True, readonly=True)
@@ -89,17 +89,17 @@ class QualityUnitReleaseBatch(models.Model):
 class QualityUnitReleaseLine(models.Model):
     _name = 'quality.unit.release.line'
     _inherit = 'quality.release.access'
-    _description = 'Захищений дозвіл випуску конкретного QUNIT'
+    _description = 'Захищений дозвіл випуску конкретного виробу'
     _rec_name = 'unit_id'
     _order = 'id desc'
 
     batch_id = fields.Many2one('quality.unit.release.batch', string='Пакет', required=True, readonly=True, ondelete='restrict', index=True)
-    unit_id = fields.Many2one('quality.production.unit', string='QUNIT', required=True, readonly=True, ondelete='restrict', index=True)
+    unit_id = fields.Many2one('quality.production.unit', string='Виріб', required=True, readonly=True, ondelete='restrict', index=True)
     production_id = fields.Many2one(related='batch_id.production_id', store=True, readonly=True, compute_sudo=False, index=True)
     company_id = fields.Many2one(related='batch_id.company_id', store=True, readonly=True, compute_sudo=False, index=True)
     product_id = fields.Many2one('product.product', string='Товар', required=True, readonly=True, ondelete='restrict')
     last_workorder_id = fields.Many2one('mrp.workorder', string='Остання операція', required=True, readonly=True, ondelete='restrict')
-    last_run_id = fields.Many2one('quality.production.run', string='Останній QRUN', required=True, readonly=True, ondelete='restrict')
+    last_run_id = fields.Many2one('quality.production.run', string='Останній запуск виробничої операції', required=True, readonly=True, ondelete='restrict')
     check_id = fields.Many2one('quality.check', string='Контроль після останньої операції', required=True, readonly=True, ondelete='restrict')
     admission_id = fields.Many2one('quality.unit.admission', string='Допуск інспектора', required=True, readonly=True, ondelete='restrict')
     authorized_by_id = fields.Many2one(related='batch_id.authorized_by_id', store=True, readonly=True, compute_sudo=False)
@@ -119,7 +119,7 @@ class QualityUnitReleaseLine(models.Model):
     event_ids = fields.One2many('quality.unit.release.event', 'line_id', string='Аудит', readonly=True)
 
     _sql_constraints = [
-        ('batch_unit_unique', 'unique(batch_id, unit_id)', 'QUNIT вже є у цьому пакеті.'),
+        ('batch_unit_unique', 'unique(batch_id, unit_id)', 'Виріб уже є у цьому пакеті.'),
         ('cancellation_audit', "check((state = 'confirmed' AND cancelled_by_id IS NULL AND cancelled_at IS NULL AND cancellation_reason IS NULL) OR (state = 'cancelled' AND cancelled_by_id IS NOT NULL AND cancelled_at IS NOT NULL AND length(trim(cancellation_reason)) > 0 AND cancellation_reason IS NOT NULL))", 'Скасування потребує автора, дати та причини.'),
     ]
 
@@ -166,7 +166,7 @@ class QualityUnitReleaseLine(models.Model):
 class QualityUnitReleaseEvent(models.Model):
     _name = 'quality.unit.release.event'
     _inherit = 'quality.release.access'
-    _description = 'Незмінна подія дозволу випуску QUNIT'
+    _description = 'Незмінна подія дозволу випуску виробів'
     _order = 'id'
 
     line_id = fields.Many2one('quality.unit.release.line', required=True, readonly=True, ondelete='restrict', index=True)
@@ -200,7 +200,7 @@ class MrpProductionUnitRelease(models.Model):
     quality_release_authorized = fields.Integer(string='Дозволено до випуску', compute='_compute_unit_release_counts')
     quality_release_not_ready = fields.Integer(string='Не готово', compute='_compute_unit_release_counts')
     quality_release_blocked = fields.Integer(string='Заблоковано', compute='_compute_unit_release_counts')
-    quality_release_produced = fields.Integer(string='Фактично випущено', compute='_compute_unit_release_counts', help='Фактичні QUNIT за незмінним складським реєстром. Це не кількість PASS або дозволів.')
+    quality_release_produced = fields.Integer(string='Фактично випущено', compute='_compute_unit_release_counts', help='Фактично випущені вироби за незмінним складським реєстром. Ця кількість не визначається кількістю придатних зразків або дозволів.')
 
     @api.depends('quality_release_unit_ids.quality_release_state', 'quality_transfer_revision')
     @api.depends_context('uid', 'allowed_company_ids')
@@ -220,7 +220,7 @@ class MrpProductionUnitRelease(models.Model):
         self.check_access_rights('read')
         self.check_access_rule('read')
         if self.company_id not in self.env.companies:
-            raise AccessError(_('Немає доступу до компанії архівного MO.'))
+            raise AccessError(_('Немає доступу до компанії архівного виробничого замовлення.'))
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -244,7 +244,7 @@ class MrpProductionUnitRelease(models.Model):
 class QualityReleaseEvidenceAlert(models.Model):
     _inherit = 'quality.alert'
 
-    quality_release_scope_unit_id = fields.Many2one('quality.production.unit', string='QUNIT рішення Технічної ради', readonly=True, copy=False, ondelete='restrict')
+    quality_release_scope_unit_id = fields.Many2one('quality.production.unit', string='Виріб рішення Технічної ради', readonly=True, copy=False, ondelete='restrict')
     quality_release_scope_check_id = fields.Many2one('quality.check', readonly=True, copy=False, ondelete='restrict')
 
 

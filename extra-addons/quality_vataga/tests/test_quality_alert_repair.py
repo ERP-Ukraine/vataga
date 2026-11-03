@@ -147,7 +147,7 @@ class TestQualityAlertRepair(QualityCheckInProcessCase):
         failed = alert.vataga_failure_sample_ids
         check.update_measurement_visual_result(failed.id, 'yes')
         self.assertTrue(failed.x_was_reworked)
-        self.assertIn('FAIL на PASS', str(check.message_ids[:1].body))
+        self.assertIn('«Непридатний» на «Придатний»', str(check.message_ids[:1].body))
         for method in (alert.action_close_alert, alert.action_create_repair_check):
             with self.assertRaises(UserError):
                 method()

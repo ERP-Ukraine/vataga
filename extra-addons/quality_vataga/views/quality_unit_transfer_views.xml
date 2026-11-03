@@ -4,7 +4,7 @@
         <field name="name">quality.unit.transfer.form</field>
         <field name="model">quality.unit.transfer</field>
         <field name="arch" type="xml">
-            <form create="0" edit="0" delete="0" string="Історія передачі QUNIT">
+            <form create="0" edit="0" delete="0" string="Історія передачі виробів">
                 <sheet>
                     <group>
                         <group>
@@ -46,13 +46,13 @@
         <field name="inherit_id" ref="mrp.mrp_production_workorder_form_view_inherit"/>
         <field name="arch" type="xml">
             <xpath expr="/form/sheet/notebook" position="inside">
-                <page name="quality_unit_transfers" string="Передачі QUNIT" groups="quality.group_quality_user"
+                <page name="quality_unit_transfers" string="Передачі виробів" groups="quality.group_quality_user"
                       invisible="not quality_transfer_controlled and not quality_transfer_in_ids and not quality_transfer_out_ids">
                     <field name="quality_transfer_has_run" invisible="1"/>
                     <field name="quality_transfer_controlled" invisible="1"/>
                     <div class="alert alert-warning" invisible="not quality_transfer_controlled">
-                        Приймання не запускає обробку виробів. Для явного виконання прийнятих QUNIT відкрийте «Поштучне виконання».
-                        Стандартне завершення Work Orders і складський випуск цього MO заблоковані.
+                        Приймання не запускає обробку виробів. Для явного виконання прийнятих виробів відкрийте «Поштучне виконання».
+                        Стандартне завершення робочих завдань і складський випуск цього виробничого замовлення заблоковані.
                     </div>
                     <widget name="quality_unit_transfer_workorder_buttons"/>
                     <group>

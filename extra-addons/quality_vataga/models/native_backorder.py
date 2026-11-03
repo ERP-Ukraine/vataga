@@ -56,14 +56,14 @@ def native_operation_allows(productions):
 def assert_native_inventory_allowed(productions):
     operation = native_operation()
     if operation and operation.quantity <= 0 and native_operation_allows(productions):
-        raise UserError(_('Робочий інтервал ремонту не дозволяє складське проведення або Backorder.'))
+        raise UserError(_('Робочий інтервал ремонту не дозволяє складське проведення або замовлення на залишок.'))
 
 
 class NativeBackorderProduction(models.Model):
     _inherit = 'mrp.production'
 
     quality_native_parent_id = fields.Many2one(
-        'mrp.production', string='Поштучний маршрут: вихідний MO',
+        'mrp.production', string='Поштучний маршрут: вихідне виробниче замовлення',
         readonly=True, copy=False, ondelete='restrict', index=True)
 
     def pre_button_mark_done(self):
@@ -78,7 +78,7 @@ class NativeBackorderProduction(models.Model):
         assert_native_inventory_allowed(self)
         operation = native_operation()
         if operation and any(production.id in operation.standard_full for production in self):
-            raise UserError(_('Поштучний контроль дозволяє лише повний штатний випуск. Частковий випуск і Backorder закриті.'))
+            raise UserError(_('Поштучний контроль дозволяє лише повний штатний випуск. Частковий випуск і замовлення на залишок закриті.'))
         return super()._split_productions(amounts=amounts, cancel_remaining_qty=cancel_remaining_qty, set_consumed_qty=set_consumed_qty)
 
     def _get_backorder_mo_vals(self):
@@ -94,7 +94,7 @@ class NativeBackorderProduction(models.Model):
         for values in vals_list:
             if 'quality_native_parent_id' in values and (
                     not operation or operation.quantity <= 0 or values['quality_native_parent_id'] != operation.production.id):
-                raise UserError(_('Преемність MO встановлює лише штатний захищений Backorder.'))
+                raise UserError(_('Зв’язок між виробничими замовленнями встановлює лише штатна захищена дія створення замовлення на залишок.'))
         context = dict(self.env.context)
         context.pop('default_quality_native_parent_id', None)
         records = super(NativeBackorderProduction, self.with_context(context)).create(vals_list)
@@ -106,7 +106,7 @@ class NativeBackorderProduction(models.Model):
                         or child.product_id != operation.production.product_id
                         or child.bom_id != operation.production.bom_id
                         or child.product_uom_id != operation.production.product_uom_id):
-                    raise ValidationError(_('Backorder не відповідає вихідному MO.'))
+                    raise ValidationError(_('Замовлення на залишок не відповідає вихідному виробничому замовленню.'))
             if 'quality_transfer_controlled' in children._fields:
                 for child in children:
                     child._enable_quality_transfer_control()
@@ -117,7 +117,7 @@ class NativeBackorderProduction(models.Model):
 
     def write(self, vals):
         if 'quality_native_parent_id' in vals:
-            raise UserError(_('Історія преемності MO незмінна.'))
+            raise UserError(_('Історія зв’язків між виробничими замовленнями незмінна.'))
         return super().write(vals)
 
     def _native_quality_complete(self):
@@ -136,23 +136,22 @@ class NativeBackorderProduction(models.Model):
                 or self.move_byproduct_ids
                 or self.move_raw_ids.filtered(lambda move: move.manual_consumption)):
             raise ValidationError(_(
-                'Потрібен відкритий MO без попереднього випуску, без serial tracking/побічної продукції '
-                'та ручного споживання. Для неповної партії потрібен Backorder «Запитувати».'))
+                'Потрібне відкрите виробниче замовлення без попереднього випуску, відстеження за серійними номерами, побічної продукції та ручного споживання. Для неповної партії встановіть налаштування створення замовлення на залишок «Запитувати».'))
         if self.product_id.tracking == 'lot':
             lot = self.lot_producing_id
             if not lot or lot.product_id != self.product_id or (lot.company_id and lot.company_id != self.company_id):
-                raise ValidationError(_('Для повного випуску потрібна реальна партія цього товару та компанії у MO.'))
+                raise ValidationError(_('Для повного випуску потрібна реальна партія цього товару та компанії у виробничому замовленні.'))
         for move in self.move_raw_ids.filtered('picked'):
             expected = float_round(operation.quantity * move.unit_factor, precision_rounding=move.product_uom.rounding)
             if float_compare(move.quantity, expected, precision_rounding=move.product_uom.rounding):
-                raise ValidationError(_('Вже зафіксоване споживання не відповідає вибраним QUNIT. Автоматичне переписування фактичного споживання заборонене.'))
+                raise ValidationError(_('Вже зафіксоване споживання не відповідає вибраним виробам. Автоматичне переписування фактичного споживання заборонене.'))
         # Native UI quantity preparation; no fabricated moves or valuation.
         self.qty_producing = operation.quantity
         self._set_qty_producing()
         action = self.button_mark_done()
         if operation.quantity < original_quantity:
             if not isinstance(action, dict) or action.get('res_model') != 'mrp.production.backorder':
-                raise ValidationError(_('Odoo не повернув очікуваний штатний майстер Backorder. Операцію скасовано.'))
+                raise ValidationError(_('Odoo не повернув очікуваний штатний майстер замовлення на залишок. Операцію скасовано.'))
             wizard = self.env['mrp.production.backorder'].with_context(action['context']).create({})
             wizard.action_backorder()
         if self.state != 'done' or self.qty_produced != operation.quantity:
@@ -161,11 +160,11 @@ class NativeBackorderProduction(models.Model):
         expected = original_quantity - operation.quantity
         if ((expected and (len(children) != 1 or children.product_qty != expected))
                 or (not expected and children)):
-            raise ValidationError(_('Штатний Backorder не відповідає точному залишку.'))
+            raise ValidationError(_('Штатне замовлення на залишок не відповідає точному залишку.'))
         for child in children:
             if (set(child.workorder_ids.quality_native_parent_workorder_id.ids) != set(self.workorder_ids.ids)
                     or len(child.workorder_ids) != len(self.workorder_ids)):
-                raise ValidationError(_('Не підтверджено однозначне копіювання всіх Work Orders.'))
+                raise ValidationError(_('Не підтверджено однозначне копіювання всіх робочих завдань.'))
             mapping = {row.quality_native_parent_workorder_id.id: row for row in child.workorder_ids}
             for original in self.workorder_ids:
                 # Native copy_data (unlike copy) does not restore ad-hoc WO
@@ -197,14 +196,14 @@ class NativeBackorderWorkorder(models.Model):
             if 'quality_native_parent_workorder_id' in values:
                 original = self.browse(values['quality_native_parent_workorder_id'])
                 if not operation or operation.quantity <= 0 or original.production_id != operation.production:
-                    raise UserError(_('Преемність операцій встановлює лише штатне копіювання Backorder.'))
+                    raise UserError(_('Наступність операцій встановлює лише штатне копіювання замовлення на залишок.'))
         context = dict(self.env.context)
         context.pop('default_quality_native_parent_workorder_id', None)
         return super(NativeBackorderWorkorder, self.with_context(context)).create(vals_list)
 
     def write(self, vals):
         if 'quality_native_parent_workorder_id' in vals:
-            raise UserError(_('Історія преемності операцій незмінна.'))
+            raise UserError(_('Історія наступності операцій незмінна.'))
         return super().write(vals)
 
 

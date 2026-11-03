@@ -3,6 +3,7 @@ from lxml import etree
 from odoo import Command
 from odoo.exceptions import AccessError, UserError
 from odoo.tests import tagged
+from odoo.tools.safe_eval import safe_eval
 
 from .test_quality_check_in_process import QualityCheckInProcessCase
 
@@ -71,6 +72,16 @@ class TestQualityCheckAlertAction(QualityCheckInProcessCase):
         self.assertEqual(buttons[0].get('string'), 'Створити сповіщення')
         self.assertEqual(buttons[0].get('invisible'), 'not can_create_matrix_quality_alert')
         self.assertTrue(check_arch.xpath("//field[@name='can_create_matrix_quality_alert']"))
+        standard_buttons = check_arch.xpath("//header/button[@name='do_alert']")
+        self.assertEqual(len(standard_buttons), 2)
+        for state in ('pass', 'fail'):
+            for stage in ('in_process', 'incoming', 'final'):
+                visible = [button for button in standard_buttons if not safe_eval(
+                    button.get('invisible'),
+                    {'quality_state': state, 'x_control_stage': stage,
+                     'alert_id': False, 'alert_ids': []},
+                )]
+                self.assertEqual(len(visible), 0 if stage == 'in_process' else 1)
         alert_view = self.env['quality.alert'].get_view(
             view_id=self.env.ref('quality_control.quality_alert_view_form').id,
             view_type='form',
@@ -232,6 +243,9 @@ class TestQualityCheckAlertAction(QualityCheckInProcessCase):
         alert = self._save_action(action, x_sorting_parameter=manual)
         self.assertEqual(alert.x_sorting_parameter, manual)
         context = dict(action['context'], default_x_sorting_parameter=manual)
+        # A deliberate independent alert can still carry manual context text;
+        # re-saving the matrix button's same request must be rejected instead.
+        context.pop('quality_matrix_alert')
         from_context = self._save_action(dict(action, context=context))
         self.assertEqual(from_context.x_sorting_parameter, manual)
         original = (alert.x_sorting_parameter, alert.vataga_matrix_failure_snapshot, alert.description)
@@ -313,6 +327,43 @@ class TestQualityCheckAlertAction(QualityCheckInProcessCase):
         self.assertEqual(photo.res_id, alert.id)
         self.assertEqual(alert.check_id, check)
         self.assertEqual(check.quality_state, 'none')
+
+    def test_inspector_needs_no_read_access_to_stored_window_actions(self):
+        check = self._failed_check()
+        inspector = self._inspector('no_action_access')
+        self.env['ir.rule'].create({
+            'name': 'Deny stored window action reads',
+            'model_id': self.env['ir.model']._get_id('ir.actions.act_window'),
+            'domain_force': "[('id', '=', 0)]", 'perm_read': True,
+            'perm_create': False, 'perm_write': False, 'perm_unlink': False,
+        })
+        action = check.with_user(inspector).action_open_matrix_quality_alert()
+        alert = self.env['quality.alert'].with_user(inspector).with_context(action['context']).create({
+            'name': 'Сповіщення без доступу до службових дій',
+        })
+        self.assertEqual(alert.check_id, check)
+        self.assertTrue(alert.vataga_matrix_failure_snapshot)
+
+    def test_repeated_open_reuses_saved_alert_and_stale_form_cannot_duplicate(self):
+        check = self._failed_check()
+        first = check.action_open_matrix_quality_alert()
+        second = check.action_open_matrix_quality_alert()
+        alert = self._save_action(first)
+        self.assertEqual(check.action_open_matrix_quality_alert()['res_id'], alert.id)
+        with self.assertRaises(UserError), self.cr.savepoint():
+            self._save_action(second)
+        self.assertEqual(self.env['quality.alert'].search_count([
+            ('check_id', '=', check.id), ('vataga_matrix_alert_key', '!=', False),
+        ]), 1)
+        self._numeric(check, check.sample_ids, '12')
+        self.assertFalse(check.action_open_matrix_quality_alert()['res_id'])
+
+    def test_repaired_failure_cannot_be_saved_from_stale_form(self):
+        check = self._failed_check()
+        action = check.action_open_matrix_quality_alert()
+        self._numeric(check, check.sample_ids, '5')
+        with self.assertRaises(UserError), self.cr.savepoint():
+            self._save_action(action)
 
     def test_incoming_sorting_text_and_alert_logic_remain_unchanged(self):
         point = self.point.copy({'x_control_stage': 'incoming', 'visual_sample_control_required': True})

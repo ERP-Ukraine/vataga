@@ -6,13 +6,13 @@
         <field name="inherit_id" ref="quality_vataga.quality_alert_scrap_form"/>
         <field name="arch" type="xml">
             <xpath expr="//page[@name='vataga_scrap']/p" position="replace">
-                <p>Виробничі втрати стосуються невипущених FAIL-QUNIT. Документ зберігає кількість і фактичну вартість; за ручної періодичної оцінки бухгалтерську проводку не створює.</p>
+                <p>Виробничі втрати стосуються невипущених непридатних виробів. Документ зберігає кількість і фактичну вартість; за ручної періодичної оцінки бухгалтерську проводку не створює.</p>
             </xpath>
             <xpath expr="//page[@name='vataga_scrap']/group" position="after">
-                <button name="action_scrap_defective_units" type="object" string="Визнати втрати та завершити MO"
+                <button name="action_scrap_defective_units" type="object" string="Визнати втрати та завершити виробниче замовлення"
                         class="btn-primary" groups="quality.group_quality_manager"
                         invisible="vataga_scrap_status != 'ready'"
-                        confirm="Підтверджую повне фактичне споживання компонентів партії. Випустити готові QUNIT, визнати затверджений брак виробничими втратами та завершити MO без Backorder?"/>
+                        confirm="Підтверджую повне фактичне споживання компонентів партії. Випустити готові вироби, визнати затверджений брак виробничими втратами та завершити виробниче замовлення без замовлення на залишок?"/>
                 <field name="production_loss_fact_ids" readonly="1" nolabel="1">
                     <tree create="0" edit="0" delete="0">
                         <field name="unit_id"/>

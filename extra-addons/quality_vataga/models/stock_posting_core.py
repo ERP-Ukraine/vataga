@@ -68,7 +68,7 @@ class StockPostingProtected(models.AbstractModel):
     def _lock_production(self, production, operation='write'):
         access(production, operation)
         if production.company_id not in self.env.companies:
-            raise AccessError(_('Недоступна компанія MO.'))
+            raise AccessError(_('Недоступна компанія виробничого замовлення.'))
         # A real revision write detects stale REPEATABLE READ snapshots;
         # a SELECT FOR UPDATE alone would leave a waiter with old evidence.
         production.flush_recordset(['quality_stock_revision'])
@@ -156,7 +156,7 @@ class StockPostingLine(models.Model):
     valuation_layer_id = fields.Many2one('stock.valuation.layer', required=True, readonly=True, ondelete='restrict')
     quantity = fields.Float(required=True, readonly=True)
     uom_id = fields.Many2one('uom.uom', required=True, readonly=True, ondelete='restrict')
-    _sql_constraints = [('line_unique', 'unique(move_line_id)', 'Фактичну складську строку вже використано.')]
+    _sql_constraints = [('line_unique', 'unique(move_line_id)', 'Фактичний рядок складського руху вже використано.')]
 
     @api.model
     def _protected_sources(self):
@@ -209,7 +209,7 @@ class MrpStockKernelBoundary(models.Model):
                 (production_id=%s OR raw_material_production_id=%s) AND state='done')
         """, [self.id, self.id, self.id])
         if self.env.cr.fetchone()[0] or self.qty_produced:
-            raise ValidationError(_('MO вже має складську історію або вироблену кількість. Продовження поштучного маршруту потребує перевіреної міграції; архівний адаптер вимкнено.'))
+            raise ValidationError(_('Виробниче замовлення вже має складську історію або вироблену кількість. Продовження поштучного маршруту потребує перевіреної міграції; архівний адаптер вимкнено.'))
         return True
 
     @api.model_create_multi
@@ -231,7 +231,7 @@ class MrpStockKernelBoundary(models.Model):
         self.env['quality.stock.posting'].flush_model()
         self.env.cr.execute('SELECT 1 FROM quality_stock_posting WHERE production_id IN %s LIMIT 1', [tuple(self.ids) or (0,)])
         if self.env.cr.fetchone():
-            raise UserError(_('MO має поіменні проведення. Повторний стандартний _post_inventory заборонено.'))
+            raise UserError(_('Виробниче замовлення має поіменні проведення. Повторне штатне складське проведення заборонено.'))
         return super()._post_inventory(cancel_backorder=cancel_backorder)
 
 
@@ -254,7 +254,7 @@ class StockJournalMove(models.Model):
         self.env['quality.stock.posting'].flush_model()
         self.env.cr.execute('SELECT 1 FROM quality_stock_posting WHERE production_id IN %s LIMIT 1', [tuple(productions.ids) or (0,)])
         if self.env.cr.fetchone():
-            raise UserError(_('MO має архівні поіменні проведення. Нове проведення заблоковано до узгодженої міграції історії.'))
+            raise UserError(_('Виробниче замовлення має архівні поіменні проведення. Нове проведення заблоковано до узгодженої міграції історії.'))
         # Native stock/company/ACL and 13.3 guards always run through super().
         return super()._action_done(cancel_backorder=cancel_backorder)
 
@@ -340,7 +340,7 @@ class StockCostTimerBoundary(models.Model):
             self.env['quality.stock.posting']._lock_production(production, operation='read')
             self.env.cr.execute('SELECT 1 FROM quality_stock_cost_scope WHERE production_id=%s AND policy=%s LIMIT 1', [production.id, POLICY])
             if self.env.cr.fetchone():
-                raise UserError(_('Вартість MO вже зафіксовано. Нові інтервали потребують окремої процедури коригування; автоматичне донарахування заблоковано.'))
+                raise UserError(_('Вартість виробничого замовлення вже зафіксовано. Нові інтервали потребують окремої процедури коригування; автоматичне донарахування заблоковано.'))
         return super().create(vals_list)
 
     def _assert_not_frozen(self):

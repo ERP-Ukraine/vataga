@@ -6,6 +6,12 @@
         <field name="inherit_id" ref="quality_control.quality_check_view_form"/>
         <field name="priority" eval="99"/>
         <field name="arch" type="xml">
+            <xpath expr="(//header/button[@name='do_alert'])[1]" position="attributes">
+                <attribute name="invisible" add="x_control_stage == 'in_process'" separator=" or "/>
+            </xpath>
+            <xpath expr="(//header/button[@name='do_alert'])[2]" position="attributes">
+                <attribute name="invisible" add="x_control_stage == 'in_process'" separator=" or "/>
+            </xpath>
             <xpath expr="//header" position="inside">
                 <widget name="quality_unit_admission_buttons" groups="quality.group_quality_user"
                         invisible="x_control_stage != 'in_process' or not operation_run_id"/>
@@ -63,8 +69,8 @@
                        invisible="x_control_stage != 'in_process'">
                     <field name="quality_transfer_controlled" invisible="1"/>
                     <div class="alert alert-warning" colspan="2" invisible="not quality_transfer_controlled">
-                        Активний захищений поштучний маршрут. Стандартне завершення Work Orders і складський випуск заблоковані.
-                        Приймання не є запуском обробки; для виконання оберіть конкретні QUNIT у робочому завданні.
+                        Активний захищений поштучний маршрут. Стандартне завершення робочих завдань і складський випуск заблоковані.
+                        Приймання не є запуском обробки; для виконання оберіть конкретні вироби у робочому завданні.
                     </div>
                     <group>
                         <field name="in_process_sample_quantity" readonly="1"/>
@@ -72,8 +78,8 @@
                         <field name="unit_admission_role" groups="quality.group_quality_manager"/>
                         <field name="in_process_result_quantities_valid" invisible="1"/>
                         <div colspan="2" class="text-muted">
-                            Завершення QC фіксує результати та допуски придатних виробів.
-                            Незавершені обов’язкові перевірки й відкриті Alert утримують відповідні вироби.
+                            Завершення перевірки якості фіксує результати та допуски придатних виробів.
+                            Незавершені обов’язкові перевірки й відкриті сповіщення про якість утримують відповідні вироби.
                         </div>
                         <div colspan="2" class="alert alert-warning mb-0"
                              invisible="in_process_result_quantities_valid">

@@ -8,17 +8,17 @@ import unittest
 from lxml import etree
 
 ROOT = Path(__file__).resolve().parents[1]
-# Includes computed definitions too: this cleanup must not alter field schemas.
+# Includes computed definitions and the reviewed Ukrainian labels; technical field schemas are preserved.
 FIELD_CONTRACTS = {
-    'models/quality_stock_posting.py': '44c4322a63b6eb0cfe3533134e9b10c603575d5b40ee7a3f8a497804c616f8ef',
-    'models/quality_unit_release.py': '164893b5a67fee0a4c23ad2723d8898334e0afeeca1790b160076769e4161dbb',
+    'models/quality_stock_posting.py': 'b8efcb94b7023b53ceb4d4741d68b3e24c06990ddda8927e697b50f6322cc07d',
+    'models/quality_unit_release.py': 'c153e8e5f20033c0311905253c340ff1e58b0170ec9f8e48986a1895ab038b83',
     'models/quality_unit_release_readiness.py': '6dc26e6e33deb5b7b8cf7bc3e448a0f642961b2d0686ed4659ca164d620e5d33',
-    'models/quality_unit_stock_release.py': '1ce52354f934697da19079bfa8546bae3df872e0bbf887cbe35e202fee689165',
+    'models/quality_unit_stock_release.py': 'd6c3cc3d52c93eed0d038c2fd79700c5e21ac60527ce373271c106f7474c1de3',
     'models/stock_posting_core.py': '384fba5ad3ce2e31aa31c9eaa579ec9e8b24c8f1ce624d1fd2e2575df8993782',
     'models/stock_posting_valuation.py': '709af3cdf3ec56fe8483e90ad2534bc3ac8aaf781896df3f8ecb727588508a07',
     'wizard/quality_stock_timer_binding.py': '2240b052a536498a45db1ac1957e15ffe9bfc4169e7bbf7df36fd75b974d7215',
-    'wizard/quality_unit_release_wizard.py': '4b052c3d164d3fea6ccd2df3f91a3f30436a2cd7ecffe92d98b7f8b39ffc3edc',
-    'wizard/quality_unit_stock_release_wizard.py': 'a31b2e017eb795ac5e4a0d7ef6a71ec4c73c5ddcd51209571ac8e1151ce6e62f',
+    'wizard/quality_unit_release_wizard.py': '08adefc9f50187359531c03c25ea3cd98c3e0b628e5ce2d68bdb5be303b522e0',
+    'wizard/quality_unit_stock_release_wizard.py': '22ca95cd0b807973aa9e89629d6233e026ef7efabfe587c8b2b19d645c7bd787',
 }
 MOVED_FIELDS = ('quality_release_mo_quantity_label', 'quality_release_scope_unit_id', 'quality_release_scope_check_id')
 
@@ -45,7 +45,7 @@ class TestQualityArchiveSchema(unittest.TestCase):
                     self.assertNotIn(node.targets[0].id, definitions)
                     definitions[node.targets[0].id] = ast.dump(node, include_attributes=False)
         digest = hashlib.sha256('\n'.join(definitions[name] for name in MOVED_FIELDS).encode()).hexdigest()
-        self.assertEqual(digest, 'a89cd74754d022b16fd280b3fbddc428020891063ebdce877d31140356efa136')
+        self.assertEqual(digest, 'cd30fe01df56e0660899b5a45c42a48f7f1a58150407b787126b3da015a49316')
         self.assertFalse((ROOT / 'models/quality_release_evidence.py').exists())
 
     def test_archive_acl_rows_are_read_only(self):

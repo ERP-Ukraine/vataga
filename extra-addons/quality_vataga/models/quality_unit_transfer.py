@@ -25,9 +25,9 @@ class QualityUnitTransfer(models.Model):
     name = fields.Char(required=True, readonly=True)
     check_id = fields.Many2one('quality.check', required=True, readonly=True, ondelete='restrict', index=True)
     admission_id = fields.Many2one('quality.unit.admission', string='Допуск інспектора', required=True, readonly=True, ondelete='restrict')
-    controlled_unit_id = fields.Many2one('quality.production.unit', string='QUNIT', required=True, readonly=True, ondelete='restrict', check_company=True, index=True)
-    production_id = fields.Many2one('mrp.production', string='MO', required=True, readonly=True, ondelete='restrict', check_company=True, index=True)
-    source_run_id = fields.Many2one('quality.production.run', string='Вихідний QRUN', required=True, readonly=True, ondelete='restrict', check_company=True, index=True)
+    controlled_unit_id = fields.Many2one('quality.production.unit', string='Виріб', required=True, readonly=True, ondelete='restrict', check_company=True, index=True)
+    production_id = fields.Many2one('mrp.production', string='Виробниче замовлення', required=True, readonly=True, ondelete='restrict', check_company=True, index=True)
+    source_run_id = fields.Many2one('quality.production.run', string='Вихідний запуск виробничої операції', required=True, readonly=True, ondelete='restrict', check_company=True, index=True)
     source_workorder_id = fields.Many2one('mrp.workorder', string='З операції', required=True, readonly=True, ondelete='restrict', check_company=True, index=True)
     destination_workorder_id = fields.Many2one('mrp.workorder', string='На операцію', required=True, readonly=True, ondelete='restrict', check_company=True, index=True)
     company_id = fields.Many2one('res.company', required=True, readonly=True, ondelete='restrict', index=True)
@@ -110,7 +110,7 @@ class QualityUnitTransfer(models.Model):
             or source.needed_by_workorder_ids != destination
             or predecessors != {source.id} or successors != {destination.id}
         ):
-            raise ValidationError(_('Потрібне наступне робоче завдання цього MO з єдиною прямою залежністю від вихідної операції. Розгалужені та неоднозначні маршрути поки не підтримуються.'))
+            raise ValidationError(_('Потрібне наступне робоче завдання цього виробничого замовлення з єдиною прямою залежністю від вихідної операції. Розгалужені та неоднозначні маршрути поки не підтримуються.'))
         # Reject even corrupt dependency cycles; sequence or database IDs do
         # not establish a manufacturing route.
         # Inspect only existence of invalid paths, including dependencies
@@ -134,7 +134,7 @@ class QualityUnitTransfer(models.Model):
             protected_progress = bool(self.env.cr.fetchone())
         production._check_named_stock_history()
         if production.state not in ('confirmed', 'progress') or source.state != 'progress' or destination.state in ('done', 'cancel') or (destination.state == 'progress' and not protected_progress) or destination.qty_produced:
-            raise ValidationError(_('Передача потребує активної вихідної операції відкритого MO та наступної операції без стандартного повного виконання; частковий прогрес має бути підтверджений поштучним маршрутом.'))
+            raise ValidationError(_('Передача потребує активної вихідної операції відкритого виробничого замовлення та наступної операції без стандартного повного виконання; частковий прогрес має бути підтверджений поштучним маршрутом.'))
         return production
 
     @api.model
@@ -148,7 +148,7 @@ class QualityUnitTransfer(models.Model):
             raise ValidationError(error)
         production = self._check_workorders(admission.workorder_id, destination)
         if admission.production_id != production or admission.controlled_unit_id not in admission.operation_run_id.unit_ids:
-            raise ValidationError(_('Виріб, допуск, MO і склад вихідного запуску не відповідають одне одному.'))
+            raise ValidationError(_('Виріб, допуск, виробниче замовлення і склад вихідного запуску не відповідають одне одному.'))
         # Historical later runs predate this handoff implementation. Do not
         # silently interpret them as an unrecorded physical return.
         error = admission._get_consumption_error()
@@ -313,7 +313,7 @@ class QualityUnitTransfer(models.Model):
                 or record.destination_workorder_id.production_id != record.production_id
                 or record.destination_workorder_id.company_id != record.company_id
             ):
-                raise ValidationError(_('Передача, допуск, виріб, запуск, операції, MO та компанія повинні відповідати одне одному.'))
+                raise ValidationError(_('Передача, допуск, виріб, запуск, операції, виробниче замовлення та компанія повинні відповідати одне одному.'))
 
 
 class QualityUnitTransferEvent(models.Model):

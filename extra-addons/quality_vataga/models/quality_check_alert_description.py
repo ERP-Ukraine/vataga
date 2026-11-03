@@ -1,3 +1,6 @@
+import hashlib
+import json
+
 from markupsafe import Markup
 
 from odoo import _, api, fields, models
@@ -26,6 +29,12 @@ class QualityCheckAlertDescription(models.Model):
                 and check._get_current_matrix_failure_data()
             )
 
+    def do_alert(self):
+        self.ensure_one()
+        if self.x_control_stage == 'in_process':
+            return self.action_open_matrix_quality_alert()
+        return super().do_alert()
+
     def action_open_matrix_quality_alert(self):
         self.ensure_one()
         self.check_access_rights('read')
@@ -38,21 +47,13 @@ class QualityCheckAlertDescription(models.Model):
                 'перевірки з актуальними невідповідностями матриці.',
             ))
 
-        # Reuse standard action metadata and the existing alert form. Returning
-        # an unsaved form keeps creation, attachments and ACLs in the normal UI.
-        action = {}
-        for xmlid in (
-            'quality_control.quality_alert_action_check',
-            'quality_control.quality_alert_action',
-        ):
-            standard_action = self.env.ref(xmlid, False)
-            if (
-                standard_action
-                and standard_action._name == 'ir.actions.act_window'
-                and standard_action.res_model == 'quality.alert'
-            ):
-                action = standard_action.read()[0]
-                break
+        # An object button can return an inline action. Reading a stored
+        # ir.actions.act_window unnecessarily requires access to its metadata.
+        # The alert itself still uses the inspector's normal ACLs and rules.
+        key = self._matrix_alert_request_key()
+        existing = alert_model.search([
+            ('check_id', '=', self.id), ('vataga_matrix_alert_key', '=', key),
+        ], limit=1)
         view = self.env.ref('quality_control.quality_alert_view_form')
         context = {
             key: value for key, value in self.env.context.items()
@@ -79,19 +80,38 @@ class QualityCheckAlertDescription(models.Model):
                 context['default_' + name] = record.id or False
         if context.get('default_check_id') != self.id:
             raise UserError(_('У моделі сповіщення немає стандартного зв’язку з перевіркою.'))
-        context.update(active_model=self._name, active_id=self.id, active_ids=self.ids)
-        action.update({
+        context.update(active_model=self._name, active_id=self.id, active_ids=self.ids,
+                       quality_matrix_alert=True)
+        return {
             'type': 'ir.actions.act_window',
             'name': _('Створити сповіщення'),
             'res_model': 'quality.alert',
             'view_mode': 'form',
             'view_id': view.id,
             'views': [(view.id, 'form')],
-            'res_id': False,
+            'res_id': existing.id or False,
             'target': 'current',
             'context': context,
-        })
-        return action
+        }
+
+    def _matrix_alert_request_key(self):
+        self.ensure_one()
+        # Hash immutable row IDs and raw evidence, not translated descriptions.
+        # The same request must stay the same when the inspector changes language.
+        failures = [
+            (sample.id, sample.visual_result, [
+                (value.id, value.numeric_value, value.boolean_value, value.string_value)
+                for value in sample.measurement_value_ids.filtered(
+                    lambda cell: cell.result == 'fail').sorted('id')
+            ])
+            for sample in self.sample_ids.filtered(
+                lambda row: row.visual_result == 'no'
+                or any(cell.result == 'fail' for cell in row.measurement_value_ids)
+            ).sorted('id')
+        ]
+        return hashlib.sha256(json.dumps(
+            failures, ensure_ascii=False, sort_keys=True,
+        ).encode('utf-8')).hexdigest()
 
     def _get_current_matrix_failure_data(self):
         """Shared current-failure data for alert fields and descriptions.

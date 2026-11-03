@@ -66,7 +66,7 @@ class NativeLossProduction(models.Model):
         if (set(operation.costs) != set(self.workorder_ids.ids) or not math.isfinite(expected)
                 or raw <= 0 or work < 0 or self.extra_cost < 0
                 or not math.isclose(native_total, expected, rel_tol=1e-9, abs_tol=1e-7)):
-            raise ValidationError(_('Штатна ціна не підтвердила повні фактичні компоненти та WO.'))
+            raise ValidationError(_('Штатна ціна не підтвердила повні фактичні компоненти та робочі завдання.'))
         currency = self.company_id.currency_id
         total = currency.round(raw + work + self.extra_cost * self.product_qty)
         good = currency.round(total * quantity / self.product_qty)
@@ -111,7 +111,7 @@ class NativeLossProduction(models.Model):
                     or (self.move_raw_ids | self.move_finished_ids).filtered(lambda m: m.state == 'done')
                     or self.move_raw_ids.filtered(lambda m: m.state == 'cancel')
                     or self.consumption == 'strict' or self.picking_type_id.create_backorder == 'always'):
-                raise ValidationError(_('Потрібен повний первинний розподіл партії без попереднього Stock; суворе споживання не підтримується.'))
+                raise ValidationError(_('Потрібен повний первинний розподіл партії без попередніх складських проведень; суворий контроль споживання не підтримується.'))
             operation = PartialPosting(self, tuple(sorted(good_keys)), 0, (), (), {}, loss_keys=tuple(sorted(loss_keys)))
             self._native_loss_before_post(operation)
             for product in self.move_raw_ids.product_id:
@@ -146,7 +146,7 @@ class NativeLossProduction(models.Model):
                         break
                     model = result.get('res_model')
                     if model not in ('mrp.consumption.warning', 'mrp.production.backorder'):
-                        raise ValidationError(_('Невідоме штатне підтвердження завершення MO.'))
+                        raise ValidationError(_('Невідоме штатне підтвердження завершення виробничого замовлення.'))
                     wizard = self.env[model].with_context(result['context']).create({})
                     result = wizard.action_confirm() if model == 'mrp.consumption.warning' else wizard.action_close_mo()
                 finished = self.move_finished_ids.filtered(lambda m: m.state == 'done' and m.quantity > 0)
@@ -170,7 +170,7 @@ class NativeLossProduction(models.Model):
                         or any(wo._native_partial_cost_basis() != bases[wo.id] for wo in self.workorder_ids)
                         or (self.move_raw_ids | self.move_finished_ids).filtered(lambda m: m.state not in ('done', 'cancel'))
                         or any(set(line.consume_line_ids.ids) != set(raw.move_line_ids.ids) for line in lines)):
-                    raise ValidationError(_('Штатний Stock/завершення не підтвердив точний випуск, витрати або незмінний час.'))
+                    raise ValidationError(_('Штатне складське проведення та завершення не підтвердили точний випуск, витрати або незмінність робочих інтервалів.'))
                 operation.new_line_ids = tuple(lines.ids)
                 self._native_partial_after_stock(operation)
                 operation.phase = 'audit'

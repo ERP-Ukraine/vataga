@@ -8,7 +8,7 @@ class QualityUnitStockReleaseWizard(RetiredDialog, models.TransientModel):
     _name = 'quality.unit.stock.release.wizard'
     _description = 'Підготовка поіменного складського випуску без проведення'
 
-    production_id = fields.Many2one('mrp.production', string='MO', required=True, readonly=True, ondelete='cascade')
+    production_id = fields.Many2one('mrp.production', string='Виробниче замовлення', required=True, readonly=True, ondelete='cascade')
     request_key = fields.Char(required=True, readonly=True)
     line_ids = fields.One2many('quality.unit.stock.release.wizard.line', 'wizard_id', string='Конкретні вироби')
     posting_note = fields.Text(compute='_compute_posting_note')
@@ -38,19 +38,19 @@ class QualityUnitStockReleaseWizard(RetiredDialog, models.TransientModel):
 
 class QualityUnitStockReleaseWizardLine(RetiredDialog, models.TransientModel):
     _name = 'quality.unit.stock.release.wizard.line'
-    _description = 'Вибір QUNIT для підготовки складського випуску'
+    _description = 'Вибір виробів для підготовки складського випуску'
 
     wizard_id = fields.Many2one('quality.unit.stock.release.wizard', required=True, ondelete='cascade')
-    unit_id = fields.Many2one('quality.production.unit', string='QUNIT', required=True, readonly=True, ondelete='cascade')
+    unit_id = fields.Many2one('quality.production.unit', string='Виріб', required=True, readonly=True, ondelete='cascade')
     selected = fields.Boolean(string='Обрати')
     permission_id = fields.Many2one('quality.unit.release.line', string='Дозвіл 13.4А', compute='_compute_availability')
-    check_id = fields.Many2one('quality.check', string='Останній QC', compute='_compute_availability')
+    check_id = fields.Many2one('quality.check', string='Остання перевірка якості', compute='_compute_availability')
     admission_id = fields.Many2one('quality.unit.admission', string='Чинний допуск', compute='_compute_availability')
     eligible = fields.Boolean(string='Дозвіл для підготовки чинний', compute='_compute_availability')
     unavailable_reason = fields.Text(string='Причина блокування', compute='_compute_availability')
     stock_status = fields.Char(string='Фактичний випуск', compute='_compute_availability')
 
-    _sql_constraints = [('unit_unique', 'unique(wizard_id, unit_id)', 'QUNIT вже є в майстрі.')]
+    _sql_constraints = [('unit_unique', 'unique(wizard_id, unit_id)', 'Виріб уже є в майстрі.')]
 
     @api.model
     def check_access_rights(self, operation, raise_exception=True):

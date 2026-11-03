@@ -17,7 +17,7 @@
                     </tree>
                 </field>
                 <group col="2" class="w-100">
-                    <field name="note" nolabel="1" colspan="2" class="w-100" placeholder="Опишіть виконані роботи для зазначених QUNIT"/>
+                    <field name="note" nolabel="1" colspan="2" class="w-100" placeholder="Опишіть виконані роботи для зазначених виробів"/>
                 </group>
                 <footer>
                     <button name="action_apply" type="object" string="Підтвердити виконання" class="btn-primary"/>

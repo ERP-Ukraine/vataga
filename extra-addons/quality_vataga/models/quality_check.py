@@ -259,7 +259,7 @@ class QualityCheck(models.Model):
     def write(self, vals):
         if 'measurement_matrix_required' in vals:
             raise UserError(_(
-                'Ознака необхідності матриці є незмінним snapshot перевірки.',
+                'Ознака необхідності матриці є незмінним знімком перевірки.',
             ))
         if 'point_id' in vals:
             new_point_id = vals.get('point_id') or False
@@ -800,7 +800,7 @@ class QualityCheck(models.Model):
             manual_result = payload.get('manual_result') or False
             if manual_result not in ('pass', 'fail', False):
                 raise ValidationError(_(
-                    'Ручний результат повинен бути PASS або FAIL.',
+                    'Оберіть результат «Придатний» або «Непридатний».',
                 ))
             values = {
                 'has_numeric_value': False,
@@ -831,9 +831,7 @@ class QualityCheck(models.Model):
             )[:1]
             if invalid_boolean_column:
                 raise ValidationError(_(
-                    'Текстова норма параметра «%(parameter)s» не означає '
-                    'однозначно «Так» або «Ні». Виправте QCP; вже створена '
-                    'перевірка зберігає початковий snapshot.',
+                    'Текстова норма параметра «%(parameter)s» не означає однозначно «Так» або «Ні». Виправте точку контролю якості; вже створена перевірка зберігає початковий знімок.',
                     parameter=invalid_boolean_column.parameter_name,
                 ))
             required_categories = (

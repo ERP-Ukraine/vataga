@@ -6,7 +6,7 @@ from odoo.exceptions import AccessError, UserError, ValidationError
 
 class QualityUnitExecutionWizard(models.TransientModel):
     _name = 'quality.unit.execution.wizard'
-    _description = 'Явне поштучне виконання Work Order'
+    _description = 'Явне поштучне виконання робочого завдання'
 
     workorder_id = fields.Many2one('mrp.workorder', string='Робоче завдання', required=True, readonly=True, ondelete='cascade')
     mode = fields.Selection([('start', 'Розпочати'), ('finish', 'Завершити'), ('stop', 'Зупинити'), ('control', 'Створити контроль')], string='Дія', required=True, readonly=True)
@@ -84,7 +84,7 @@ class QualityUnitExecutionWizard(models.TransientModel):
         self._check_scope(self.workorder_id, self.mode)
         rows = self.line_ids.filtered('selected')
         if not rows:
-            raise ValidationError(_('Явно оберіть конкретні QUNIT.'))
+            raise ValidationError(_('Явно оберіть конкретні вироби.'))
         # Never trust the UI eligibility or a quantity supplied by a client.
         if self.mode == 'start':
             if len(rows.transfer_id) != len(rows) or rows.execution_id:
@@ -103,13 +103,13 @@ class QualityUnitExecutionWizard(models.TransientModel):
 
 class QualityUnitExecutionWizardLine(models.TransientModel):
     _name = 'quality.unit.execution.wizard.line'
-    _description = 'Явний вибір QUNIT для виконання'
+    _description = 'Явний вибір виробів для виконання'
 
     wizard_id = fields.Many2one('quality.unit.execution.wizard', required=True, ondelete='cascade')
     transfer_id = fields.Many2one('quality.unit.transfer', readonly=True, ondelete='cascade')
     execution_id = fields.Many2one('quality.unit.execution', readonly=True, ondelete='cascade')
     selected = fields.Boolean(string='Обрати')
-    controlled_unit_id = fields.Many2one('quality.production.unit', compute='_compute_availability', string='QUNIT')
+    controlled_unit_id = fields.Many2one('quality.production.unit', compute='_compute_availability', string='Виріб')
     eligible = fields.Boolean(compute='_compute_availability')
     unavailable_reason = fields.Char(compute='_compute_availability', string='Причина недоступності')
     status = fields.Char(compute='_compute_availability', string='Обробка')

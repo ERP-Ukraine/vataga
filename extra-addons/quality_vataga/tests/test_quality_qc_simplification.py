@@ -160,7 +160,7 @@ class TestQualityQcSimplification(QualityCheckInProcessCase):
         check.update_measurement_value(value.id, {'numeric_input': '5'})
         sample = value.sample_id
         self.assertTrue(sample.x_was_reworked)
-        self.assertTrue(any('FAIL' in str(message.body) and 'PASS' in str(message.body) for message in check.message_ids))
+        self.assertTrue(any('Непридатний' in str(message.body) and 'Придатний' in str(message.body) for message in check.message_ids))
         check.do_pass()
         self.assertEqual(check.x_admitted_qty, 1)
         # Isolate hold aggregation from the unchanged board closure workflow.

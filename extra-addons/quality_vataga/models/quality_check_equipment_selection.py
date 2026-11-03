@@ -22,7 +22,7 @@ class QualityCheckEquipmentSelection(models.Model):
         ondelete='restrict',
     )
     equipment_category_name = fields.Char(
-        string='Назва категорії ЗВТ (snapshot)',
+        string='Назва категорії ЗВТ (на момент перевірки)',
         required=True,
         readonly=True,
     )
@@ -35,7 +35,7 @@ class QualityCheckEquipmentSelection(models.Model):
         readonly=True,
     )
     equipment_category_names_snapshot = fields.Char(
-        string='Допустимі категорії ЗВТ (snapshot)',
+        string='Допустимі категорії ЗВТ (на момент перевірки)',
         required=True,
         readonly=True,
     )
@@ -88,39 +88,39 @@ class QualityCheckEquipmentSelection(models.Model):
         copy=False,
     )
     equipment_name_snapshot = fields.Char(
-        string='Назва обладнання (snapshot)',
+        string='Назва обладнання (на момент перевірки)',
         readonly=True,
         copy=False,
     )
     equipment_serial_snapshot = fields.Char(
-        string='Серійний номер (snapshot)',
+        string='Серійний номер (на момент перевірки)',
         readonly=True,
         copy=False,
     )
     equipment_inventory_snapshot = fields.Char(
-        string='Номер обладнання (legacy snapshot)',
+        string='Номер обладнання (історичний знімок)',
         readonly=True,
         copy=False,
     )
     equipment_number_snapshot = fields.Char(
-        string='Номер обладнання (snapshot)',
+        string='Номер обладнання (на момент перевірки)',
         readonly=True,
         copy=False,
     )
     equipment_number_label_snapshot = fields.Char(
-        string='Тип номера обладнання (snapshot)',
+        string='Тип номера обладнання (на момент перевірки)',
         readonly=True,
         copy=False,
     )
     equipment_display_snapshot = fields.Char(
-        string='Обладнання (snapshot)',
+        string='Обладнання (на момент перевірки)',
         compute='_compute_equipment_display_snapshot',
         store=True,
         readonly=True,
         copy=False,
     )
     equipment_display_list_snapshot = fields.Text(
-        string='Використане обладнання (snapshot)',
+        string='Використане обладнання (на момент перевірки)',
         readonly=True,
         copy=False,
     )
@@ -162,7 +162,7 @@ class QualityCheckEquipmentSelection(models.Model):
             'quality_vataga_snapshot_initialization',
         ):
             raise UserError(_(
-                'Категорії ЗВТ створюються системою з налаштувань QCP.',
+                'Категорії ЗВТ створюються системою з налаштувань точки контролю якості.',
             ))
         prepared_vals_list = [
             self._prepare_snapshot_create_values(vals)
@@ -442,8 +442,7 @@ class QualityCheckEquipmentSelection(models.Model):
         }
         if set(vals) - allowed_snapshot_fields:
             raise UserError(_(
-                'Внутрішній snapshot може змінювати лише підпис '
-                'обладнання.',
+                'Внутрішній знімок може змінювати лише підпис обладнання.',
             ))
         for check in self.mapped('quality_check_id'):
             check.check_access_rights('write')

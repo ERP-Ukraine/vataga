@@ -4,9 +4,9 @@ from ..models.quality_archive import ARCHIVE_MESSAGE, RetiredDialog, archive_dis
 
 class QualityUnitReleaseWizard(RetiredDialog, models.TransientModel):
     _name = 'quality.unit.release.wizard'
-    _description = 'Явний дозвіл випуску конкретних QUNIT'
+    _description = 'Явний дозвіл випуску конкретних виробів'
 
-    production_id = fields.Many2one('mrp.production', string='MO', required=True, readonly=True, ondelete='cascade')
+    production_id = fields.Many2one('mrp.production', string='Виробниче замовлення', required=True, readonly=True, ondelete='cascade')
     mode = fields.Selection([('authorize', 'Дозволити випуск'), ('cancel', 'Скасувати дозвіл')], string='Дія', required=True, readonly=True)
     request_key = fields.Char(required=True, readonly=True)
     reason = fields.Text(string='Причина скасування')
@@ -28,13 +28,13 @@ class QualityUnitReleaseWizard(RetiredDialog, models.TransientModel):
 
 class QualityUnitReleaseWizardLine(RetiredDialog, models.TransientModel):
     _name = 'quality.unit.release.wizard.line'
-    _description = 'Вибір QUNIT для дозволу випуску'
+    _description = 'Вибір виробів для дозволу випуску'
 
     wizard_id = fields.Many2one('quality.unit.release.wizard', required=True, ondelete='cascade')
     unit_id = fields.Many2one('quality.production.unit', readonly=True, ondelete='cascade')
     permission_id = fields.Many2one('quality.unit.release.line', readonly=True, ondelete='cascade')
     selected = fields.Boolean(string='Обрати')
-    controlled_unit_id = fields.Many2one('quality.production.unit', string='QUNIT', compute='_compute_availability')
+    controlled_unit_id = fields.Many2one('quality.production.unit', string='Виріб', compute='_compute_availability')
     last_workorder_id = fields.Many2one('mrp.workorder', string='Остання операція', compute='_compute_availability')
     execution_done = fields.Boolean(string='Обробку завершено', compute='_compute_availability')
     quality_result = fields.Char(string='Контроль якості', compute='_compute_availability')
@@ -44,7 +44,7 @@ class QualityUnitReleaseWizardLine(RetiredDialog, models.TransientModel):
     unavailable_reason = fields.Text(string='Причина блокування', compute='_compute_availability')
 
     _sql_constraints = [('one_origin', 'check((unit_id IS NULL) != (permission_id IS NULL))', 'Оберіть виріб або дозвіл.'),
-                        ('unit_unique', 'unique(wizard_id, unit_id)', 'QUNIT вже є у майстрі.'),
+                        ('unit_unique', 'unique(wizard_id, unit_id)', 'Виріб уже є у майстрі.'),
                         ('permission_unique', 'unique(wizard_id, permission_id)', 'Дозвіл вже є у майстрі.')]
 
 

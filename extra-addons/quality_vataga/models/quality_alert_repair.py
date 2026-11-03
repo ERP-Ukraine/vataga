@@ -50,7 +50,7 @@ class QualityAlertRepair(models.Model):
         self._check_repair_action()
         production, workorder = self._repair_target()
         if not production.quality_native_parent_id or self.vataga_repair_done_at:
-            raise UserError(_('Ця дія призначена для незавершеного ремонту у штатному Backorder.'))
+            raise UserError(_('Ця дія призначена для незавершеного ремонту у штатному замовленні на залишок.'))
         workorder.check_access_rights('write')
         workorder.check_access_rule('write')
         # Start actual native time, rather than manufacture a cost or copy old
@@ -64,7 +64,7 @@ class QualityAlertRepair(models.Model):
         self._check_repair_action()
         production, workorder = self._repair_target()
         if not production.quality_native_parent_id:
-            raise UserError(_('Ця дія призначена для ремонту у штатному Backorder.'))
+            raise UserError(_('Ця дія призначена для ремонту у штатному замовленні на залишок.'))
         timers = workorder.time_ids.filtered(lambda row: not row.date_end and row.user_id == self.env.user)
         with NativeBackorderOperation(production, 0).activate():
             timers._close()
@@ -139,9 +139,7 @@ class QualityAlertRepair(models.Model):
         samples.check_access_rights('read')
         samples.check_access_rule('read')
         scope_error = _(
-            'Для виконання рішення ТР потрібна визначена сфера Alert: ідентифіковані QUNIT '
-            'одного MO та зареєстрованого запуску відповідної операції. '
-            'Для старого Alert спочатку уточніть проблемні зразки.')
+            'Для виконання рішення Технічної ради потрібна визначена сфера сповіщення про якість: ідентифіковані вироби одного виробничого замовлення та зареєстрованого запуску відповідної операції. Для старого сповіщення про якість спочатку уточніть зразки з невідповідностями.')
         if not check or check.x_control_stage != 'in_process' or not samples:
             raise ValidationError(scope_error)
         run = check.operation_run_id
@@ -185,7 +183,7 @@ class QualityAlertRepair(models.Model):
             unit._assert_not_stock_posted()
             productions |= unit._quality_current_production()
         if len(productions) != 1:
-            raise ValidationError(_('Сфера ремонту належить різним поточним MO. Потрібне окреме рішення для кожної партії.'))
+            raise ValidationError(_('Сфера ремонту належить різним поточним виробничим замовленням. Потрібне окреме рішення для кожної партії.'))
         workorder = productions._quality_equivalent_workorder(self.check_id.operation_run_id.workorder_id)
         return productions, workorder
 
@@ -198,11 +196,11 @@ class QualityAlertRepair(models.Model):
         if (self.decision_type != 'repair' or not self.is_approved
                 or not self.approved_by_id or not self.approved_at
                 or self.stage_id != self.env.ref(BOARD_STAGE_XMLIDS[2])):
-            raise UserError(_('Спочатку затвердьте рішення ТР «Ремонт/Доопрацювання».'))
+            raise UserError(_('Спочатку затвердьте рішення Технічної ради «Ремонт/Доопрацювання».'))
         samples = self._repair_scope()
         production, workorder = self._repair_target()
         if production.state not in ('confirmed', 'progress') or workorder.state in ('done', 'cancel'):
-            raise UserError(_('Ремонт доступний для відкритого MO та незавершеної операції.'))
+            raise UserError(_('Ремонт доступний для відкритого виробничого замовлення та незавершеної операції.'))
         return samples
 
     def action_open_repair_confirmation(self):
@@ -223,9 +221,9 @@ class QualityAlertRepair(models.Model):
             if production.quality_native_parent_id and (
                     workorder.time_ids.filtered(lambda row: not row.date_end)
                     or not any(row.date_end and row.duration > 0 for row in workorder.time_ids)):
-                raise UserError(_('Для ремонту у Backorder потрібен фактичний завершений штатний робочий інтервал. Відсутність часу не означає нульову вартість ремонту.'))
+                raise UserError(_('Для ремонту в замовленні на залишок потрібен фактичний завершений штатний робочий інтервал. Відсутність часу не означає нульову вартість ремонту.'))
             if not isinstance(note, str) or not note.strip():
-                raise ValidationError(_('Опишіть фактично виконане доопрацювання всіх зазначених QUNIT.'))
+                raise ValidationError(_('Опишіть фактично виконане доопрацювання всіх зазначених виробів.'))
             if self.vataga_repair_done_at:
                 if note.strip() != self.vataga_repair_note:
                     raise UserError(_('Факт виконання вже зафіксовано; його не перезаписують.'))
@@ -273,8 +271,7 @@ class QualityAlertRepair(models.Model):
             ], workorder=workorder, confirmed=True)
             # Creation and identification share the savepoint: no orphan QC or QRUN.
             check.message_post(body=escape(_(
-                'Повторний контроль після доопрацювання за Alert %(alert)s. '
-                'Початкові результати та snapshot збережено.', alert=self.display_name)),
+                'Повторний контроль після доопрацювання за сповіщенням про якість %(alert)s. Початкові результати та знімок збережено.', alert=self.display_name)),
                 subtype_xmlid='mail.mt_note')
             self.message_post(body=escape(_(
                 'Створено повторну перевірку %(check)s для %(units)s.',
@@ -301,7 +298,7 @@ class QualityAlertRepair(models.Model):
                 or set(run.unit_ids.ids) != set(samples.controlled_unit_id.ids)
                 or len(check.sample_ids) != len(samples)
                 or set(check.sample_ids.controlled_unit_id.ids) != set(samples.controlled_unit_id.ids)):
-            raise ValidationError(_('Потрібні підтверджений ремонт і завершений повторний PASS для всіх QUNIT сфери Alert.'))
+            raise ValidationError(_('Потрібні підтверджений ремонт і завершений повторний контроль з результатом «Придатний» для всіх виробів, яких стосується сповіщення про якість.'))
         check._validate_measurement_can_pass()
         return check
 
@@ -338,7 +335,7 @@ class QualityCheckRepair(models.Model):
         for vals in vals_list:
             if 'vataga_repair_alert_id' in vals:
                 if self.env.context.get(REPAIR_CONTEXT) is not REPAIR_CHECK_TOKEN:
-                    raise AccessError(_('Повторний контроль ремонту створюють лише з відповідного Alert.'))
+                    raise AccessError(_('Повторний контроль ремонту створюють лише з відповідного сповіщення про якість.'))
                 self.env['quality.alert'].browse(vals['vataga_repair_alert_id'])._check_repair_action()
         context = dict(self.env.context)
         context.pop('default_vataga_repair_alert_id', None)
@@ -367,7 +364,7 @@ class QualityCheckRepair(models.Model):
             originals.check_access_rule('write')
             for check in originals.sorted('id'):
                 if check.quality_state != 'none' and check.quality_state != vals['quality_state']:
-                    raise UserError(_('Початкові результати завершеної QC ремонту зберігаються незмінними.'))
+                    raise UserError(_('Початкові результати завершеної перевірки якості після ремонту зберігаються незмінними.'))
         for check in self.filtered('vataga_repair_alert_id'):
             if {'quality_state', 'unit_admission_role', 'point_id', 'production_id', 'workorder_id', 'product_id', 'company_id', 'quality_execution_ids'}.intersection(vals):
                 check.check_access_rights('write')
@@ -375,7 +372,7 @@ class QualityCheckRepair(models.Model):
                 check._lock_unit_admission_scope()
                 check.invalidate_recordset(['quality_state'])
                 if 'quality_state' in vals and check.quality_state != 'none' and vals['quality_state'] != check.quality_state:
-                    raise UserError(_('Завершений повторний контроль не відкривають і не переписують. Створіть наступну перевірку з Alert.'))
+                    raise UserError(_('Завершений повторний контроль не відкривають і не переписують. Створіть наступну перевірку зі сповіщення про якість.'))
                 if vals.get('unit_admission_role', 'required') != 'required':
                     raise UserError(_('Повторний контроль ремонту є обов’язковим.'))
                 for name in ('point_id', 'production_id', 'workorder_id', 'product_id', 'company_id'):
@@ -411,7 +408,7 @@ class QualityCheckRepair(models.Model):
         if (not alert.vataga_repair_done_at or mode != 'reuse' or run
                 or workorder != target_workorder or self._identity_production() != production
                 or {row.get('unit_id') for row in mapping} != set(samples.controlled_unit_id.ids)):
-            raise ValidationError(_('Повторний контроль використовує лише ті самі QUNIT затвердженого ремонту.'))
+            raise ValidationError(_('Повторний контроль використовує лише ті самі вироби затвердженого ремонту.'))
         return True
 
     def _get_route_execution_evidence(self):
@@ -419,7 +416,7 @@ class QualityCheckRepair(models.Model):
         alert = self.vataga_repair_alert_id
         if alert:
             if alert.vataga_repair_closed_check_id != self or not alert._is_managed_closed():
-                raise UserError(_('Спочатку закрийте ремонтний Alert після повторного PASS.'))
+                raise UserError(_('Спочатку завершіть повторний контроль з результатом «Придатний» і закрийте сповіщення про якість щодо ремонту.'))
             # Reuse the original processed evidence; never create a fictitious
             # execution, timer, transfer or production quantity for a repair.
             source = alert.check_id

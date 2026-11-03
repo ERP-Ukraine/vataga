@@ -4,8 +4,8 @@
         <field name="name">quality.matrix.failure.scope.wizard.form</field>
         <field name="model">quality.matrix.failure.scope.wizard</field>
         <field name="arch" type="xml">
-            <form string="Уточнити вироби Alert">
-                <div class="alert alert-warning">Для старого Alert оберіть зразки за первинними доказами невідповідності. Поточний PASS не доводить відсутність попереднього браку. Уточнення незмінне та записується в Chatter.</div>
+            <form string="Уточнити вироби сповіщення про якість">
+                <div class="alert alert-warning">Для старого сповіщення про якість оберіть зразки за первинними доказами невідповідності. Поточний результат «Придатний» не доводить відсутність попереднього браку. Уточнення незмінне та записується в історії обговорень.</div>
                 <group>
                     <field name="alert_id"/>
                     <field name="check_id"/>
@@ -39,7 +39,7 @@
                         <field name="sample_result"/>
                     </tree>
                 </field>
-                <button name="action_open_matrix_failure_scope" type="object" string="Уточнити вироби Alert"
+                <button name="action_open_matrix_failure_scope" type="object" string="Уточнити вироби сповіщення про якість"
                         groups="quality.group_quality_manager" invisible="not can_bind_matrix_failure_scope"/>
             </xpath>
         </field>

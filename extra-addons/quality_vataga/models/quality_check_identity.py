@@ -40,7 +40,7 @@ class QualityCheckIdentity(models.Model):
         workorder = self.workorder_id if 'workorder_id' in self._fields else False
         if workorder:
             if production and production != workorder.production_id:
-                raise ValidationError(_('Робоче завдання належить іншому MO.'))
+                raise ValidationError(_('Робоче завдання належить іншому виробничому замовленню.'))
             production = workorder.production_id
         return production
 
@@ -57,7 +57,7 @@ class QualityCheckIdentity(models.Model):
             or production.company_id not in self.env.companies
             or 'company_id' in self._fields and self.company_id and self.company_id != production.company_id
         ):
-            raise ValidationError(_('Для ідентифікації потрібна однозначна міжопераційна перевірка цього MO, виробу та компанії.'))
+            raise ValidationError(_('Для ідентифікації потрібна однозначна міжопераційна перевірка цього виробничого замовлення, виробу та компанії.'))
         production.check_access_rights('read')
         production.check_access_rule('read')
         return production
@@ -118,7 +118,7 @@ class QualityCheckIdentity(models.Model):
             workorder.check_access_rights('read')
             workorder.check_access_rule('read')
             if workorder.production_id != production:
-                raise ValidationError(_('Робоче завдання має належати цьому MO.'))
+                raise ValidationError(_('Робоче завдання має належати цьому виробничому замовленню.'))
         if run:
             run.check_access_rights('read')
             run.check_access_rule('read')
@@ -158,7 +158,7 @@ class QualityCheckIdentity(models.Model):
             '|', ('production_id', '=', production.id),
             ('native_continuation_ids.production_id', '=', production.id),
         ], limit=1):
-            raise ValidationError(_('Вироби цього MO вже зареєстровані. Оберіть наявні QUNIT у матриці.'))
+            raise ValidationError(_('Вироби цього виробничого замовлення вже зареєстровані. Оберіть наявні вироби у матриці.'))
         if mode == 'existing':
             if (
                 not run or run.state != 'registered' or run.production_id != production
@@ -181,7 +181,7 @@ class QualityCheckIdentity(models.Model):
                 unit._quality_current_production() != production or unit.product_id != self.product_id
                 or unit.company_id != production.company_id for unit in units
             ):
-                raise ValidationError(_('Всі вироби мають належати цьому MO, виробу та компанії.'))
+                raise ValidationError(_('Всі вироби мають належати цьому виробничому замовленню, виробу та компанії.'))
             if mode == 'existing' and set(units.ids) != set(run.unit_ids.ids):
                 raise ValidationError(_('Відповідність повинна охоплювати весь склад вибраного запуску.'))
             if any(row.get('lot_id') and row['lot_id'] != units.browse(row['unit_id']).lot_id.id for row in mapping):
@@ -239,7 +239,7 @@ class QualityCheckIdentity(models.Model):
             units = self._qc_existing_units()
             data['identity_choices'] = [{'id': unit.id, 'name': unit.name} for unit in units]
             data['identity_required'] = bool(self.sample_ids)
-            data['identity_reason'] = _('Оберіть наявні QUNIT. Якщо операцію або фізичний склад партії не визначено, уточніть їх у стандартному робочому завданні; нові ідентифікатори не створюються навмання.')
+            data['identity_reason'] = _('Оберіть наявні вироби. Якщо операцію або фізичний склад партії не визначено, уточніть їх у стандартному робочому завданні; нові ідентифікатори не створюються навмання.')
         return data
 
     def initialize_qc_unit_identity(self):
@@ -338,7 +338,7 @@ class QualityCheckIdentity(models.Model):
             raise ValidationError(_('Оберіть наявний виріб для кожного зразка.'))
         workorder = self._qc_identity_workorder()
         if not workorder and self._identity_production().workorder_ids:
-            raise ValidationError(_('Уточніть робоче завдання QC перед прив’язкою виробів.'))
+            raise ValidationError(_('Уточніть робоче завдання перевірки якості перед прив’язкою виробів.'))
         with self.env.cr.savepoint():
             self._identify_samples('reuse', mapping, workorder=workorder, confirmed=True)
             return self.get_measurement_matrix_data()

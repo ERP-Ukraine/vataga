@@ -27,14 +27,14 @@ class QualityPartialProduction(models.Model):
                 or registration.production_id != self
                 or any(u.product_id != self.product_id or u.company_id != self.company_id
                        or u._quality_current_production() != self for u in units)):
-            raise ValidationError(_('Потрібна одна підтверджена повна реєстрація QUNIT цього MO.'))
+            raise ValidationError(_('Потрібна одна підтверджена повна реєстрація виробів цього виробничого замовлення.'))
         return units
 
     def _quality_partial_validate_units(self, units):
         self.ensure_one()
         universe = self._quality_partial_universe()
         if not units or units - universe:
-            raise ValidationError(_('Невідомий фізичний склад QUNIT.'))
+            raise ValidationError(_('Невідомий фізичний перелік виробів.'))
         units._assert_not_stock_posted()
         workorders = self._full_release_workorders()
         if workorders.time_ids.filtered(lambda t: not t.date_end):
@@ -43,7 +43,7 @@ class QualityPartialProduction(models.Model):
             history = workorder._quality_native_history().filtered(lambda r: r.state == 'processed')
             if history:
                 if units - history.controlled_unit_id:
-                    raise ValidationError(_('Не підтверджено виконання %(wo)s саме для вибраних QUNIT.', wo=workorder.display_name))
+                    raise ValidationError(_('Не підтверджено виконання %(wo)s саме для вибраних виробів.', wo=workorder.display_name))
             elif workorder.state != 'done' or workorder.qty_produced < self.product_qty:
                 # Before identity registration, ordinary full native WO
                 # completion is evidence for the whole canonical batch. Never
@@ -54,7 +54,7 @@ class QualityPartialProduction(models.Model):
         self.env['quality.stock.posting'].flush_model(['production_id'])
         self.env.cr.execute('SELECT 1 FROM quality_stock_posting WHERE production_id=%s LIMIT 1', [self.id])
         if self.env.cr.fetchone():
-            raise ValidationError(_('MO має архівне складське проведення; автоматична міграція заборонена.'))
+            raise ValidationError(_('Виробниче замовлення має архівне складське проведення; автоматична міграція заборонена.'))
         return True
 
     def _quality_partial_ready_units(self):
@@ -86,7 +86,7 @@ class QualityPartialProduction(models.Model):
             units, reasons = self._quality_partial_ready_units()
             if not units:
                 if reasons:
-                    raise UserError(_('Немає готових невипущених QUNIT.\n%s') % '\n'.join(sorted(set(reasons.values()))))
+                    raise UserError(_('Немає готових невипущених виробів.\n%s') % '\n'.join(sorted(set(reasons.values()))))
                 return self.env['quality.native.partial.release']
             return self._native_partial_release(['qunit:%s' % u.id for u in units], str(uuid.uuid4()))
 
@@ -99,7 +99,7 @@ class QualityPartialProduction(models.Model):
         universe = self._quality_partial_universe()
         selected = universe.filtered(lambda u: 'qunit:%s' % u.id in operation.keys)
         if len(selected) != len(operation.keys):
-            raise ValidationError(_('Ключі випуску не відповідають підтвердженим QUNIT.'))
+            raise ValidationError(_('Ключі випуску не відповідають підтвердженим виробам.'))
         self._quality_partial_validate_units(selected)
         operation.unit_ids = tuple(selected.ids)
 
@@ -113,12 +113,12 @@ class QualityPartialProduction(models.Model):
         for row in release.unit_ids:
             unit = units.filtered(lambda u: row.unit_key == 'qunit:%s' % u.id)
             if len(unit) != 1:
-                raise ValidationError(_('Невідома відповідність фізичного QUNIT складській строкі.'))
+                raise ValidationError(_('Невідома відповідність фізичного виробу рядку складського руху.'))
             values.append({'unit_id': unit.id, 'production_id': self.id,
                            'move_line_id': row.move_line_id.id, 'request_key': 'partial:%s' % release.id})
         facts = self.env['quality.unit.stock.fact'].create(values)
         if set(facts.unit_id.ids) != set(operation.unit_ids):
-            raise ValidationError(_('Не всі QUNIT отримали підтверджений складський факт.'))
+            raise ValidationError(_('Не всі вироби отримали підтверджений складський факт.'))
 
 
 class QualityPartialWorkorder(models.Model):

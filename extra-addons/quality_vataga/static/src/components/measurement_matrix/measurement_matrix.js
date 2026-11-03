@@ -336,12 +336,12 @@ export class QualityMeasurementMatrix extends Component {
 
     resultLabel(result) {
         if (result === "pass") {
-            return "PASS";
+            return "Придатний";
         }
         if (result === "fail") {
-            return "FAIL";
+            return "Непридатний";
         }
-        return "НЕ ЗАПОВНЕНО";
+        return "Не заповнено";
     }
 }
 

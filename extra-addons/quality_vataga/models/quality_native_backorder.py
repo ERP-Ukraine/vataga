@@ -21,7 +21,7 @@ def _require_roles(env):
 
 class QualityUnitContinuation(models.Model):
     _name = 'quality.unit.continuation'
-    _description = 'Преемність фізичного QUNIT у штатному Backorder'
+    _description = 'Наступність фізичного виробу у штатному замовленні на залишок'
     _order = 'id'
     _check_company_auto = True
 
@@ -29,7 +29,7 @@ class QualityUnitContinuation(models.Model):
     source_production_id = fields.Many2one('mrp.production', required=True, readonly=True, ondelete='restrict')
     production_id = fields.Many2one('mrp.production', required=True, readonly=True, ondelete='restrict', index=True)
     company_id = fields.Many2one(related='production_id.company_id', store=True, readonly=True)
-    _sql_constraints = [('unit_source_unique', 'unique(unit_id, source_production_id)', 'QUNIT вже перенесено до штатного Backorder.')]
+    _sql_constraints = [('unit_source_unique', 'unique(unit_id, source_production_id)', 'Виріб уже перенесено до штатного замовлення на залишок.')]
 
     @api.model
     def _search(self, domain, offset=0, limit=None, order=None, access_rights_uid=None):
@@ -48,21 +48,21 @@ class QualityUnitContinuation(models.Model):
                     or values['unit_id'] not in operation.remaining_ids
                     or values['source_production_id'] != operation.production.id
                     or values['production_id'] not in operation.children):
-                raise UserError(_('Преемність QUNIT фіксують лише після реального штатного Backorder.'))
+                raise UserError(_('Наступність виробів фіксують лише після реального штатного замовлення на залишок.'))
             child = _read(self.env['mrp.production'].browse(values['production_id']))
             unit = _read(self.env['quality.production.unit'].browse(values['unit_id']))
             if (child.quality_native_parent_id != operation.production
                     or not child.quality_transfer_controlled
                     or unit._quality_current_production() != operation.production):
-                raise ValidationError(_('Преемність не відповідає незавершеному QUNIT та захищеному Backorder.'))
+                raise ValidationError(_('Наступність не відповідає незавершеному виробу та захищеному замовленню на залишок.'))
         return super(QualityUnitContinuation, self.with_context({
             key: value for key, value in self.env.context.items() if not key.startswith('default_')})).create(vals_list)
 
     def write(self, vals):
-        raise UserError(_('Фактична преемність QUNIT незмінна.'))
+        raise UserError(_('Фактична наступність виробів незмінна.'))
 
     def unlink(self):
-        raise UserError(_('Історію преемності QUNIT не видаляють.'))
+        raise UserError(_('Історію наступності виробів не видаляють.'))
 
     def check_access_rule(self, operation):
         result = super().check_access_rule(operation)
@@ -77,7 +77,7 @@ class QualityUnitContinuation(models.Model):
 
 class QualityUnitStockFact(models.Model):
     _name = 'quality.unit.stock.fact'
-    _description = 'Підтверджений QUNIT у штатному складському випуску'
+    _description = 'Підтверджений виріб у штатному складському випуску'
     _order = 'id'
 
     unit_id = fields.Many2one('quality.production.unit', required=True, readonly=True, ondelete='restrict', index=True)
@@ -85,7 +85,7 @@ class QualityUnitStockFact(models.Model):
     move_line_id = fields.Many2one('stock.move.line', required=True, readonly=True, ondelete='restrict', index=True)
     company_id = fields.Many2one(related='production_id.company_id', store=True, readonly=True)
     request_key = fields.Char(required=True, readonly=True, index=True)
-    _sql_constraints = [('unit_unique', 'unique(unit_id)', 'Фізичний QUNIT вже випущено.')]
+    _sql_constraints = [('unit_unique', 'unique(unit_id)', 'Фізичний виріб вже випущено.')]
 
     @api.model
     def _search(self, domain, offset=0, limit=None, order=None, access_rights_uid=None):
@@ -114,7 +114,7 @@ class QualityUnitStockFact(models.Model):
                 allowed = operation.unit_ids if operation and values.get('production_id') == operation.production.id else ()
             if ((not operation and not partial_fact) or set(values) != {'unit_id', 'production_id', 'move_line_id', 'request_key'}
                     or values['unit_id'] not in allowed or not values['request_key']):
-                raise UserError(_('Складський факт QUNIT створюють лише після штатного проведення.'))
+                raise UserError(_('Складський факт виробу створюють лише після штатного проведення.'))
             unit = _read(self.env['quality.production.unit'].browse(values['unit_id']))
             line = _read(self.env['stock.move.line'].browse(values['move_line_id']))
             production = _read(self.env['mrp.production'].browse(values['production_id']))
@@ -125,7 +125,7 @@ class QualityUnitStockFact(models.Model):
                     or unit._quality_current_production() != production
                     or line.product_uom_id != unit.product_id.uom_id
                     or unit.product_id.tracking not in ('none', 'lot', 'serial') or line.quantity <= 0):
-                raise ValidationError(_('Немає відповідного фактичного складського випуску цього QUNIT.'))
+                raise ValidationError(_('Немає відповідного фактичного складського випуску цього виробу.'))
             if unit.product_id.tracking == 'lot':
                 lot = _read(line.lot_id)
                 full_quantity = len(allowed) if partial_fact or operation.standard_full else operation.quantity
@@ -134,28 +134,28 @@ class QualityUnitStockFact(models.Model):
                         or lot.product_id != unit.product_id
                         or (lot.company_id and lot.company_id != unit.company_id)
                         or (unit.lot_id and unit.lot_id != lot)):
-                    raise ValidationError(_('Складський факт lot-QUNIT потребує повного випуску та правильної фактичної партії у проведеній строкі.'))
+                    raise ValidationError(_('Складський факт виробу з партійним відстеженням потребує повного випуску та правильної фактичної партії у проведеному рядку.'))
             if unit.product_id.tracking == 'serial':
                 lot = _read(line.lot_id)
                 if (partial_fact or not operation.standard_full or len(allowed) != 1 or production.product_qty != 1
                         or line.quantity != 1 or not lot or lot != production.lot_producing_id
                         or lot.product_id != unit.product_id or lot.company_id and lot.company_id != unit.company_id
                         or unit.lot_id and unit.lot_id != lot):
-                    raise ValidationError(_('Серійний QUNIT повинен однозначно відповідати одному реально проведеному серійному номеру.'))
+                    raise ValidationError(_('Серійний виріб повинен однозначно відповідати одному реально проведеному серійному номеру.'))
         records = super(QualityUnitStockFact, self.with_context({
             key: value for key, value in self.env.context.items() if not key.startswith('default_')})).create(vals_list)
         for line in records.move_line_id:
             self.flush_model(['move_line_id'])
             self.env.cr.execute('SELECT count(*) FROM quality_unit_stock_fact WHERE move_line_id=%s', [line.id])
             if self.env.cr.fetchone()[0] != line.quantity:
-                raise ValidationError(_('Складська строка повинна точно відповідати переліку фізично підтверджених QUNIT.'))
+                raise ValidationError(_('Рядок складського руху повинен точно відповідати переліку фізично підтверджених виробів.'))
         return records
 
     def write(self, vals):
-        raise UserError(_('Фактичні складські зв’язки QUNIT незмінні.'))
+        raise UserError(_('Фактичні складські зв’язки виробів незмінні.'))
 
     def unlink(self):
-        raise UserError(_('Фактичні складські зв’язки QUNIT не видаляють.'))
+        raise UserError(_('Фактичні складські зв’язки виробів не видаляють.'))
 
     def check_access_rule(self, operation):
         result = super().check_access_rule(operation)
@@ -200,7 +200,7 @@ class NativeQualityProduction(models.Model):
     _inherit = 'mrp.production'
 
     native_continuation_ids = fields.One2many(
-        'quality.unit.continuation', 'production_id', string='Успадковані QUNIT', readonly=True, copy=False)
+        'quality.unit.continuation', 'production_id', string='Успадковані вироби', readonly=True, copy=False)
     native_stock_fact_ids = fields.One2many(
         'quality.unit.stock.fact', 'production_id', string='Фактичний поштучний випуск', readonly=True, copy=False)
 
@@ -216,10 +216,10 @@ class NativeQualityProduction(models.Model):
                 if ancestor == original:
                     return candidate
                 if ancestor.id in seen:
-                    raise ValidationError(_('Цикл преемності робочих операцій.'))
+                    raise ValidationError(_('Цикл наступності робочих операцій.'))
                 seen.add(ancestor.id)
                 ancestor = ancestor.quality_native_parent_workorder_id
-        raise ValidationError(_('Немає підтвердженої преемності робочої операції у цьому MO.'))
+        raise ValidationError(_('Немає підтвердженої наступності робочої операції у цьому виробничому замовленні.'))
 
     def action_open_quality_native_release(self):
         self._check_full_release_test_access()
@@ -240,7 +240,7 @@ class NativeQualityProduction(models.Model):
         _read(units)
         if (not confirmed or len(set(units.ids)) != len(units)
                 or not isinstance(request_key, str) or not request_key.strip() or len(request_key) > 64):
-            raise ValidationError(_('Потрібне явне підтвердження фізичного складу QUNIT і випуску з унікальним запитом.'))
+            raise ValidationError(_('Потрібне явне підтвердження фізичного переліку виробів і випуску з унікальним запитом.'))
         with self.env.cr.savepoint():
             self._lock_quality_transfer_scope()
             selected_lot = None
@@ -276,7 +276,7 @@ class NativeQualityProduction(models.Model):
                     after_checks = self._full_release_checks().filtered(
                         lambda check: check.x_control_stage == 'in_process' and check.unit_admission_role == 'required')
                     if set(before_checks.ids) != set(after_checks.ids):
-                        raise ValidationError(_('Під час штатного проведення змінився склад обов’язкових QC. Випуск скасовано; завершіть нові перевірки.'))
+                        raise ValidationError(_('Під час штатного проведення змінився склад обов’язкових перевірок якості. Випуск скасовано; завершіть нові перевірки.'))
                 if children:
                     self.env['quality.unit.continuation'].create([
                         {'unit_id': unit.id, 'source_production_id': self.id, 'production_id': children.id}
@@ -290,15 +290,15 @@ class NativeQualityProduction(models.Model):
                         raise ValidationError(_('Неоднозначна одиниця або кількість фактичного випуску.'))
                     for _index in range(int(line.quantity)):
                         if not pending:
-                            raise ValidationError(_('Штатний складський випуск перевищує перелік QUNIT.'))
+                            raise ValidationError(_('Штатний складський випуск перевищує перелік виробів.'))
                         unit = pending.pop(0)
                         values.append({'unit_id': unit.id, 'production_id': self.id,
                                        'move_line_id': line.id, 'request_key': request_key})
                 if pending:
-                    raise ValidationError(_('Не всі QUNIT мають фактичну складську строку.'))
+                    raise ValidationError(_('Не всі вироби мають фактичний рядок складського руху.'))
                 facts = self.env['quality.unit.stock.fact'].create(values)
             self.message_post(body=escape(_(
-                'Штатний складський випуск QUNIT: %(units)s; Backorder: %(backorder)s.',
+                'Штатний складський випуск виробів: %(units)s; замовлення на залишок: %(backorder)s.',
                 units=', '.join(units.mapped('name')), backorder=children.display_name or '—')), subtype_xmlid='mail.mt_note')
             return facts
 
@@ -318,7 +318,7 @@ class NativeQualityProduction(models.Model):
                 or self.product_uom_id != self.env.ref('uom.product_uom_unit')
                 or any(unit.product_id != self.product_id or unit.company_id != self.company_id
                        or unit._quality_current_production() != self for unit in units | remaining)):
-            raise ValidationError(_('Потрібна однозначна захищена партія MO та унікальні QUNIT цієї компанії.'))
+            raise ValidationError(_('Потрібна однозначно визначена захищена партія виробничого замовлення та унікальні вироби цієї компанії.'))
         self._check_named_stock_history()
         (units | remaining)._assert_not_stock_posted()
         self.env['quality.check'].flush_model(['production_id', 'point_id', 'operation_run_id', 'unit_admission_role'])
@@ -326,7 +326,7 @@ class NativeQualityProduction(models.Model):
             WHERE q.production_id=%s AND p.x_control_stage='in_process'
                 AND q.unit_admission_role='required' AND q.operation_run_id IS NULL LIMIT 1''', [self.id])
         if self.env.cr.fetchone():
-            raise ValidationError(_('Є обов’язкова міжопераційна QC без визначеної партії QRUN/QUNIT. Спочатку явно визначте її сферу або роль; випуск заборонений.'))
+            raise ValidationError(_('Є обов’язкова міжопераційна перевірка якості без визначеної партії запуску виробничої операції та виробів. Спочатку явно визначте її сферу або роль; випуск заборонений.'))
         if self.workorder_ids.time_ids.filtered(lambda timer: not timer.date_end):
             raise ValidationError(_('Спочатку коректно завершіть усі робочі інтервали перед штатним розділенням.'))
         # Discover the actual route, including operations hidden by a rule.
@@ -365,7 +365,7 @@ class NativeQualityProduction(models.Model):
                     _read(check)
                     sample = check.sample_ids.filtered(lambda row: row.controlled_unit_id == unit)
                     if check.quality_state == 'none' or check._get_unit_admission_error(sample):
-                        raise ValidationError(_('Потрібні завершений QC, PASS, ЗВТ, відсутність Alert і допуск кожної операції.'))
+                        raise ValidationError(_('Потрібні завершена перевірка якості з результатом «Придатний», вибрані засоби вимірювальної техніки та чинний допуск кожної операції. Не повинно бути відкритих сповіщень про якість, що утримують вироби.'))
                 admissions = self.env['quality.unit.admission'].search([
                     ('controlled_unit_id', '=', unit.id), ('operation_run_id', '=', latest.id), ('state', '=', 'confirmed')])
                 if not admissions:
@@ -412,12 +412,12 @@ class NativeFactMoveLine(models.Model):
         if {'quantity', 'product_id', 'product_uom_id', 'company_id', 'move_id', 'lot_id',
                 'location_id', 'location_dest_id', 'consume_line_ids', 'produce_line_ids'}.intersection(vals):
             if self._quality_native_fact_protected():
-                raise UserError(_('Фактичні строки випуску та споживання QUNIT незмінні.'))
+                raise UserError(_('Фактичні рядки випуску та споживання для виробів незмінні.'))
         return super().write(vals)
 
     def unlink(self):
         if self._quality_native_fact_protected():
-            raise UserError(_('Фактичні строки випуску та споживання QUNIT не видаляють.'))
+            raise UserError(_('Фактичні рядки випуску та споживання для виробів не видаляють.'))
         return super().unlink()
 
 
@@ -429,10 +429,10 @@ class NativeFactMove(models.Model):
                 'production_id', 'raw_material_production_id', 'move_line_ids', 'state',
                 'location_id', 'location_dest_id'}.intersection(vals):
             if self.move_line_ids._quality_native_fact_protected():
-                raise UserError(_('Підтверджені рухи випуску та споживання QUNIT незмінні.'))
+                raise UserError(_('Підтверджені рухи випуску та споживання для виробів незмінні.'))
         return super().write(vals)
 
     def unlink(self):
         if self.move_line_ids._quality_native_fact_protected():
-            raise UserError(_('Підтверджені рухи QUNIT не видаляють.'))
+            raise UserError(_('Підтверджені рухи виробів не видаляють.'))
         return super().unlink()

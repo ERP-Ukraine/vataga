@@ -152,7 +152,7 @@ class NativeEmployeeCostAudit(models.Model):
         """
         self._native_employee_audit_stage('setup.validate_enterprise_fields')
         if not {'employee_cost', 'employee_id', 'total_cost'}.issubset(self.env['mrp.workcenter.productivity']._fields):
-            raise ValidationError(_('Потрібні справжні Enterprise-поля вартості працівників.'))
+            raise ValidationError(_('Потрібні справжні поля розширеної редакції Odoo вартості працівників.'))
         self._native_employee_audit_stage('setup.analytic_baseline')
         self.env.cr.execute('SELECT COALESCE(MAX(id), 0) FROM account_analytic_line')
         previous_analytic_id = self.env.cr.fetchone()[0]
@@ -462,7 +462,7 @@ class NativeEmployeeCostAudit(models.Model):
                 wo._native_partial_check_cost_values(state['basis'], reference, state['native_cost'])
             except ValidationError:
                 return {'native_total': 100, 'checkpoint_rejects_retroactive_work': True}
-            raise ValidationError('Retroactive overlapping work passed the captured checkpoint comparison')
+            raise ValidationError('Перевірка помилково допустила робочі інтервали, додані заднім числом і накладені на вже зафіксовані.')
         checks.append(self._native_employee_audit_case(scene, 'overlap_wc_union_employee_sum', overlap))
 
         def fallback():
@@ -522,7 +522,7 @@ class NativeEmployeeCostAudit(models.Model):
                 except ValidationError:
                     return {'native_cost': state['native_cost'], 'duration': state['duration'],
                             'analytics': state['analytic_lines'], 'captured_basis_rejects_change': True}
-                raise ValidationError('Changed previously captured cost inputs were accepted')
+                raise ValidationError('Перевірка помилково прийняла змінені початкові дані вже зафіксованої вартості.')
             checks.append(self._native_employee_audit_case(scene, name, changed_inputs))
 
         def rollback_analytics():
@@ -541,14 +541,14 @@ class NativeEmployeeCostAudit(models.Model):
             except ValidationError as error:
                 _assert('MrpProductionWorkcenterLine._cal_cost' in str(error), 'Provider gate failed for an unrelated reason')
                 return {'production_provider_authorized': False}
-            raise ValidationError('Pending Enterprise provider was unexpectedly authorized')
+            raise ValidationError('Неперевірений розрахунок вартості помилково отримав дозвіл.')
         checks.append(self._native_employee_audit_case(scene, 'production_gate_remains_closed', provider_gate))
         return {'checks': checks, 'baseline': baseline, **_audit_check_summary(checks)}
 
     @api.model
     def _run_native_employee_cost_audit(self, expected_database):
         if self.env.cr.dbname != expected_database or not self.env.user.has_group('base.group_system'):
-            raise AccessError(_('Потрібні системний адміністратор і точна назва staging-бази.'))
+            raise AccessError(_('Потрібні системний адміністратор і точна назва тестової бази.'))
         sources = self._native_partial_cost_provider_report(expected_database, include_source=True)
         # Inspect actual registered analytic/conversion providers as well as
         # WO methods. These metadata never authorize a production provider.

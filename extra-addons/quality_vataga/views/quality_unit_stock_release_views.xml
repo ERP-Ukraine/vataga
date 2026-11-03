@@ -31,7 +31,7 @@
                             </field>
                         </page>
                         <page name="components" string="Пропозиція розходу">
-                            <div class="alert alert-info">Кількості нижче є пропозицією за BOM. Резерви не поділено, компоненти не списано, собівартість не проведено.</div>
+                            <div class="alert alert-info">Кількості нижче є пропозицією за специфікацією. Резерви не поділено, компоненти не списано, собівартість не проведено.</div>
                             <field name="component_summary" nolabel="1" readonly="1" class="w-100"/>
                         </page>
                         <page name="snapshot" string="Знімок підстав">

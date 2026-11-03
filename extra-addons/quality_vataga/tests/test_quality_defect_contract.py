@@ -385,7 +385,7 @@ class TestScrapClosedPathContract(unittest.TestCase):
         self.sample.sample_result = 'pass'
         status, reason = self.alert._get_scrap_execution_blocker()
         self.assertEqual(status, 'blocked')
-        self.assertIn('PASS', reason)
+        self.assertIn('придатні або ще не перевірені', reason)
         with self.assertRaises(UserError):
             self.alert.action_scrap_defective_units()
 

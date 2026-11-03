@@ -335,13 +335,13 @@
                                             value="pass"
                                             t-att-selected="cell.manual_result === 'pass'"
                                         >
-                                            PASS
+                                            Придатний
                                         </option>
                                         <option
                                             value="fail"
                                             t-att-selected="cell.manual_result === 'fail'"
                                         >
-                                            FAIL
+                                            Непридатний
                                         </option>
                                     </select>
                                 </div>

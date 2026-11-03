@@ -41,7 +41,7 @@ class TestNativeCostBasis(StockReleaseNativeCase):
         scope.production_ids.add(production.id)
         token = _INTEGRATION.set(scope)
         try:
-            with self.assertRaisesRegex(ValidationError, 'Enterprise cost source'):
+            with self.assertRaisesRegex(ValidationError, 'Джерело розрахунку вартості'):
                 production.workorder_ids._native_partial_cost_basis()
         finally:
             _INTEGRATION.reset(token)
@@ -146,7 +146,7 @@ class TestNativeCostBasis(StockReleaseNativeCase):
         basis = production.workorder_ids._native_partial_cost_basis()
         legacy = json.loads(json.dumps(checkpoint.basis))
         legacy.pop('version')
-        with self.assertRaisesRegex(UserError, 'Старий checkpoint'):
+        with self.assertRaisesRegex(UserError, 'Старий знімок розрахунку вартості'):
             production.workorder_ids._native_partial_check_cost_values(basis,
                 SimpleNamespace(basis=legacy, cumulative_cost=60), 60)
         with self.assertRaises(UserError):

@@ -3,7 +3,7 @@ from odoo import fields, models
 
 class QualityMatrixFailureScopeWizard(models.TransientModel):
     _name = 'quality.matrix.failure.scope.wizard'
-    _description = 'Уточнення зразків історичного Quality Alert'
+    _description = 'Уточнення зразків історичного сповіщення про якість'
 
     alert_id = fields.Many2one('quality.alert', required=True, readonly=True)
     check_id = fields.Many2one(related='alert_id.check_id', readonly=True)

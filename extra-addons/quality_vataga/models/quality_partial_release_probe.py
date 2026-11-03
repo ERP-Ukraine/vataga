@@ -86,7 +86,7 @@ class QualityPartialProbe(models.Model):
     @api.model
     def _quality_partial_probe_setup(self, tracking='none', all_pass=False):
         if 'workorder_id' not in self.env['quality.check']._fields:
-            raise UserError(_('Для тесту потрібна справжня Enterprise-інтеграція QC з Work Orders.'))
+            raise UserError(_('Для тесту потрібна справжня інтеграція перевірок якості з робочими завданнями в розширеній редакції Odoo.'))
         suffix = uuid.uuid4().hex[:12]
         category = self.env['product.category'].create({'name': 'QPART FIFO ' + suffix,
             'property_cost_method': 'fifo', 'property_valuation': 'manual_periodic'})
@@ -108,7 +108,7 @@ class QualityPartialProbe(models.Model):
         team = self.env['quality.alert.team'].create({'name': 'QPART ' + suffix})
         test_type = self.env['quality.point.test_type'].search([('technical_name', '=', 'passfail')], limit=1)
         if not test_type:
-            raise UserError(_('Не знайдено штатний Enterprise тип контролю passfail.'))
+            raise UserError(_('Не знайдено штатний тип контролю «Придатний / Непридатний» розширеної редакції Odoo.'))
         values = {'title': 'QPART WO2 ' + suffix, 'team_id': team.id, 'test_type_id': test_type.id,
                   'x_control_stage': 'in_process', 'quality_unit_route_required': True,
                   'visual_sample_control_required': True,
@@ -118,7 +118,7 @@ class QualityPartialProbe(models.Model):
                             if getattr(f, 'comodel_name', None) == 'mrp.routing.workcenter'
                             and f.type in ('many2one', 'many2many') and not f.compute]
         if not operation_fields:
-            raise UserError(_('Не знайдено реальне поле призначення QCP до операції.'))
+            raise UserError(_('Не знайдено реальне поле призначення точки контролю якості до операції.'))
         operation_name, operation_field = operation_fields[0]
         operation = bom.operation_ids.sorted('sequence')[1]
         values[operation_name] = operation.id if operation_field.type == 'many2one' else [(6, 0, operation.ids)]
@@ -268,9 +268,9 @@ class QualityPartialProbe(models.Model):
     def _run_quality_partial_release_probe(self, expected_database, tracking='none'):
         """One administrator-triggered, guaranteed-rollback staging probe."""
         if self.env.cr.dbname != expected_database or not self.env.user.has_group('base.group_system'):
-            raise AccessError(_('Потрібні системний адміністратор і точна назва тестової staging-бази.'))
+            raise AccessError(_('Потрібні системний адміністратор і точна назва тестової бази.'))
         if tracking not in ('none', 'lot'):
-            raise ValidationError(_('Тест підтримує лише none або lot.'))
+            raise ValidationError(_('Тест підтримує лише товари без відстеження або з відстеженням за партіями.'))
         report = {'result': 'FAIL'}
         before = {model: self.env[model].search_count([]) for model in (
             'mrp.production', 'quality.production.unit', 'quality.check', 'quality.alert',

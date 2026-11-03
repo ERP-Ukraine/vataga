@@ -6,7 +6,7 @@ from odoo.exceptions import AccessError, UserError, ValidationError
 
 class QualityUnitTransferWizard(models.TransientModel):
     _name = 'quality.unit.transfer.wizard'
-    _description = 'Явна передача або приймання конкретних QUNIT'
+    _description = 'Явна передача або приймання конкретних виробів'
 
     workorder_id = fields.Many2one('mrp.workorder', string='Робоче завдання', required=True, readonly=True, ondelete='cascade')
     check_id = fields.Many2one('quality.check', string='Вихідна перевірка', readonly=True, ondelete='cascade')
@@ -40,7 +40,7 @@ class QualityUnitTransferWizard(models.TransientModel):
         check = check or self.env['quality.check']
         self._check_scope(workorder, mode, check)
         return {
-            'type': 'ir.actions.act_window', 'name': _('Передача / приймання QUNIT'),
+            'type': 'ir.actions.act_window', 'name': _('Передача / приймання виробів'),
             'res_model': self._name, 'view_mode': 'form', 'target': 'new',
             'views': [(self.env.ref('quality_vataga.quality_unit_transfer_wizard_form').id, 'form')],
             'context': {'default_workorder_id': workorder.id, 'default_mode': mode, 'default_check_id': check.id or False},
@@ -120,13 +120,13 @@ class QualityUnitTransferWizard(models.TransientModel):
 
 class QualityUnitTransferWizardLine(models.TransientModel):
     _name = 'quality.unit.transfer.wizard.line'
-    _description = 'Явний вибір QUNIT для передачі'
+    _description = 'Явний вибір виробів для передачі'
 
     wizard_id = fields.Many2one('quality.unit.transfer.wizard', required=True, ondelete='cascade')
     sample_id = fields.Many2one('quality.check.sample', readonly=True, ondelete='cascade')
     transfer_id = fields.Many2one('quality.unit.transfer', readonly=True, ondelete='cascade')
     selected = fields.Boolean(string='Обрати')
-    controlled_unit_id = fields.Many2one('quality.production.unit', string='QUNIT', compute='_compute_availability')
+    controlled_unit_id = fields.Many2one('quality.production.unit', string='Виріб', compute='_compute_availability')
     sample_number = fields.Integer(string='№ зразка', compute='_compute_availability')
     sample_result = fields.Char(string='Контроль', compute='_compute_availability')
     admission_state = fields.Char(string='Допуск', compute='_compute_availability')

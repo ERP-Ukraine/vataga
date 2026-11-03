@@ -19,9 +19,7 @@ def partial_execution_allows(workorder, units=None):
 
 
 PARTIAL_WO_MESSAGE = (
-    'Штатне завершення закриває WO цілком. Частина QUNIT утримується або вибрано '
-    'не всю партію. Потрібна Enterprise-перевірка часткового виконання WO зі '
-    'збереженням незавершеного залишку; складський випуск і Backorder тут не виконуються.'
+    'Не можна завершити робоче завдання для всієї планової партії: частину виробів ще не виготовлено або не допущено. Підтвердьте обробку фактичних виробів штатною кнопкою завершення; залишок залишиться відкритим. Складський випуск потребує окремої перевіреної процедури.'
 )
 
 
@@ -31,8 +29,7 @@ class QualityNativeWorkorder(models.Model):
     quality_native_unit_ids = fields.Many2many(
         'quality.production.unit', 'quality_native_workorder_unit_rel',
         'workorder_id', 'unit_id', string='Вироби цієї операції', copy=False,
-        help='У сучасному поштучному маршруті система фіксує дозволений склад '
-             'при штатному запуску WO. Поле зберігається для перегляду та аудиту.')
+        help='У сучасному поштучному маршруті система фіксує дозволений склад при штатному запуску робочого завдання. Поле зберігається для перегляду та аудиту.')
     quality_native_managed = fields.Boolean(compute='_compute_quality_native_managed')
     quality_native_status = fields.Text(string='Результат операції', compute='_compute_quality_native_status')
     quality_native_hold_reason = fields.Text(string='Що утримує вироби', compute='_compute_quality_native_status')
@@ -83,7 +80,7 @@ class QualityNativeWorkorder(models.Model):
                 continue
             universe = workorder.production_id._full_release_units()
             if not universe:
-                workorder.quality_native_status = _('Звичайна робота WO. Вироби ідентифікуються під час першого поштучного QC.')
+                workorder.quality_native_status = _('Звичайна робота робочого завдання. Вироби ідентифікуються під час першої поштучної перевірки якості.')
                 continue
             try:
                 available, reasons = workorder._quality_native_available_units(universe)
@@ -117,8 +114,7 @@ class QualityNativeWorkorder(models.Model):
                     except UserError as error:
                         reasons[unit.id] = str(error)
             workorder.quality_native_status = _(
-                'Оброблено: %(processed)s / %(total)s. До обробки дозволено: %(ready)s. '
-                'QC: PASS %(passed)s, FAIL %(failed)s, очікує %(pending)s. Дозволено продовжити: %(admitted)s.',
+                'Оброблено: %(processed)s / %(total)s. До обробки дозволено: %(ready)s. Перевірка якості: придатних — %(passed)s, непридатних — %(failed)s, очікують перевірки — %(pending)s. Дозволено продовжити: %(admitted)s.',
                 processed=len(processed), total=len(universe), ready=len(available - processed),
                 passed=passed, failed=failed, pending=pending, admitted=len(universe) - len(reasons))
             workorder.quality_native_hold_reason = '\n'.join(
@@ -179,7 +175,7 @@ class QualityNativeWorkorder(models.Model):
         requirements |= {tuple(row) for row in self.production_id.quality_full_required_qcp or []}
         required = {point for point, operation, workorder in requirements if workorder == self.id}
         if required - set(result.point_id.ids):
-            raise UserError(_('Для цієї операції ще не створено всі обов’язкові QC.'))
+            raise UserError(_('Для цієї операції ще не створено всі обов’язкові перевірки якості.'))
         return result
 
     def _quality_native_units(self):
@@ -193,7 +189,7 @@ class QualityNativeWorkorder(models.Model):
                 unit._quality_current_production() != self.production_id
                 or unit.company_id != self.company_id or unit.product_id != self.product_id
                 for unit in selected):
-            raise ValidationError(_('QUNIT повинні належати саме цьому MO, виробу та компанії.'))
+            raise ValidationError(_('Вироби повинні належати саме цьому виробничому замовленню, виробу та компанії.'))
         if universe and self._quality_native_automatic():
             if selected and self.time_ids.filtered(lambda timer: not timer.date_end):
                 return selected  # Composition frozen by the native start.
@@ -213,7 +209,7 @@ class QualityNativeWorkorder(models.Model):
         if previous and set(previous.ids) == set(universe.ids):
             return previous
         if universe:
-            raise UserError(_('Оберіть конкретні QUNIT у картці робочого завдання.'))
+            raise UserError(_('Оберіть конкретні вироби у картці робочого завдання.'))
         return universe
 
     def _quality_native_completion_units(self):
@@ -231,7 +227,7 @@ class QualityNativeWorkorder(models.Model):
                     if not check.operation_run_id or unit in check.operation_run_id.unit_ids:
                         latest.setdefault(check.point_id.id, check)
                 if {check.point_id.id for check in checks} - set(latest):
-                    raise UserError(_('Обов’язкова QC не ідентифікує вибраний QUNIT.'))
+                    raise UserError(_('Обов’язкова перевірка якості не ідентифікує вибраний виріб.'))
                 self._quality_validate_native_unit_checks(list(latest.values()), unit, lock=lock)
             return
         self._quality_validate_native_unit_checks(checks, None, lock=lock)
@@ -246,14 +242,14 @@ class QualityNativeWorkorder(models.Model):
             for unit in [unit]:
                 sample = check.sample_ids.filtered(lambda row: row.controlled_unit_id == unit)
                 if len(sample) != 1:
-                    raise UserError(_('Обов’язкова QC не ідентифікує вибраний QUNIT.'))
+                    raise UserError(_('Обов’язкова перевірка якості не ідентифікує вибраний виріб.'))
                 error = check._get_unit_admission_error(sample)
                 if error:
                     raise UserError(error)
                 admissions = check.unit_admission_ids.filtered(
                     lambda row: row.controlled_unit_id == unit and row.state == 'confirmed')
                 if not admissions or any(row._get_effectiveness_error() for row in admissions):
-                    raise UserError(_('Для QUNIT немає чинного автоматично зафіксованого допуску QC.'))
+                    raise UserError(_('Для цього виробу відсутнє чинне підтвердження допуску за результатами перевірки якості.'))
 
     def _check_quality_native_start(self):
         if native_operation_allows(self.production_id):
@@ -273,7 +269,7 @@ class QualityNativeWorkorder(models.Model):
                 if source.state != 'done' and (not units or units - processed):
                     raise UserError(_(PARTIAL_WO_MESSAGE))
                 if history and units - history.filtered(lambda row: row.state == 'processed').controlled_unit_id:
-                    raise UserError(_('Не підтверджено виконання попередньої операції для цих QUNIT.'))
+                    raise UserError(_('Не підтверджено виконання попередньої операції для цих виробів.'))
                 source._quality_validate_native_checks(checks, units)
 
     def action_start_quality_native_units(self):
@@ -284,9 +280,9 @@ class QualityNativeWorkorder(models.Model):
             self.invalidate_recordset()
             self._check_quality_native_selection()
             if self.production_id.state not in ('confirmed', 'progress'):
-                raise UserError(_('Поштучну обробку дозволено лише у відкритому MO.'))
+                raise UserError(_('Поштучну обробку дозволено лише у відкритому виробничому замовленні.'))
             if not self.quality_native_unit_ids and not self._quality_native_automatic():
-                raise UserError(_('Явно оберіть QUNIT для запуску цієї операції.'))
+                raise UserError(_('Явно оберіть вироби для запуску цієї операції.'))
             self._quality_native_units()._assert_not_stock_posted()
             # Enterprise argument is forwarded, never a quality bypass.
             return self.button_start(bypass=True)
@@ -294,7 +290,7 @@ class QualityNativeWorkorder(models.Model):
     def _check_quality_native_selection(self):
         expected = self.env.context.get('quality_expected_unit_ids')
         if expected is not None and set(expected) != set(self.quality_native_unit_ids.ids):
-            raise UserError(_('Інший оператор змінив вибір QUNIT. Оновіть картку та перевірте склад.'))
+            raise UserError(_('Інший оператор змінив вибір виробів. Оновіть картку та перевірте склад.'))
 
     def action_confirm_quality_native_units(self):
         self.ensure_one()
@@ -303,16 +299,16 @@ class QualityNativeWorkorder(models.Model):
             self.production_id._check_quality_transfer_boundary()
             self.invalidate_recordset()
             self._check_quality_native_selection()
-            if not self.quality_native_unit_ids and not self._quality_native_automatic():
-                raise UserError(_('Явно оберіть фактично оброблені QUNIT перед підтвердженням.'))
             self._check_quality_native_start()
+            # This resolver accepts explicit selections or exact, registered
+            # QC/predecessor identities. It never infers identities by count.
             units = self._quality_native_units()
             if not units:
-                raise UserError(_('Спочатку ідентифікуйте QUNIT через QC і оберіть оброблені вироби.'))
+                raise UserError(_('Спочатку ідентифікуйте вироби через перевірку якості і оберіть оброблені вироби.'))
             history = self._quality_native_history()
             recorded = history.filtered(lambda row: row.state == 'processed').controlled_unit_id
             if self.qty_produced != len(recorded):
-                raise UserError(_('Кількість WO не відповідає наявним поштучним фактам. Автоматичне доповнення історії заборонене.'))
+                raise UserError(_('Кількість робочого завдання не відповідає наявним поштучним фактам. Автоматичне доповнення історії заборонене.'))
             missing = units - recorded
             if self.production_id._native_partial_history():
                 missing._assert_not_stock_posted()
@@ -322,13 +318,13 @@ class QualityNativeWorkorder(models.Model):
                 return True
             if self.state != 'progress' or not self.time_ids.filtered(
                     lambda timer: timer.user_id == self.env.user and not timer.date_end):
-                raise UserError(_('Спочатку почніть штатну роботу над WO під своїм користувачем.'))
+                raise UserError(_('Спочатку почніть штатну роботу над робочим завданням під своїм користувачем.'))
             scope = _PARTIAL_EXECUTION.set((self.env.cr, self.id, frozenset(missing.ids)))
             try:
                 self.env['quality.unit.execution']._record_partial_completion(self, missing, str(uuid.uuid4()))
                 quantity = len(self._quality_native_history().filtered(lambda row: row.state == 'processed').controlled_unit_id)
                 if self.product_uom_id != self.env.ref('uom.product_uom_unit') or quantity > self.qty_production:
-                    raise UserError(_('Кількість підтверджених QUNIT не відповідає WO.'))
+                    raise UserError(_('Кількість підтверджених виробів не відповідає робочому завданню.'))
                 self.write({'qty_produced': quantity})
             finally:
                 _PARTIAL_EXECUTION.reset(scope)
@@ -356,7 +352,7 @@ class QualityNativeWorkorder(models.Model):
                 workorder._check_quality_execution_access()
                 uom = self.env.ref('uom.product_uom_unit')
                 if workorder.product_uom_id.category_id != uom.category_id:
-                    raise ValidationError(_('QUNIT потребують кількості в одиницях виробів.'))
+                    raise ValidationError(_('Вироби потребують кількості в одиницях виробів.'))
                 quantity = workorder.product_uom_id._compute_quantity(
                     workorder.qty_producing or workorder.qty_production, uom, round=False)
                 total = workorder.product_uom_id._compute_quantity(workorder.qty_production, uom, round=False)
@@ -384,7 +380,7 @@ class QualityNativeWorkorder(models.Model):
                             if bypass:
                                 starting -= workorder  # QC callback: no repeated work/timer.
                                 continue
-                            raise UserError(_('Немає нових дозволених виробів для обробки. Вже оброблені вироби повторно не запускаються; після завершення QC підтвердьте готову WO.'))
+                            raise UserError(_('Немає нових дозволених виробів для обробки. Вже оброблені вироби повторно не запускаються; після завершення перевірки якості підтвердьте готове робоче завдання.'))
                         workorder.write({'quality_native_unit_ids': [(6, 0, pending.ids)]})
             self._check_quality_native_start()
             # Enterprise normally waits for all predecessors. The same
@@ -399,11 +395,17 @@ class QualityNativeWorkorder(models.Model):
     def _quality_confirm_on_native_finish(self):
         """A native Done click acknowledges physical work, never partial stock."""
         self.ensure_one()
-        if native_operation_allows(self.production_id) or not self._quality_native_automatic() or self.state in ('done', 'cancel'):
+        if (native_operation_allows(self.production_id) or self.quality_transfer_controlled
+                or self.state in ('done', 'cancel')):
             return False
         universe = self.production_id._full_release_units()
         if not universe:
             return False  # Before the first QC, use native operations unchanged.
+        uom = self.env.ref('uom.product_uom_unit')
+        planned = self.product_uom_id._compute_quantity(self.qty_production, uom, round=False)
+        current = self.product_uom_id._compute_quantity(self.qty_producing, uom, round=False)
+        if not self._quality_native_automatic() and len(universe) == planned == current:
+            return False  # Preserve ordinary full-batch completion.
         self.production_id._check_quality_transfer_boundary()
         units = self._quality_native_units()
         completed = units | self._quality_native_history().filtered(lambda row: row.state == 'processed').controlled_unit_id
@@ -421,6 +423,11 @@ class QualityNativeWorkorder(models.Model):
                 raise
             except UserError:
                 ready = False
+        # All identified units may be only the actual batch (e.g. 3 of 5).
+        # Acknowledge those units through the existing partial execution path;
+        # native Done would fill qty_produced to the plan and lose the remainder.
+        # Keep _check_quality_native_finish as the gate for closing the whole WO.
+        ready = ready and len(completed) == planned == current
         if not ready or self._quality_native_history():
             self.action_confirm_quality_native_units()
         if not ready:
@@ -462,7 +469,7 @@ class QualityNativeWorkorder(models.Model):
                 if record.quality_native_unit_ids:
                     record._quality_native_units()
                 if (record.state in ('progress', 'done') or record.qty_produced) and record.production_id._full_release_units():
-                    raise UserError(_('Створіть WO без виконання, потім використайте штатний запуск і завершення.'))
+                    raise UserError(_('Створіть робоче завдання без виконання, потім використайте штатний запуск і завершення.'))
                 if record.state in ('progress', 'done') or record.qty_produced:
                     record._check_quality_native_start()
                     checks = record._quality_native_checks()
@@ -474,7 +481,7 @@ class QualityNativeWorkorder(models.Model):
             if partial_execution_allows(self):
                 count = len(self._quality_native_history().filtered(lambda row: row.state == 'processed').controlled_unit_id)
                 if set(vals) != {'qty_produced'} or vals['qty_produced'] != count or self.state != 'progress':
-                    raise UserError(_('Часткове підтвердження може змінювати лише фактичну кількість оброблених QUNIT.'))
+                    raise UserError(_('Часткове підтвердження може змінювати лише фактичну кількість оброблених виробів.'))
                 return super().write(vals)
             if native_operation_allows(self.production_id):
                 return super().write(vals)  # Existing private repair/release capability only.
@@ -507,7 +514,7 @@ class QualityNativeWorkorder(models.Model):
             completing = self.filtered(lambda row: row.state != 'done') if vals.get('state') == 'done' else self.browse()
             if completing:
                 if sensitive.intersection(vals) - {'state', 'qty_produced'}:
-                    raise UserError(_('Збережіть кількість, маршрут та вибір QUNIT перед завершенням WO.'))
+                    raise UserError(_('Збережіть кількість, маршрут та вибір виробів перед завершенням робочого завдання.'))
                 completing._check_quality_native_finish()
             elif vals.get('state') == 'progress':
                 self._check_quality_native_start()

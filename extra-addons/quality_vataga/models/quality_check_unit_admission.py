@@ -66,7 +66,7 @@ class QualityCheckUnitAdmission(models.Model):
             self.env['mrp.production'].browse(sorted(production_ids))._lock_quality_transfer_scope()
             checks = super(QualityCheckUnitAdmission, self.with_context(context)).create(prepared)
             if checks.filtered(lambda item: item.x_control_stage == 'in_process' and item.measurement_matrix_required and item.quality_state in ('pass', 'fail')):
-                raise ValidationError(_('Створіть QC, заповніть матрицю та завершіть контроль.'))
+                raise ValidationError(_('Створіть перевірку якості, заповніть матрицю та завершіть контроль.'))
             checks._invalidate_qc_admission_status()
             return checks
 
@@ -90,10 +90,10 @@ class QualityCheckUnitAdmission(models.Model):
                     if vals['quality_state'] in ('pass', 'fail'):
                         check._ensure_qc_unit_identity()
                         if not check.operation_run_id:
-                            raise ValidationError(_('Оберіть наявні QUNIT у матриці перед завершенням контролю.'))
+                            raise ValidationError(_('Оберіть наявні вироби у матриці перед завершенням контролю.'))
                         check._validate_measurement_sample_structure()
                         if not check.sample_ids or any(not sample.is_complete for sample in check.sample_ids) or not check.equipment_selection_complete:
-                            raise ValidationError(_('Заповніть усі вимірювання, візуальний контроль та ЗВТ перед завершенням QC.'))
+                            raise ValidationError(_('Заповніть усі вимірювання, візуальний контроль та ЗВТ перед завершенням перевірки якості.'))
                 return self._write_with_qc_admissions(vals)
         return self._write_with_qc_admissions(vals)
 
@@ -159,7 +159,7 @@ class QualityCheckUnitAdmission(models.Model):
             raise ValidationError(_('Допуск виробів доступний лише для міжопераційного контролю.'))
         production = self._identity_production()
         if not production or production.company_id not in self.env.companies:
-            raise ValidationError(_('Потрібне доступне однозначне MO.'))
+            raise ValidationError(_('Потрібне однозначно визначене виробниче замовлення, до якого ви маєте доступ.'))
         production.check_access_rights('read')
         production.check_access_rule('read')
         return production
@@ -241,7 +241,7 @@ class QualityCheckUnitAdmission(models.Model):
             or 'workorder_id' in self._fields and self.workorder_id and self.workorder_id != run.workorder_id
             or 'company_id' in self._fields and self.company_id and self.company_id != run.company_id
         ):
-            return _('MO, робоче завдання, виріб або компанія не відповідають запуску.')
+            return _('Виробниче замовлення, робоче завдання, виріб або компанія не відповідають запуску.')
         error = self._get_in_process_batch_error()
         if error:
             return error
@@ -253,7 +253,7 @@ class QualityCheckUnitAdmission(models.Model):
         if len(units) != run.quantity or set(units.ids) != set(run.unit_ids.ids):
             return _('Кожен зразок повинен відповідати окремому виробу цього запуску.')
         if any(not unit._quality_matches_production(production) or unit.product_id != run.product_id or unit.company_id != run.company_id for unit in units):
-            return _('Ідентифіковані вироби не відповідають MO, продукту або компанії.')
+            return _('Ідентифіковані вироби не відповідають виробничому замовленню, продукту або компанії.')
         try:
             self._validate_measurement_sample_structure()
         except (ValidationError, UserError) as error:
@@ -261,7 +261,7 @@ class QualityCheckUnitAdmission(models.Model):
         if not self.equipment_selection_complete:
             return _('Не виконано вимоги щодо вибору ЗВТ.')
         if self.measurement_column_ids.filtered(lambda column: column.parameter_type == 'boolean' and not column.boolean_expected):
-            return _('Snapshot містить неоднозначну булеву норму. Допуск заборонено.')
+            return _('Знімок містить неоднозначну булеву норму. Допуск заборонено.')
         selections = self.equipment_selection_ids.filtered('requires_equipment_selection')
         if (self._get_required_measurement_equipment_categories() and not selections) or any(
             not selection._has_valid_equipment_selection() for selection in selections
@@ -278,7 +278,7 @@ class QualityCheckUnitAdmission(models.Model):
             if error:
                 return error
             if sample.sample_result != 'pass':
-                return _('Допуск можливий лише для зразка PASS; FAIL та pending утримуються.')
+                return _('Допуск можливий лише для придатного зразка; непридатні та ще не перевірені зразки залишаються під утриманням.')
             for check in self._unit_admission_required_checks(unit=sample.controlled_unit_id):
                 if check.quality_state not in ('pass', 'fail'):
                     return _('Обов’язкова перевірка %(check)s ще не завершена.', check=check.display_name)
@@ -287,7 +287,7 @@ class QualityCheckUnitAdmission(models.Model):
                     return _('%(check)s: %(reason)s', check=check.display_name, reason=error)
                 related = check.sample_ids.filtered(lambda item: item.controlled_unit_id == sample.controlled_unit_id)
                 if len(related) != 1 or related.sample_result != 'pass':
-                    return _('Обов’язкова перевірка %(check)s не підтвердила PASS цього виробу.', check=check.display_name)
+                    return _('Обов’язкова перевірка %(check)s не підтвердила придатність цього виробу.', check=check.display_name)
         except AccessError:
             return _('Немає доступу до всіх обов’язкових перевірок, виробів або запуску. Допуск заборонено.')
         except (UserError, ValidationError) as error:

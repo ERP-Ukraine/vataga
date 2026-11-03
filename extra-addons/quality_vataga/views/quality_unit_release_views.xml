@@ -4,7 +4,7 @@
         <field name="name">quality.unit.release.line.form</field>
         <field name="model">quality.unit.release.line</field>
         <field name="arch" type="xml">
-            <form create="0" edit="0" delete="0" string="Дозвіл випуску QUNIT">
+            <form create="0" edit="0" delete="0" string="Дозвіл випуску виробів">
                 <sheet>
                     <div class="alert alert-info">Архів 13.4А. Нові дозволи не створюються; цей документ не дозволяє складський випуск.</div>
                     <group>

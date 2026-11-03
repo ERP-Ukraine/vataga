@@ -5,7 +5,7 @@ from ..models.quality_release_access import check_stock_release_roles
 
 class QualityStockTimerBindingWizard(RetiredDialog, models.TransientModel):
     _name = 'quality.stock.timer.binding.wizard'
-    _description = 'Явне підтвердження QUNIT спільного робочого часу'
+    _description = 'Явне підтвердження спільного для виробів робочого часу'
 
     production_id = fields.Many2one('mrp.production', required=True, readonly=True)
     timer_id = fields.Many2one('mrp.workcenter.productivity', string='Закритий спільний інтервал', required=True)

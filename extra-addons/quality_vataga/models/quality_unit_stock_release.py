@@ -9,11 +9,11 @@ from .quality_release_access import check_stock_release_roles, has_stock_release
 class QualityUnitStockReleasePlan(models.Model):
     _name = 'quality.unit.stock.release.plan'
     _inherit = 'quality.release.access'
-    _description = 'Незмінний план складського випуску QUNIT, без проведення'
+    _description = 'Незмінний план складського випуску виробів, без проведення'
     _order = 'id desc'
 
     name = fields.Char(string='План випуску', required=True, readonly=True, copy=False)
-    production_id = fields.Many2one('mrp.production', string='MO', required=True, readonly=True, ondelete='restrict', index=True)
+    production_id = fields.Many2one('mrp.production', string='Виробниче замовлення', required=True, readonly=True, ondelete='restrict', index=True)
     company_id = fields.Many2one(related='production_id.company_id', store=True, readonly=True, compute_sudo=False)
     permission_ids = fields.Many2many(
         'quality.unit.release.line', 'quality_stock_plan_permission_rel', 'plan_id', 'permission_id',
@@ -149,7 +149,7 @@ class MrpProductionStockReleasePlan(models.Model):
         self.check_access_rights('read')
         self.check_access_rule('read')
         if self.company_id not in self.env.companies:
-            raise AccessError(_('Немає доступу до компанії архівного MO.'))
+            raise AccessError(_('Немає доступу до компанії архівного виробничого замовлення.'))
         for name in ('stock.move', 'stock.move.line'):
             self.env[name].check_access_rights('read')
 

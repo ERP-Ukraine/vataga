@@ -26,14 +26,14 @@ class QualityFullReleaseProduction(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         if any(FULL_RELEASE_FIELDS.intersection(values) for values in vals_list):
-            raise UserError(_('Дозвіл тестового випуску та призначення QCP встановлює сервер.'))
+            raise UserError(_('Дозвіл тестового випуску та призначення точки контролю якості встановлює сервер.'))
         context = {key: value for key, value in self.env.context.items()
                    if key not in {'default_' + name for name in FULL_RELEASE_FIELDS}}
         return super(QualityFullReleaseProduction, self.with_context(context)).create(vals_list)
 
     def write(self, vals):
         if FULL_RELEASE_FIELDS.intersection(vals):
-            raise UserError(_('Службові дозволи випуску та призначення QCP незмінні через write.'))
+            raise UserError(_('Службові дозволи випуску та призначення точки контролю якості не можна змінювати вручну.'))
         return super().write(vals)
 
     def _enable_required_unit_route(self):
@@ -43,10 +43,10 @@ class QualityFullReleaseProduction(models.Model):
         return result
 
     def action_enable_quality_full_release_test(self):
-        raise UserError(_('Окремий адміністративний дозвіл більше не потрібен. Використайте штатне завершення MO.'))
+        raise UserError(_('Окремий адміністративний дозвіл більше не потрібен. Використайте штатне завершення виробничого замовлення.'))
 
     def _check_full_release_test_access(self):
-        raise UserError(_('Окремий майстер випуску закрито. Використайте штатну кнопку «Виготовити все» у MO.'))
+        raise UserError(_('Окремий майстер випуску закрито. Використайте штатну кнопку «Виготовити все» у виробничому замовленні.'))
 
     def button_mark_done(self):
         controlled = self.filtered(lambda production: production.quality_unit_route_required
@@ -88,9 +88,9 @@ class QualityFullReleaseProduction(models.Model):
     def _check_standard_release_quantity(self, units):
         self.ensure_one()
         if self.qty_producing not in (0, self.product_qty) or len(units) != self.product_qty:
-            raise UserError(_('Дозволено лише повний випуск усієї годної партії. Частковий випуск і Backorder закриті.'))
+            raise UserError(_('Дозволено лише повний випуск усієї придатної партії. Частковий випуск і замовлення на залишок закриті.'))
         if self.product_id.tracking == 'serial' and len(units) != 1:
-            raise UserError(_('Підтримується повний випуск одного серійного виробу на MO. Випуск кількох serial потребує штатного розділення, яке в цій фазі закрите.'))
+            raise UserError(_('Підтримується повний випуск одного серійного виробу на виробниче замовлення. Випуск кількох серійних виробів потребує штатного розділення, яке в цій фазі закрите.'))
 
     def _post_inventory(self, cancel_backorder=False):
         operation = native_operation()
@@ -100,7 +100,7 @@ class QualityFullReleaseProduction(models.Model):
                 production._validate_quality_full_batch(units, standard=True)
                 production._check_standard_release_quantity(units)
                 if production.qty_producing != production.product_qty:
-                    raise UserError(_('Штатне проведення повинно охоплювати всю партію QUNIT.'))
+                    raise UserError(_('Штатне проведення повинно охоплювати всю партію виробів.'))
         return super()._post_inventory(cancel_backorder=cancel_backorder)
 
     def _record_standard_stock_facts(self, units):
@@ -122,15 +122,15 @@ class QualityFullReleaseProduction(models.Model):
                     or line.location_dest_id != self.location_dest_id or line.location_id.usage != 'production'
                     or (self.product_id.tracking == 'none' and line.lot_id)
                     or (self.product_id.tracking != 'none' and line.lot_id != self.lot_producing_id)):
-                raise ValidationError(_('Проведені складські строки не відповідають партії QUNIT.'))
+                raise ValidationError(_('Проведені рядки складських рухів не відповідають партії виробів.'))
             for index in range(int(line.quantity)):
                 if not pending:
-                    raise ValidationError(_('Фактичний складський випуск перевищує склад QUNIT.'))
+                    raise ValidationError(_('Фактичний складський випуск перевищує перелік виробів.'))
                 unit = pending.pop(0)
                 values.append({'unit_id': unit.id, 'production_id': self.id,
                                'move_line_id': line.id, 'request_key': 'native-mo:%s' % self.id})
         if pending:
-            raise ValidationError(_('Не всі QUNIT мають фактичну проведену складську строку.'))
+            raise ValidationError(_('Не всі вироби мають фактичний проведений рядок складського руху.'))
         return self.env['quality.unit.stock.fact'].create(values)
 
     def _full_release_checks(self):
@@ -249,7 +249,7 @@ class QualityFullReleaseProduction(models.Model):
             if alert._matrix_hold_is_open():
                 samples = _read(alert.vataga_failure_sample_ids)
                 if not samples or any(not row.controlled_unit_id for row in samples) or samples.controlled_unit_id & units:
-                    raise UserError(_('Випуск утримує відкритий Alert %(alert)s.', alert=alert.display_name))
+                    raise UserError(_('Випуск утримує відкрите сповіщення про якість %(alert)s.', alert=alert.display_name))
 
     def _validate_full_release_lot(self, units, lot):
         """Validate an actual stock lot, independently of QUNIT identity."""
@@ -259,22 +259,22 @@ class QualityFullReleaseProduction(models.Model):
                 raise ValidationError(_('Для товару без tracking партію готової продукції не задають.'))
             return self.env['stock.lot']
         if self.product_id.tracking == 'serial' and (len(units) != 1 or self.product_qty != 1):
-            raise ValidationError(_('Повний серійний випуск підтримується лише для одного QUNIT на MO.'))
+            raise ValidationError(_('Повний серійний випуск підтримується лише для одного виробу на виробниче замовлення.'))
         if self.product_id.tracking not in ('lot', 'serial'):
             raise ValidationError(_('Невідомий спосіб відстеження готового виробу.'))
         lot = _read((lot or self.env['stock.lot']).exists())
         if len(lot) != 1:
-            raise ValidationError(_('Вкажіть реальну партію / серійний номер у штатному полі готової продукції MO.'))
+            raise ValidationError(_('Вкажіть реальну партію / серійний номер у штатному полі готової продукції виробничого замовлення.'))
         if lot.product_id != self.product_id or (lot.company_id and lot.company_id != self.company_id):
             raise ValidationError(_('Партія належить іншому товару або компанії.'))
         if self.lot_producing_id and self.lot_producing_id != lot:
-            raise ValidationError(_('Обрана партія не відповідає партії готової продукції, вже вказаній у MO.'))
+            raise ValidationError(_('Обрана партія не відповідає партії готової продукції, вже вказаній у виробничому замовленні.'))
         for unit in units:
             if unit.lot_id and unit.lot_id != lot:
-                raise ValidationError(_('Партія не відповідає вже зафіксованій партії QUNIT %(unit)s.', unit=unit.display_name))
+                raise ValidationError(_('Партія не відповідає вже зафіксованій партії виробу %(unit)s.', unit=unit.display_name))
         lines = self.move_finished_ids.filtered(lambda move: move.product_id == self.product_id and move.state != 'cancel').move_line_ids
         if any(line.quantity > 0 and line.lot_id and line.lot_id != lot for line in lines):
-            raise ValidationError(_('Готові складські строки вже містять іншу партію. Автоматичне перепризначення заборонене.'))
+            raise ValidationError(_('Готові рядки складських рухів вже містять іншу партію. Автоматичне перепризначення заборонене.'))
         return lot
 
     def _validate_quality_full_batch(self, units, standard=False, posted=False):
@@ -285,7 +285,7 @@ class QualityFullReleaseProduction(models.Model):
             self.state in ('confirmed', 'progress', 'to_close') and not self.qty_produced)
         if (not valid_state
                 or not (self.quality_unit_route_required or self.quality_transfer_controlled)):
-            raise ValidationError(_('Потрібен відкритий захищений MO без попереднього випуску.'))
+            raise ValidationError(_('Потрібне відкрите виробниче замовлення із захищеним поштучним маршрутом без попереднього випуску.'))
         if standard and self.quality_transfer_controlled:
             raise UserError(_('Історичний маршрут передач не переводиться на штатний випуск автоматично.'))
         destination = _read(self.location_dest_id)
@@ -299,26 +299,26 @@ class QualityFullReleaseProduction(models.Model):
         _read(units)
         actual = self._full_release_units()
         if not units or len(units) != quantity or set(actual.ids) != set(units.ids):
-            raise ValidationError(_('Немає повного складу QUNIT: спочатку ідентифікуйте всі вироби у QRUN.'))
+            raise ValidationError(_('Немає повного переліку виробів: спочатку ідентифікуйте всі вироби у запуску виробничої операції.'))
         if (self.company_id not in self.env.companies or any(
                 unit.company_id != self.company_id or unit.product_id != self.product_id
                 or unit._quality_current_production() != self for unit in units)):
-            raise ValidationError(_('QUNIT належать іншому MO, товару або компанії.'))
+            raise ValidationError(_('Вироби належать іншому виробничому замовленню, товару або компанії.'))
         if standard:
             # Native MRP may already have consumed components. Do not turn
             # that normal stock history into a second consumption algorithm.
             self.env['quality.stock.posting'].flush_model(['production_id'])
             self.env.cr.execute('SELECT 1 FROM quality_stock_posting WHERE production_id=%s LIMIT 1', [self.id])
             if self.env.cr.fetchone():
-                raise UserError(_('MO має архівне власне складське проведення; автоматична міграція заборонена.'))
+                raise UserError(_('Виробниче замовлення має архівне власне складське проведення; автоматична міграція заборонена.'))
         else:
             self._check_named_stock_history()
         units._assert_not_stock_posted()
         workorders = self._full_release_workorders()
         if not workorders:
-            raise ValidationError(_('Не визначені необхідні робочі операції MO.'))
+            raise ValidationError(_('Не визначені необхідні робочі операції виробничого замовлення.'))
         if workorders.time_ids.filtered(lambda timer: not timer.date_end):
-            raise ValidationError(_('Спочатку закрийте всі робочі інтервали MO.'))
+            raise ValidationError(_('Спочатку закрийте всі робочі інтервали виробничого замовлення.'))
         for workorder in workorders:
             if not self.quality_transfer_controlled:
                 if workorder.state != 'done' or workorder.qty_produced < quantity:
@@ -349,29 +349,29 @@ class QualityFullReleaseProduction(models.Model):
                         check.operation_run_id.workorder_id.id if check.operation_run_id else
                         check.workorder_id.id if 'workorder_id' in check._fields else 0) == workorder_id))
                 if not scoped:
-                    raise ValidationError(_('Не створена обов’язкова QC іншої стадії для QCP ID %(point)s.', point=point_id))
+                    raise ValidationError(_('Не створено обов’язкову перевірку якості іншої стадії для точки контролю якості №%(point)s.', point=point_id))
         if any(check.quality_state != 'pass' for check in other):
-            raise ValidationError(_('Усі обов’язкові QC цього MO повинні бути завершені з PASS.'))
+            raise ValidationError(_('Усі обов’язкові перевірки якості цього виробничого замовлення повинні бути завершені з результатом «Придатний».'))
         if other:
             other._validate_measurement_can_pass()
         if not requirements or not required:
-            raise ValidationError(_('Не підтверджено передбачені QCP міжопераційні QC.'))
+            raise ValidationError(_('Не підтверджено передбачені точкою контролю якості міжопераційні перевірки якості.'))
         for check in required:
             if not check.operation_run_id:
-                raise ValidationError(_('QC %(check)s не має QRUN/QUNIT. Ідентифікація має передувати завершенню QC.', check=check.display_name))
+                raise ValidationError(_('Перевірка якості %(check)s не має запуску виробничої операції та виробів. Ідентифікація має передувати завершенню перевірки якості.', check=check.display_name))
         for point_id, operation_id, workorder_id in requirements:
             if workorder_id:
                 expected_workorder = workorders.filtered(lambda row: row.id == workorder_id)
                 if not expected_workorder or (expected_workorder.operation_id.id or 0) != operation_id:
-                    raise ValidationError(_('Змінено або видалено обов’язкову операцію WO ID %(operation)s.', operation=workorder_id))
+                    raise ValidationError(_('Змінено або видалено обов’язкову операцію робочого завдання №%(operation)s.', operation=workorder_id))
             scoped = required.filtered(lambda check: check.point_id.id == point_id and (
                 not workorder_id or check.operation_run_id.workorder_id.id == workorder_id))
             if not scoped:
-                raise ValidationError(_('Не створена обов’язкова QC для QCP ID %(point)s, операція ID %(operation)s.', point=point_id, operation=workorder_id))
+                raise ValidationError(_('Не створено обов’язкову перевірку якості для точки контролю якості №%(point)s, операція №%(operation)s.', point=point_id, operation=workorder_id))
             for unit in units:
                 relevant = scoped.filtered(lambda check: unit in check.sample_ids.controlled_unit_id)
                 if not relevant:
-                    raise ValidationError(_('QCP ID %(point)s не перевірив %(unit)s.', point=point_id, unit=unit.display_name))
+                    raise ValidationError(_('Точка контролю якості №%(point)s не охоплює виріб %(unit)s.', point=point_id, unit=unit.display_name))
                 latest = _read(relevant.operation_run_id).sorted('id')[-1:]
                 for check in relevant.filtered(lambda item: item.operation_run_id == latest):
                     sample = check.sample_ids.filtered(lambda row: row.controlled_unit_id == unit)
@@ -383,10 +383,10 @@ class QualityFullReleaseProduction(models.Model):
                             or sample.sample_result != 'pass'
                             or (check.quality_state == 'fail' and not any(row.sample_result == 'fail' for row in check.sample_ids))
                             or check._get_unit_admission_error(sample)):
-                        raise ValidationError(_('QC %(check)s / %(unit)s: потрібні завершений PASS, ЗВТ і відсутність утримань.', check=check.display_name, unit=unit.display_name))
+                        raise ValidationError(_('Перевірка якості %(check)s / %(unit)s: потрібні завершена перевірка з результатом «Придатний», вибрані засоби вимірювальної техніки та відсутність утримань.', check=check.display_name, unit=unit.display_name))
                 admissions = self.env['quality.unit.admission'].search([
                     ('operation_run_id', '=', latest.id), ('controlled_unit_id', '=', unit.id), ('state', '=', 'confirmed')])
                 if not admissions or any(admission._get_effectiveness_error() for admission in admissions):
-                    raise ValidationError(_('Немає чинного допуску інспектора для %(unit)s / QCP ID %(point)s.', unit=unit.display_name, point=point_id))
+                    raise ValidationError(_('Немає чинного допуску інспектора для %(unit)s / точки контролю якості №%(point)s.', unit=unit.display_name, point=point_id))
         self._check_full_release_alerts(units, checks)
         return True

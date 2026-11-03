@@ -77,7 +77,7 @@ class TestQualityUnitAdmission(QualityCheckInProcessCase):
         self.assertEqual(records.controlled_unit_id, check.sample_ids.filtered(lambda sample: sample.sample_result == 'pass').controlled_unit_id)
         self.assertEqual(records.inspector_id, self.env.user)
         self.assertTrue(all(records.mapped('confirmed_at')))
-        self.assertTrue(all('PASS' in text for text in records.mapped('evidence_snapshot')))
+        self.assertTrue(all('Придатний' in text for text in records.mapped('evidence_snapshot')))
         self.assertEqual(records.workorder_id, check.operation_run_id.workorder_id)
 
     def test_fail_cannot_be_admitted_even_if_checkbox_is_forged(self):

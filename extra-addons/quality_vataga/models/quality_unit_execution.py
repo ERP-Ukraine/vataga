@@ -53,7 +53,7 @@ class QualityExecutionAccess(models.AbstractModel):
 class QualityExecutionBatch(models.Model):
     _name = 'quality.unit.execution.batch'
     _inherit = 'quality.execution.access'
-    _description = 'Спільний робочий інтервал вибраних QUNIT'
+    _description = 'Спільний робочий інтервал вибраних виробів'
     _rec_name = 'request_key'
     _order = 'id desc'
 
@@ -70,7 +70,7 @@ class QualityExecutionBatch(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         if self.env.context.get(EXECUTION_CONTEXT) not in (EXECUTION_TOKEN, NATIVE_EXECUTION_TOKEN):
-            raise UserError(_('Виконання створюється лише захищеною дією WO.'))
+            raise UserError(_('Виконання створюється лише захищеною дією робочого завдання.'))
         prepared = []
         for vals in vals_list:
             if set(vals) != {'workorder_id', 'request_key'}:
@@ -161,7 +161,7 @@ class QualityUnitExecution(models.Model):
         prepared = []
         for vals in vals_list:
             if set(vals) != {'batch_id', 'controlled_unit_id'}:
-                raise UserError(_('Реквізити виконання встановлює штатне завершення WO.'))
+                raise UserError(_('Реквізити виконання встановлює штатне завершення робочого завдання.'))
             batch = self.env['quality.unit.execution.batch'].browse(vals['batch_id'])
             batch.check_access_rights('read')
             batch.check_access_rule('read')
@@ -174,10 +174,10 @@ class QualityUnitExecution(models.Model):
             if ((not partial and (workorder.state != 'done' or batch.request_key != 'native:%s' % workorder.id))
                     or unit._quality_current_production() != workorder.production_id
                     or unit.company_id != workorder.company_id or unit.product_id != workorder.product_id):
-                raise ValidationError(_('Підтвердження має відповідати завершеному WO та його QUNIT.'))
+                raise ValidationError(_('Підтвердження має відповідати завершеному робочому завданню та його виробам.'))
             prepared.append(dict(vals, transfer_id=False, state='processed',
                                  ended_at=fields.Datetime.now(), ended_by_id=self.env.uid,
-                                 result_reference='Native WO: %s' % workorder.id,
+                                 result_reference='Робоче завдання: %s' % workorder.id,
                                  stop_reason=False, check_ids=[] if partial else [(6, 0, workorder._quality_native_checks().ids)]))
         context = {key: value for key, value in self.env.context.items() if not key.startswith('default_')}
         return super(QualityUnitExecution, self.with_context(context)).create(prepared)
@@ -200,7 +200,7 @@ class QualityUnitExecution(models.Model):
     def _record_partial_completion(self, workorder, units, request_key):
         from .quality_native_workorder import partial_execution_allows
         if not partial_execution_allows(workorder, units):
-            raise UserError(_('Немає захищеного підтвердження обробки QUNIT.'))
+            raise UserError(_('Немає захищеного підтвердження обробки виробів.'))
         batch = self.env['quality.unit.execution.batch'].with_context(
             **{EXECUTION_CONTEXT: NATIVE_EXECUTION_TOKEN}).create({
                 'workorder_id': workorder.id, 'request_key': 'partial:%s:%s' % (workorder.id, request_key)})
@@ -222,13 +222,13 @@ class QualityUnitExecution(models.Model):
         workorder._check_quality_execution_access()
         self.check_access_rights('create')
         if not transfers or not request_key:
-            raise ValidationError(_('Явно оберіть конкретні прийняті QUNIT.'))
+            raise ValidationError(_('Явно оберіть конкретні прийняті вироби.'))
         transfers.check_access_rights('read')
         transfers.check_access_rule('read')
         # Reject foreign immutable identities BEFORE acquiring any MO/run
         # lock. A forged mixed-MO selection must not reverse lock ordering.
         if transfers.destination_workorder_id != workorder or transfers.production_id != workorder.production_id or transfers.company_id != workorder.company_id:
-            raise ValidationError(_('Усі приймання мають належати саме цій операції, MO та компанії.'))
+            raise ValidationError(_('Усі приймання мають належати саме цій операції, виробничому замовленню та компанії.'))
         with self.env.cr.savepoint():
             workorder.production_id._lock_quality_transfer_scope()
             transfers.check_id.sorted('id')._lock_execution_evidence()
@@ -306,7 +306,7 @@ class QualityUnitExecution(models.Model):
         self.check_access_rights('read')
         self.check_access_rule('read')
         if not self or self.workorder_id != workorder or any(row.state != 'processed' for row in self) or len(self.controlled_unit_id) != len(self):
-            raise ValidationError(_('Оберіть різні оброблені QUNIT лише цієї операції.'))
+            raise ValidationError(_('Оберіть різні оброблені вироби лише цієї операції.'))
         self.env.cr.execute('SELECT 1 FROM quality_check_execution_rel WHERE execution_id IN %s LIMIT 1', [tuple(self.ids)])
         if self.env.cr.fetchone():
             raise UserError(_('Для цих результатів вже створено контроль. Відкрийте наявну перевірку.'))
@@ -319,7 +319,7 @@ class QualityUnitExecution(models.Model):
         workorder.production_id._lock_quality_transfer_scope()
         self._validate_control_selection(workorder)
         if 'workorder_id' not in self.env['quality.check']._fields:
-            raise UserError(_('Потрібна встановлена інтеграція перевірок якості з Work Orders.'))
+            raise UserError(_('Потрібна встановлена інтеграція перевірок якості з робочими завданнями.'))
         point.check_access_rights('read')
         point.check_access_rule('read')
         if not point or point.x_control_stage != 'in_process':
@@ -372,11 +372,11 @@ class QualityTransferExecution(models.Model):
         self.check_access_rights('read')
         self.check_access_rule('read')
         if self.destination_workorder_id != workorder or self.production_id != workorder.production_id or self.company_id != workorder.company_id or self.company_id not in self.env.companies:
-            return _('Виріб, передача, операція, MO або компанія не відповідають одне одному.')
+            return _('Виріб, передача, операція, виробниче замовлення або компанія не відповідають одне одному.')
         if self.state != 'received':
             return _('Виріб має бути прийнятий цією операцією та не повернений.')
         if not self.production_id.quality_transfer_controlled or self.production_id.state not in ('confirmed', 'progress') or workorder.state in ('done', 'cancel'):
-            return _('Поштучне виконання доступне лише для відкритого контрольованого MO / Work Order.')
+            return _('Поштучне виконання доступне лише для відкритого контрольованого виробничого замовлення або робочого завдання.')
         if workorder.working_state == 'blocked':
             return _('Робочий центр заблоковано.')
         error = self.admission_id._get_effectiveness_error()
@@ -416,7 +416,7 @@ class QualityTransferExecution(models.Model):
         previous.check_access_rule('write')
         executions = admission.check_id._get_route_execution_evidence().filtered(lambda row: row.controlled_unit_id == admission.controlled_unit_id)
         if len(previous) != 1 or previous.state != 'received' or previous.destination_workorder_id != admission.workorder_id or len(executions) != 1 or executions.state != 'processed' or executions.transfer_id != previous or executions.workorder_id != admission.workorder_id:
-            raise ValidationError(_('Передача далі потребує підтвердженої обробки цього QUNIT та нового контролю цієї операції.'))
+            raise ValidationError(_('Передача далі потребує підтвердженої обробки цього виробу та нового контролю цієї операції.'))
         # The factory already holds the shared MO revision lock. Keep the
         # existing unique active-transfer index: at most one live edge even
         # during multi-operation execution. Any later failure rolls back both.
@@ -431,7 +431,7 @@ class MrpWorkorderUnitExecution(models.Model):
     quality_execution_ids = fields.One2many('quality.unit.execution', 'workorder_id', readonly=True)
     quality_execution_waiting = fields.Integer(string='Очікує обробки', compute='_compute_quality_execution_counts')
     quality_execution_progress = fields.Integer(string='В процесі', compute='_compute_quality_execution_counts')
-    quality_execution_processed = fields.Integer(string='Оброблено', compute='_compute_quality_execution_counts', help='Підтверджені QUNIT цієї операції. Не є складським випуском або стандартним qty_produced.')
+    quality_execution_processed = fields.Integer(string='Оброблено', compute='_compute_quality_execution_counts', help='Підтверджені вироби цієї операції. Не є складським випуском або штатною кількістю виготовленої продукції.')
     quality_execution_held = fields.Integer(string='Утримано', compute='_compute_quality_execution_counts')
 
     @api.depends('quality_execution_ids.state', 'quality_transfer_in_ids.state', 'production_id.quality_transfer_revision')
@@ -491,7 +491,7 @@ class QualityCheckExecutionLock(models.Model):
         for vals in vals_list:
             if 'quality_execution_ids' in vals:
                 if self.env.context.get(EXECUTION_CONTEXT) is not EXECUTION_TOKEN:
-                    raise UserError(_('Партію оброблених QUNIT встановлює захищений майстер.'))
+                    raise UserError(_('Партію оброблених виробів встановлює захищений майстер.'))
                 commands = vals['quality_execution_ids']
                 if len(commands) != 1 or commands[0][0] != 6:
                     raise ValidationError(_('Потрібен повний явний склад виконаних виробів.'))
@@ -524,7 +524,7 @@ class QualityCheckExecutionLock(models.Model):
         quantity, error = self._get_in_process_sample_quantity()
         units = self.quality_execution_ids.controlled_unit_id
         if error or mode not in ('reuse', 'existing') or workorder != self.workorder_id or quantity != len(units) or {row.get('unit_id') for row in mapping} != set(units.ids):
-            raise ValidationError(_('Можна повторно використати лише явно виконані QUNIT цієї операції.'))
+            raise ValidationError(_('Можна повторно використати лише вироби з підтвердженою обробкою на цій операції.'))
         return True
 
     def _lock_execution_evidence(self):

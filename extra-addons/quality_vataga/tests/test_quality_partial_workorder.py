@@ -12,6 +12,102 @@ from . import test_quality_native_workorder as native_cases
 class TestQualityPartialWorkorder(native_cases.QualityCheckInProcessCase):
     _route = native_cases.TestQualityNativeWorkorder._route
     _workorder = native_cases.TestQualityNativeWorkorder._workorder
+
+    def test_three_of_five_records_actual_batch_without_fictitious_units_or_stock(self):
+        self._assert_three_of_five_processing(required=True)
+
+    def test_ordinary_in_process_three_of_five_records_actual_batch(self):
+        self._assert_three_of_five_processing(required=False)
+
+    def _assert_three_of_five_processing(self, required):
+        production, orders = self._route(5, 2)
+        production.allow_workorder_dependencies = True
+        orders[1].blocked_by_workorder_ids = orders[0]
+        production.qty_producing = 3
+        self.point.quality_unit_route_required = required
+        check = self._check(production, workorder_id=orders[0].id)
+        check.initialize_qc_unit_identity()
+        self.assertEqual(len(check.sample_ids), 3)
+        units = check.sample_ids.controlled_unit_id
+        self.assertEqual(len(units), 3)
+        self.assertEqual(check.operation_run_id.quantity, 3)
+        self._fill(check)
+        check.do_pass()
+        for order in orders:
+            order.button_start(bypass=True)
+            order.button_finish()
+            self.assertEqual((order.state, order.qty_produced, order.qty_remaining), ('progress', 3, 2))
+            self.assertEqual(order.quality_execution_ids.controlled_unit_id, units)
+            self.assertEqual(len(order.quality_execution_ids), 3)
+            order.button_finish()  # Idempotent acknowledgement after the pause.
+            self.assertEqual(len(order.quality_execution_ids), 3)
+        self.assertEqual(production.product_qty, 5)
+        self.assertEqual(production.qty_produced, 0)
+        self.assertFalse(production.native_stock_fact_ids)
+        self.assertFalse(production.move_finished_ids.filtered(lambda move: move.state == 'done'))
+        self.assertFalse(production.move_raw_ids.filtered(lambda move: move.state == 'done'))
+        self.assertEqual(production._full_release_units(), units)
+        # Partial processing is not a capability for stock or whole-WO closure.
+        with self.assertRaises((UserError, ValidationError)), self.cr.savepoint():
+            orders[0].write({'state': 'done', 'qty_produced': 5})
+        if required:
+            with self.assertRaises((UserError, ValidationError)), self.cr.savepoint():
+                production._check_required_unit_route_completion()
+        with self.assertRaises((UserError, ValidationError)), self.cr.savepoint():
+            production._quality_partial_universe()
+
+    def test_three_of_five_pending_or_failed_unit_cannot_advance(self):
+        for result in ('pending', 'fail'):
+            with self.subTest(result=result):
+                production, orders = self._route(5, 2)
+                production.allow_workorder_dependencies = True
+                orders[1].blocked_by_workorder_ids = orders[0]
+                production.qty_producing = 3
+                self.point.quality_unit_route_required = True
+                check = self._check(production, workorder_id=orders[0].id)
+                check.initialize_qc_unit_identity()
+                self._fill(check)
+                sample = check.sample_ids[-1]
+                if result == 'fail':
+                    check.update_measurement_visual_result(sample.id, 'no')
+                    check.do_fail()
+                else:
+                    cell = sample.measurement_value_ids.filtered(lambda row: row.parameter_type == 'numeric')
+                    check.update_measurement_value(cell.id, {'numeric_input': ''})
+                    with self.assertRaises(ValidationError), self.cr.savepoint():
+                        check.do_pass()
+                orders[0].button_start(bypass=True)
+                orders[0].button_finish()
+                if result == 'pending':
+                    with self.assertRaises(UserError), self.cr.savepoint():
+                        orders[1].button_start(bypass=True)
+                else:
+                    orders[1].button_start(bypass=True)
+                self.assertNotIn(sample.controlled_unit_id, orders[1].quality_native_unit_ids)
+                self.assertFalse(production.native_stock_fact_ids)
+
+    def test_three_of_five_alert_holds_repaired_unit(self):
+        production, orders = self._route(5, 2)
+        production.allow_workorder_dependencies = True
+        orders[1].blocked_by_workorder_ids = orders[0]
+        production.qty_producing = 3
+        self.point.quality_unit_route_required = True
+        check = self._check(production, workorder_id=orders[0].id)
+        check.initialize_qc_unit_identity()
+        self._fill(check)
+        sample = check.sample_ids[-1]
+        check.update_measurement_visual_result(sample.id, 'no')
+        alert = self.env['quality.alert'].with_context(
+            check.action_open_matrix_quality_alert()['context']).create({'name': 'Утримання виробу'})
+        check.update_measurement_visual_result(sample.id, 'yes')
+        check.do_pass()
+        orders[0].button_start(bypass=True)
+        orders[0].button_finish()
+        orders[1].button_start(bypass=True)
+        self.assertNotIn(sample.controlled_unit_id, orders[1].quality_native_unit_ids)
+        self.assertTrue(alert._matrix_hold_is_open())
+        self.assertFalse(production.native_stock_fact_ids)
+
     def _mixed(self):
         production, orders = self._route(5, 3)
         production.allow_workorder_dependencies = True

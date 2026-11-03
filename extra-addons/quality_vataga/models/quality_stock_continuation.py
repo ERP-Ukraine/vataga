@@ -25,7 +25,7 @@ class QualityPostedUnit(models.Model):
 
     def _assert_not_stock_posted(self):
         if self._stock_posted():
-            raise UserError(_('Виріб уже випущено на склад. Повторний маршрут, QC або обробка потребують окремої процедури повернення.'))
+            raise UserError(_('Виріб уже випущено на склад. Повторний маршрут, перевірка якості або обробка потребують окремої процедури повернення.'))
 
 
 class QualityPostedAdmission(models.Model):

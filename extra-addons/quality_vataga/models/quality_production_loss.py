@@ -10,7 +10,7 @@ from .native_partial_release import partial_operation, _read
 class QualityProductionLossFact(models.Model):
     _name = 'quality.production.loss.fact'
     _inherit = 'quality.native.partial.access'
-    _description = 'Незмінний зв’язок FAIL-QUNIT, рішення ТР та виробничої втрати'
+    _description = 'Незмінний зв’язок непридатних виробів, рішення Технічної ради та виробничої втрати'
     _rec_name = 'unit_id'
 
     release_id = fields.Many2one('quality.native.partial.release', required=True, readonly=True, ondelete='restrict')
@@ -22,8 +22,8 @@ class QualityProductionLossFact(models.Model):
     value = fields.Float(related='loss_id.value', string='Вартість браку', readonly=True)
     currency_id = fields.Many2one(related='company_id.currency_id', readonly=True)
     accounting_status = fields.Selection(related='loss_id.accounting_status', string='Бухгалтерський облік', readonly=True)
-    _sql_constraints = [('unit_unique', 'unique(unit_id)', 'Втрату цього QUNIT вже підтверджено.'),
-                        ('loss_unique', 'unique(loss_id)', 'Втрата вже пов’язана з QUNIT.')]
+    _sql_constraints = [('unit_unique', 'unique(unit_id)', 'Втрату цього виробу вже підтверджено.'),
+                        ('loss_unique', 'unique(loss_id)', 'Втрату вже пов’язано з виробом.')]
 
     @api.model
     def _search(self, domain, offset=0, limit=None, order=None, access_rights_uid=None):
@@ -37,7 +37,7 @@ class QualityProductionLossFact(models.Model):
     def create(self, vals_list):
         operation = partial_operation()
         if not operation or not operation.loss_keys or operation.phase != 'facts':
-            raise UserError(_('Втрату QUNIT фіксують лише після реального проведення та завершення MO.'))
+            raise UserError(_('Втрату виробу фіксують лише після реального проведення та завершення виробничого замовлення.'))
         for values in vals_list:
             key = 'qunit:%s' % values.get('unit_id')
             loss = _read(self.env['quality.native.production.loss'].browse(values.get('loss_id')))
@@ -46,7 +46,7 @@ class QualityProductionLossFact(models.Model):
                     or values['release_id'] != operation.release_id or loss.release_id.id != operation.release_id
                     or loss.unit_key != key or loss.production_id != operation.production
                     or loss.production_id.state != 'done'):
-                raise ValidationError(_('Факт втрати не відповідає підтвердженій операції, QUNIT або Alert.'))
+                raise ValidationError(_('Факт втрати не відповідає підтвердженій операції, виробу або сповіщенню про якість.'))
         # The base audit model permits creates only in its audit phase. Facts
         # additionally require this narrower exact identity capability.
         operation.phase = 'audit'
@@ -78,7 +78,7 @@ class QualityLossProduction(models.Model):
         lost = universe.filtered(lambda u: 'qunit:%s' % u.id in operation.loss_keys)
         if (len(good) != len(operation.keys) or len(lost) != len(operation.loss_keys)
                 or set((good | lost).ids) != set(universe.ids)):
-            raise ValidationError(_('Годні та браковані QUNIT повинні точно охоплювати первинну партію.'))
+            raise ValidationError(_('Придатні та браковані вироби повинні точно охоплювати первинну партію.'))
         self._quality_partial_validate_units(good)
         lost._assert_not_stock_posted()
         # No RPC/context-selected alert IDs: discover the actual source scope.
@@ -93,16 +93,16 @@ class QualityLossProduction(models.Model):
                 if unit in alert._quality_loss_approved_scope().controlled_unit_id:
                     matches |= alert
             if len(matches) != 1:
-                raise ValidationError(_('Кожен FAIL-QUNIT потребує одного однозначного затвердженого Alert списання.'))
+                raise ValidationError(_('Кожен непридатний виріб потребує одного однозначного затвердженого сповіщення про якість із рішенням про списання.'))
             for other in alerts - matches:
                 if other._matrix_hold_is_open() and (not other.vataga_failure_sample_ids
                         or unit in other.vataga_failure_sample_ids.controlled_unit_id):
-                    raise ValidationError(_('Інший відкритий Alert утримує цей FAIL-QUNIT. Спочатку узгодьте рішення.'))
+                    raise ValidationError(_('Інше відкрите сповіщення про якість утримує цей непридатний виріб. Спочатку узгодьте рішення.'))
             operation.loss_approvals['qunit:%s' % unit.id] = matches.id
         # An approved Alert is indivisible: do not silently settle part of it.
         for alert in alerts.filtered(lambda a: a.id in operation.loss_approvals.values()):
             if alert._quality_loss_approved_scope().controlled_unit_id - lost:
-                raise ValidationError(_('Потрібна повна затверджена сфера Alert.'))
+                raise ValidationError(_('Потрібна повна затверджена сфера сповіщення про якість.'))
         operation.unit_ids = tuple(good.ids)
 
     def _native_partial_after_post(self, release, operation):
@@ -144,10 +144,10 @@ class QualityLossAlert(models.Model):
         self.check_access_rule('write')
         if (self.decision_type != 'scrap' or not self.is_approved or not self.approved_by_id or not self.approved_at
                 or self.stage_id != self.env.ref(BOARD_STAGE_XMLIDS[2])):
-            raise UserError(_('Потрібне затверджене рішення ТР «Списання браку» на стадії виконання.'))
+            raise UserError(_('Потрібне затверджене рішення Технічної ради «Списання браку» на стадії виконання.'))
         samples = self._matrix_resolution_scope()
         if any(s.sample_result != 'fail' for s in samples):
-            raise ValidationError(_('Списання PASS або pending заборонене.'))
+            raise ValidationError(_('Списання придатних або ще не перевірених виробів заборонене.'))
         units = samples.controlled_unit_id
         units._assert_not_stock_posted()
         production = self.check_id._identity_production()
@@ -155,11 +155,11 @@ class QualityLossAlert(models.Model):
         for sample in samples:
             relevant = checks.filtered(lambda c: sample.controlled_unit_id in c.sample_ids.controlled_unit_id)
             if relevant.sorted('id')[-1:] != self.check_id:
-                raise ValidationError(_('Для QUNIT існує новіша QC; стара FAIL не є підставою списання.'))
+                raise ValidationError(_('Для виробу існує новіша перевірка якості; попередній результат «Непридатний» не є підставою списання.'))
         source = self.check_id.operation_run_id.workorder_id
         processed = source._quality_native_history().filtered(lambda r: r.state == 'processed').controlled_unit_id
         if units - processed and not (source.state == 'done' and source.qty_produced >= production.product_qty):
-            raise ValidationError(_('Немає факту фізичної обробки бракованого QUNIT.'))
+            raise ValidationError(_('Немає факту фізичної обробки бракованого виробу.'))
         return samples
 
     def _get_scrap_execution_blocker(self):
@@ -174,8 +174,7 @@ class QualityLossAlert(models.Model):
             raise
         except UserError as error:
             return 'blocked', str(error)
-        return 'ready', _('Дія випустить усі готові QUNIT, визнає затверджені втрати та закриє MO без Backorder. '
-                          'Потрібне фактично підтверджене повне споживання компонентів. Бухгалтерську проводку не створює.')
+        return 'ready', _('Дія випустить усі готові вироби, визнає затверджені втрати та закриє виробниче замовлення без замовлення на залишок. Потрібне фактично підтверджене повне споживання компонентів. Бухгалтерську проводку не створює.')
 
     def action_scrap_defective_units(self):
         self.ensure_one()
@@ -196,12 +195,11 @@ class QualityLossAlert(models.Model):
             lost = samples.controlled_unit_id
             production._native_loss_close(['qunit:%s' % u.id for u in good],
                 ['qunit:%s' % u.id for u in lost], 'alert-loss:%s' % self.id)
-            self.message_post(body=_('Виробничі втрати підтверджено для %(count)s QUNIT. '
-                'MO завершено без Backorder; періодична бухгалтерська проводка ще не створена.', count=len(lost)))
+            self.message_post(body=_('Виробничі втрати підтверджено для %(count)s виробів. Виробниче замовлення завершено без замовлення на залишок; періодична бухгалтерська проводка ще не створена.', count=len(lost)))
             return True
 
     def action_create_scrap_replacement(self):
-        raise UserError(_('Цей сценарій завершує MO з виробничими втратами. Автоматичне нове MO не створюється.'))
+        raise UserError(_('Цей сценарій завершує виробниче замовлення з виробничими втратами. Нове виробниче замовлення автоматично не створюється.'))
 
     def _validate_production_resolution(self):
         if self.decision_type != 'scrap':
@@ -211,7 +209,7 @@ class QualityLossAlert(models.Model):
         if (not facts or set(facts.unit_id.ids) != set(samples.controlled_unit_id.ids)
                 or len(facts) != len(samples) or any(s.sample_result != 'fail' for s in samples)
                 or facts.production_id != self.check_id._identity_production() or facts.production_id.state != 'done'):
-            raise UserError(_('Закриття потребує підтверджених виробничих втрат усіх FAIL-QUNIT цього Alert.'))
+            raise UserError(_('Закриття потребує підтверджених виробничих втрат усіх непридатних виробів цього сповіщення про якість.'))
         return True
 
     def _production_resolution_complete(self):
@@ -246,5 +244,5 @@ class QualityLostCheck(models.Model):
         self.env.cr.execute('''SELECT 1 FROM quality_production_loss_fact f JOIN quality_alert a ON a.id=f.alert_id
             WHERE a.check_id IN %s LIMIT 1''', [tuple(self.ids) or (0,)])
         if self.env.cr.fetchone():
-            raise UserError(_('QC є підставою підтверджених виробничих втрат і не редагується.'))
+            raise UserError(_('Перевірка якості є підставою підтверджених виробничих втрат і не редагується.'))
         return super()._guard_unit_admission_evidence_edit(unit_ids)

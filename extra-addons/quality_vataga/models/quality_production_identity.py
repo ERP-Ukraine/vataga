@@ -116,7 +116,7 @@ class QualityProductionRun(models.Model):
                 or 'workorder_id' in check._fields and check.workorder_id and check.workorder_id != run.workorder_id
                 or check.in_process_sample_quantity != run.quantity
             ):
-                raise ValidationError(_('Запуск, перевірка та робоче завдання повинні належати одній партії MO, виробу і компанії.'))
+                raise ValidationError(_('Запуск, перевірка та робоче завдання повинні стосуватися однієї партії виробничого замовлення, товару та компанії.'))
             if run.state == 'registered' and len(run.unit_ids) != run.quantity:
                 raise ValidationError(_('Склад запуску не відповідає його зафіксованій кількості.'))
             if any(
@@ -124,7 +124,7 @@ class QualityProductionRun(models.Model):
                 or unit.company_id != run.company_id
                 for unit in run.unit_ids
             ):
-                raise ValidationError(_('До запуску можна включати лише сумісні вироби цього MO.'))
+                raise ValidationError(_('До запуску можна включати лише сумісні вироби цього виробничого замовлення.'))
 
 
 class QualityProductionUnit(models.Model):
@@ -232,5 +232,5 @@ class MrpProductionIdentity(models.Model):
                 self.env.cr.execute('SELECT id FROM mrp_production WHERE id IN %s ORDER BY id FOR UPDATE', [tuple(changed.ids)])
                 self.env.cr.execute('SELECT 1 FROM quality_production_run WHERE production_id IN %s LIMIT 1', [tuple(changed.ids)])
                 if self.env.cr.fetchone():
-                    raise UserError(_('Не можна змінити виріб або компанію MO після реєстрації ідентифікаторів.'))
+                    raise UserError(_('Не можна змінити виріб або компанію виробничого замовлення після реєстрації ідентифікаторів.'))
         return super().write(vals)

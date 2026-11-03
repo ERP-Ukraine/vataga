@@ -11,7 +11,7 @@
         <field name="domain_force">[('company_id', 'in', company_ids)]</field>
     </record>
     <record id="native_partial_cost_company" model="ir.rule">
-        <field name="name">Checkpoint WO: компанії</field>
+        <field name="name">Знімок розрахунку вартості робочого завдання: компанії</field>
         <field name="model_id" ref="model_quality_native_partial_cost"/>
         <field name="domain_force">[('company_id', 'in', company_ids)]</field>
     </record>
@@ -21,7 +21,7 @@
         <field name="domain_force">[('company_id', 'in', company_ids)]</field>
     </record>
     <record id="production_loss_fact_company" model="ir.rule">
-        <field name="name">Втрати QUNIT: компанії</field>
+        <field name="name">Втрати виробів: компанії</field>
         <field name="model_id" ref="model_quality_production_loss_fact"/>
         <field name="domain_force">[('company_id', 'in', company_ids)]</field>
     </record>

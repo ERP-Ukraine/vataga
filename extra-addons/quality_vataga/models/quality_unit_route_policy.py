@@ -4,7 +4,7 @@ from odoo.exceptions import AccessError, UserError, ValidationError
 
 from .native_backorder import native_operation_allows
 
-REQUIRED_ROUTE_MESSAGE = 'Завершіть цей MO штатною кнопкою «Виготовити все»: потрібні завершені WO, ідентифіковані QUNIT, усі обов’язкові QC та чинні допуски без утримуючих Alert. Пряме проведення поза перевіреною штатною дією, частковий випуск і Backorder закриті.'
+REQUIRED_ROUTE_MESSAGE = 'Завершіть це виробниче замовлення штатною кнопкою «Виготовити все»: потрібні завершені робочі завдання, ідентифіковані вироби, усі обов’язкові перевірки якості та чинні допуски без сповіщень про якість, що утримують вироби. Пряме проведення поза перевіреною штатною дією, частковий випуск і замовлення на залишок закриті.'
 
 
 def require_quality_manager(env):
@@ -17,9 +17,7 @@ class QualityPointUnitRoutePolicy(models.Model):
 
     quality_unit_route_required = fields.Boolean(
         string='Обов’язковий поштучний маршрут', default=False,
-        help='Лише для нових міжопераційних QC. Вмикає незворотне обмеження їх MO, '
-             'зокрема вже відкритого MO. Наявні QC та завершені MO не змінюються. '
-             'Повна годна партія випускається штатним завершенням MO після перевірки готовності.')
+        help='Лише для нових міжопераційних перевірок якості. Вмикає незворотне обмеження їх виробничих замовлень, зокрема вже відкритого виробничого замовлення. Наявні перевірки якості та завершені виробничі замовлення не змінюються. Повна придатна партія випускається штатним завершенням виробничого замовлення після перевірки готовності.')
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -36,7 +34,7 @@ class QualityPointUnitRoutePolicy(models.Model):
     @api.constrains('quality_unit_route_required', 'x_control_stage')
     def _check_unit_route_stage(self):
         if any(point.quality_unit_route_required and point.x_control_stage != 'in_process' for point in self):
-            raise ValidationError(_('Поштучний режим QCP доступний лише для міжопераційного контролю.'))
+            raise ValidationError(_('Поштучний режим точки контролю якості доступний лише для міжопераційного контролю.'))
 
 
 class ProductionUnitRoutePolicy(models.Model):
@@ -44,20 +42,19 @@ class ProductionUnitRoutePolicy(models.Model):
 
     quality_unit_route_required = fields.Boolean(
         string='Обов’язковий поштучний маршрут', readonly=True, copy=False, default=False,
-        help='Вмикається явно керівником якості або новим QC з налаштованого QCP. '
-             'Не вимикається зміною QCP, видаленням QC або RPC-контекстом.')
+        help='Вмикається явно керівником якості або новою перевіркою якості з налаштованої точки контролю якості. Не вимикається зміною точки контролю якості, видаленням перевірки якості або параметрами клієнтського запиту.')
 
     @api.model_create_multi
     def create(self, vals_list):
         if any(vals.get('quality_unit_route_required') for vals in vals_list):
-            raise UserError(_('Режим MO вмикають окремою дією або новою QC.'))
+            raise UserError(_('Режим виробничого замовлення вмикають окремою дією або новою перевіркою якості.'))
         context = dict(self.env.context)
         context.pop('default_quality_unit_route_required', None)
         return super(ProductionUnitRoutePolicy, self.with_context(context)).create(vals_list)
 
     def write(self, vals):
         if 'quality_unit_route_required' in vals:
-            raise UserError(_('Увімкнений поштучний режим MO незмінний.'))
+            raise UserError(_('Увімкнений поштучний режим виробничого замовлення не можна вимкнути.'))
         if vals.get('state') == 'done' or vals.get('qty_produced'):
             self._check_required_unit_route_completion()
         return super().write(vals)
@@ -66,14 +63,14 @@ class ProductionUnitRoutePolicy(models.Model):
         self.check_access_rights('write')
         self.check_access_rule('write')
         if any(production.state in ('done', 'cancel') or production.qty_produced for production in self):
-            raise UserError(_('Поштучний режим вмикають лише для відкритого MO без попереднього випуску.'))
+            raise UserError(_('Поштучний режим вмикають лише для відкритого виробничого замовлення без попереднього випуску.'))
         self._lock_quality_transfer_scope()
         for production in self:
             if production.state in ('done', 'cancel') or production.qty_produced:
-                raise UserError(_('Поштучний режим вмикають лише для відкритого MO без попереднього випуску.'))
+                raise UserError(_('Поштучний режим вмикають лише для відкритого виробничого замовлення без попереднього випуску.'))
             if not production.quality_unit_route_required:
                 super(ProductionUnitRoutePolicy, production).write({'quality_unit_route_required': True})
-                production.message_post(body=_('Увімкнено обов’язковий поштучний контроль. Повний штатний випуск потребує готових WO, QC, QUNIT та чинних допусків.'), subtype_xmlid='mail.mt_note')
+                production.message_post(body=_('Увімкнено обов’язковий поштучний контроль. Повний штатний випуск потребує завершених робочих завдань, перевірок якості, ідентифікованих виробів та чинних допусків.'), subtype_xmlid='mail.mt_note')
 
     def action_require_quality_unit_route(self):
         require_quality_manager(self.env)
@@ -104,6 +101,6 @@ class QualityCheckUnitRoutePolicy(models.Model):
             if check.point_id.quality_unit_route_required:
                 production = check._identity_production()
                 if not production:
-                    raise ValidationError(_('Обов’язкова поштучна QC повинна належати MO.'))
+                    raise ValidationError(_('Обов’язкова поштучна перевірка якості повинна належати виробничому замовленню.'))
                 production._enable_required_unit_route()
         return checks

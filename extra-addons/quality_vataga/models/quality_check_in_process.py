@@ -310,5 +310,5 @@ class QualityCheckInProcess(models.Model):
         result = super()._validate_measurement_can_pass()
         for check in in_process:
             if any(sample.sample_result != 'pass' for sample in check.sample_ids):
-                raise ValidationError(_('Усі зразки міжопераційного контролю повинні мати результат PASS.'))
+                raise ValidationError(_('Усі зразки міжопераційного контролю повинні мати результат «Придатний».'))
         return result
