@@ -24,6 +24,8 @@ class Record(NS):
         if isinstance(other, Rows):
             return other.ids == self.ids
         return self is other
+    def __ne__(self, other):
+        return not self == other
 
 
 class Rows(list):
@@ -38,8 +40,8 @@ class Rows(list):
         return self[0].id if self else False
     def filtered(self, predicate):
         return Rows(item for item in self if predicate(item))
-    def sorted(self, field):
-        return Rows(sorted(self, key=lambda item: getattr(item, field)))
+    def sorted(self, key):
+        return Rows(sorted(self, key=key if callable(key) else lambda item: getattr(item, key)))
     def __getattr__(self, name):
         values = []
         for item in self:

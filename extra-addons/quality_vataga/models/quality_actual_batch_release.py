@@ -37,18 +37,26 @@ class QualityActualBatchProduction(models.Model):
                 or not math.isfinite(quantity) or quantity <= 0 or quantity != int(quantity)
                 or quantity > self.product_qty or self.qty_producing != quantity
                 or self.product_uom_id != self.env.ref('uom.product_uom_unit')
-                or self.product_id.uom_id != self.product_uom_id
-                or self.product_id.tracking != 'none'):
-            raise ValidationError(_('Випуск фактичної партії дозволено лише для відкритого замовлення без попереднього випуску, історичних передач та партійного або серійного відстеження. Кількість має точно відповідати виготовленим виробам у штуках.'))
+                or self.product_id.uom_id != self.product_uom_id):
+            raise ValidationError(_('Випуск фактичної партії дозволено лише для відкритого замовлення без попереднього випуску та історичних передач. Кількість має точно відповідати виготовленим виробам у штуках.'))
+        if self.product_id.tracking == 'serial':
+            raise ValidationError(_('Випуск фактичної партії товарів із серійним відстеженням не підтримується. Використайте штатний маршрут серійного виробництва.'))
         _read(units)
-        if (not units or len(units) != quantity or set(units.ids) != set(self._full_release_units().ids)
-                or any(unit._quality_current_production() != self or unit.company_id != self.company_id
+        if (not units or len(units) != quantity or len(set(units.ids)) != len(units)
+                or set(units.ids) != set(self._full_release_units().ids)
+                or any(unit.production_id != self or unit._quality_current_production() != self
+                       or unit.company_id != self.company_id
                        or unit.product_id != self.product_id for unit in units)):
             raise ValidationError(_('Перелік повинен містити саме всі фактично виготовлені вироби цього замовлення, товару та компанії.'))
         units._assert_not_stock_posted()
+        # Use the same real-lot/immutable-identity checks as full completion.
+        # Empty QUNIT lot metadata is historical; the posted fact supplies the
+        # actual lot without rewriting registration or QC.
+        self._validate_full_release_lot(units, self.lot_producing_id)
         registration = _read(units.registration_run_id)
         if (len(registration) != 1 or registration.state != 'registered'
                 or registration.quantity != quantity or registration.production_id != self
+                or registration.product_id != self.product_id or registration.company_id != self.company_id
                 or set(registration.unit_ids.ids) != set(units.ids)):
             raise ValidationError(_('Потрібна підтверджена реєстрація саме фактично виготовленої партії.'))
         destination = _read(self.location_dest_id)
@@ -109,17 +117,25 @@ class QualityActualBatchProduction(models.Model):
                 move.id: float_round(quantity * move.unit_factor,
                                      precision_rounding=move.product_uom.rounding)
                 for move in production.move_raw_ids.filtered(lambda row: row.state != 'cancel')}
-            operation = NativeBackorderOperation(production, quantity, tuple(units.ids), actual_batch=True)
+            operation = NativeBackorderOperation(
+                production, quantity, tuple(units.ids), actual_batch=True,
+                finished_lot_id=production.lot_producing_id.id)
             with operation.activate():
                 children = production._native_quality_complete()
                 production._check_quality_actual_batch_stock(operation, raw_quantities)
                 production._validate_quality_batch_controls(units, production._full_release_workorders(), standard=True)
                 production._record_standard_stock_facts(units)
                 if (children.state in ('draft', 'done', 'cancel') or children.qty_produced
+                        or children.qty_producing or children.lot_producing_id
+                        or children.workorder_ids.quality_execution_ids
+                        or children.workorder_ids.time_ids
+                        or children.workorder_ids.filtered(lambda row: row.qty_produced or row.qty_reported_from_previous_wo)
+                        or children.native_stock_fact_ids or children.native_continuation_ids
                         or children._full_release_units() or children.quality_transfer_controlled
                         or children.quality_unit_route_required != production.quality_unit_route_required
                         or children._full_release_checks().filtered(lambda check: check.operation_run_id
-                            or check.quality_state != 'none' or check.sample_ids.controlled_unit_id)):
+                            or check.quality_state != 'none' or check.sample_ids.controlled_unit_id
+                            or check.unit_admission_ids)):
                     raise ValidationError(_('Замовлення на залишок не повинно успадковувати виготовлені вироби або інший режим маршруту.'))
             production.message_post(body=_(
                 'Фактичну партію з %(quantity)s виробів випущено на склад. Замовлення на залишок: %(order)s.',
@@ -133,6 +149,8 @@ class QualityActualBatchProduction(models.Model):
             if (operation and operation.actual_batch and production == operation.production
                     and production.env.cr is operation.production.env.cr):
                 units = self.env['quality.production.unit'].browse(operation.unit_ids)
+                if production.lot_producing_id.id != operation.finished_lot_id:
+                    raise ValidationError(_('Під час випуску змінилася партія готової продукції. Увесь випуск скасовано.'))
                 production._validate_quality_actual_batch(units, operation.quantity)
         return super()._post_inventory(cancel_backorder=cancel_backorder)
 

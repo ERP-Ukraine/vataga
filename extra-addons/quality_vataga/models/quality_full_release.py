@@ -264,7 +264,7 @@ class QualityFullReleaseProduction(models.Model):
                     raise UserError(_('Випуск утримує відкрите сповіщення про якість %(alert)s.', alert=alert.display_name))
 
     def _validate_full_release_lot(self, units, lot):
-        """Validate an actual stock lot, independently of QUNIT identity."""
+        """Validate one real lot for full or actual-batch native completion."""
         self.ensure_one()
         if self.product_id.tracking == 'none':
             if lot:

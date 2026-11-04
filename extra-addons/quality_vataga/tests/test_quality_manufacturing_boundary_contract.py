@@ -157,12 +157,18 @@ class TestDraftSamplePreparation(unittest.TestCase):
 
 class TestSerializedReleaseRequests(unittest.TestCase):
     def test_t9_t16_only_one_request_reaches_native_stock_completion(self):
+        self._two_requests(False)
+
+    def test_lot_only_one_serialized_request_reaches_native_completion(self):
+        self._two_requests(55)
+
+    def _two_requests(self, lot_id):
         transaction_lock = RLock()
         @contextmanager
         def transaction():
             with transaction_lock:
                 yield
-        def operation(production, quantity, units, actual_batch=False):
+        def operation(production, quantity, units, actual_batch=False, finished_lot_id=False):
             return NS(activate=nullcontext)
         cls = shipped_class('models/quality_actual_batch_release.py', 'QualityActualBatchProduction',
             {'action_release_quality_actual_batch'}, _require_roles=lambda env: None,
@@ -171,6 +177,7 @@ class TestSerializedReleaseRequests(unittest.TestCase):
         p.id, p.state, p.product_qty = 1, 'progress', 3
         p.quality_unit_route_required = True
         p.company_id = Record(id=1)
+        p.lot_producing_id = NS(id=lot_id)
         p.env = NS(cr=NS(savepoint=transaction), companies=Rows([p.company_id]),
                    lang='uk_UA', user=NS(tz='Europe/Kyiv'))
         p.ensure_one = p.check_access_rights = p.check_access_rule = Mock()
@@ -186,6 +193,8 @@ class TestSerializedReleaseRequests(unittest.TestCase):
         p._record_standard_stock_facts = Mock()
         p.message_post = Mock()
         child = NS(state='confirmed', qty_produced=0, quality_transfer_controlled=False,
+                   qty_producing=0, lot_producing_id=False, native_stock_fact_ids=Rows(), native_continuation_ids=Rows(),
+                   workorder_ids=Rows(),
                    quality_unit_route_required=True, display_name='Remainder',
                    _full_release_units=lambda: Rows(), _full_release_checks=lambda: Rows())
         def complete():

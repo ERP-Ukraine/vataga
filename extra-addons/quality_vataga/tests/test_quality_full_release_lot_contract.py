@@ -75,17 +75,24 @@ class TestFullReleaseLotContract(unittest.TestCase):
         with self.assertRaises(UserError):
             self.production._validate_full_release_lot(self.units, self.lot)
 
-    def test_native_precondition_accepts_only_full_lot_batch_and_keeps_serial_closed(self):
+    def test_native_precondition_accepts_actual_lot_batch_without_legacy_partial_unlock(self):
         tree = ast.parse((ROOT / 'models/native_backorder.py').read_text(encoding='utf-8'))
         method = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == '_native_quality_complete')
         condition = next(node.test for node in method.body if isinstance(node, ast.If) and 'create_backorder' in ast.unparse(node.test))
         predicate = compile(ast.Expression(body=condition), 'native_lot_guard', 'eval')
         production = NS(qty_produced=0, state='to_close', picking_type_id=NS(create_backorder='ask'),
                         product_id=NS(type='product', tracking='lot'), move_byproduct_ids=False, move_raw_ids=Rows())
-        self.assertFalse(eval(predicate, {'self': production, 'operation': NS(quantity=2), 'original_quantity': 2}))
-        self.assertTrue(eval(predicate, {'self': production, 'operation': NS(quantity=1), 'original_quantity': 2}))
+        operation = NS(quantity=2, actual_batch=False, remaining_ids=())
+        scope = {'self': production, 'operation': operation, 'original_quantity': 2}
+        self.assertFalse(eval(predicate, scope))
+        operation.quantity = 1
+        self.assertTrue(eval(predicate, scope))
+        operation.actual_batch = True
+        self.assertFalse(eval(predicate, scope))
+        operation.remaining_ids = (12,)
+        self.assertTrue(eval(predicate, scope))
         production.product_id.tracking = 'serial'
-        self.assertTrue(eval(predicate, {'self': production, 'operation': NS(quantity=2), 'original_quantity': 2}))
+        self.assertTrue(eval(predicate, scope))
 
     def test_fact_lot_guard_requires_real_matching_full_batch_line(self):
         tree = ast.parse((ROOT / 'models/quality_native_backorder.py').read_text(encoding='utf-8'))

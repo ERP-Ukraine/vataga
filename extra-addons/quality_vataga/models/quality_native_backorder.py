@@ -128,13 +128,15 @@ class QualityUnitStockFact(models.Model):
                 raise ValidationError(_('Немає відповідного фактичного складського випуску цього виробу.'))
             if unit.product_id.tracking == 'lot':
                 lot = _read(line.lot_id)
-                full_quantity = len(allowed) if partial_fact or operation.standard_full else operation.quantity
-                if ((not partial_fact and (full_quantity != production.product_qty or operation.remaining_ids))
+                # Native actual-batch splitting has already resized the source
+                # MO to its manufactured quantity; no QUNIT follows the rest.
+                batch_quantity = len(allowed) if partial_fact or operation.standard_full else operation.quantity
+                if ((not partial_fact and (batch_quantity != production.product_qty or operation.remaining_ids))
                         or not lot or lot != production.lot_producing_id
                         or lot.product_id != unit.product_id
                         or (lot.company_id and lot.company_id != unit.company_id)
                         or (unit.lot_id and unit.lot_id != lot)):
-                    raise ValidationError(_('Складський факт виробу з партійним відстеженням потребує повного випуску та правильної фактичної партії у проведеному рядку.'))
+                    raise ValidationError(_('Складський факт виробу з партійним відстеженням потребує випуску всієї фактично виготовленої партії та правильної партії у проведеному рядку.'))
             if unit.product_id.tracking == 'serial':
                 lot = _read(line.lot_id)
                 if (partial_fact or not operation.standard_full or len(allowed) != 1 or production.product_qty != 1

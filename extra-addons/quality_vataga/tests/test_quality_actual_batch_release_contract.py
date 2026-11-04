@@ -79,6 +79,11 @@ class TestActualBatchValidation(unittest.TestCase):
         p._full_release_workorders = lambda: self.workorders
         p._check_named_stock_history = Mock()
         p._validate_quality_batch_controls = Mock()
+        p._validate_full_release_lot = Mock()
+        p.lot_producing_id = False
+        for unit in self.units:
+            unit.production_id = p
+        self.run.product_id, self.run.company_id = p.product_id, p.company_id
 
     def validate(self):
         return self.production._validate_quality_actual_batch(self.units, 3)
@@ -199,7 +204,7 @@ class TestActualBatchValidation(unittest.TestCase):
             with self.subTest(reason=reason), self.assertRaisesRegex(UserError, reason):
                 self.validate()
 
-    def test_dependencies_and_tracking_remain_closed(self):
+    def test_dependencies_are_linear_and_serial_remains_closed(self):
         self.first._quality_native_predecessors = lambda: Rows()
         self.last._quality_native_predecessors = lambda: Rows()
         self.production.allow_workorder_dependencies = True
@@ -208,10 +213,9 @@ class TestActualBatchValidation(unittest.TestCase):
         self.last._quality_native_predecessors = lambda: Rows([self.first])
         self.assertTrue(self.validate())
         self.production.allow_workorder_dependencies = False
-        for tracking in ('lot', 'serial'):
-            self.production.product_id.tracking = tracking
-            with self.assertRaises(UserError):
-                self.validate()
+        self.production.product_id.tracking = 'serial'
+        with self.assertRaisesRegex(UserError, 'серійним'):
+            self.validate()
 
 
 class TestActualBatchInventoryBoundary(unittest.TestCase):
@@ -272,6 +276,8 @@ class TestActualBatchInventoryBoundary(unittest.TestCase):
             def __getitem__(self, name):
                 return NS(browse=lambda ids: ids)
         p.env = Env()
+        p.lot_producing_id = NS(id=False)
+        operation.finished_lot_id = False
         operation.production = p
         p._validate_quality_actual_batch = lambda units, quantity: events.append(('quality', units, quantity))
         self.assertTrue(p._post_inventory(cancel_backorder=True))
@@ -279,6 +285,11 @@ class TestActualBatchInventoryBoundary(unittest.TestCase):
         events.clear()
         p._validate_quality_actual_batch = Mock(side_effect=UserError('hold'))
         with self.assertRaises(UserError):
+            p._post_inventory(cancel_backorder=True)
+        self.assertFalse(events)
+        p._validate_quality_actual_batch.side_effect = None
+        p.lot_producing_id.id = 55
+        with self.assertRaisesRegex(UserError, 'змінилася партія'):
             p._post_inventory(cancel_backorder=True)
         self.assertFalse(events)
 

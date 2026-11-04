@@ -28,6 +28,8 @@ class NativeBackorderOperation:
     standard_full: dict = field(default_factory=dict)
     # Only the actual-batch adapter sets this after validating physical units.
     actual_batch: bool = False
+    # Actual-batch identity is fixed before native quantity preparation/split.
+    finished_lot_id: int = 0
 
     @contextmanager
     def activate(self):
@@ -88,6 +90,11 @@ class NativeBackorderProduction(models.Model):
         operation = native_operation()
         if operation and self == operation.production:
             values['quality_native_parent_id'] = self.id
+            if operation.actual_batch:
+                # Native Odoo already clears the finished lot. Keep that
+                # contract explicit across forks: lot reuse is a later user
+                # choice, never evidence of manufacture on the new order.
+                values.update(lot_producing_id=False, qty_producing=0)
         return values
 
     @api.model_create_multi
@@ -130,20 +137,25 @@ class NativeBackorderProduction(models.Model):
         if not operation or operation.production != self:
             raise UserError(_('Немає захищеної операції поштучного випуску.'))
         original_quantity = self.product_qty
+        if self.product_id.tracking == 'serial':
+            raise ValidationError(_('Цей маршрут випуску не підтримує серійне відстеження. Використайте штатний маршрут серійного виробництва.'))
         if (self.qty_produced or self.state not in ('confirmed', 'progress', 'to_close')
                 or not 0 < operation.quantity <= original_quantity
                 or (operation.quantity < original_quantity and self.picking_type_id.create_backorder != 'ask')
                 or self.product_id.type != 'product'
-                or (self.product_id.tracking != 'none' and not (
-                    self.product_id.tracking == 'lot' and operation.quantity == original_quantity))
+                or self.product_id.tracking not in ('none', 'lot')
+                or (self.product_id.tracking == 'lot' and operation.quantity < original_quantity
+                    and (not operation.actual_batch or operation.remaining_ids))
                 or self.move_byproduct_ids
                 or self.move_raw_ids.filtered(lambda move: move.manual_consumption)):
             raise ValidationError(_(
-                'Потрібне відкрите виробниче замовлення без попереднього випуску, відстеження за серійними номерами, побічної продукції та ручного споживання. Для неповної партії встановіть налаштування створення замовлення на залишок «Запитувати».'))
+                'Потрібне відкрите виробниче замовлення без попереднього випуску, побічної продукції та ручного споживання. Для неповної партії встановіть налаштування створення замовлення на залишок «Запитувати».'))
         if self.product_id.tracking == 'lot':
             lot = self.lot_producing_id
-            if not lot or lot.product_id != self.product_id or (lot.company_id and lot.company_id != self.company_id):
-                raise ValidationError(_('Для повного випуску потрібна реальна партія цього товару та компанії у виробничому замовленні.'))
+            lot.check_access_rights('read')
+            lot.check_access_rule('read')
+            if not lot.exists() or lot.product_id != self.product_id or (lot.company_id and lot.company_id != self.company_id):
+                raise ValidationError(_('Для випуску потрібна реальна партія цього товару та компанії у штатному полі виробничого замовлення.'))
         for move in self.move_raw_ids.filtered('picked'):
             expected = float_round(operation.quantity * move.unit_factor, precision_rounding=move.product_uom.rounding)
             if float_compare(move.quantity, expected, precision_rounding=move.product_uom.rounding):
