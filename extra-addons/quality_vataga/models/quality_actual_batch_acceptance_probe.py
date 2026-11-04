@@ -12,6 +12,7 @@ from odoo import _, api, models
 from odoo.exceptions import AccessError, UserError, ValidationError
 
 from .quality_partial_release_probe import _ProbeRollback, _assert
+from .quality_native_workorder import PARTIAL_WO_MESSAGE
 
 
 ALLOWED_DATABASE = 'odoo17-vataga-staging'
@@ -172,7 +173,7 @@ class QualityActualBatchAcceptanceProbe(models.Model):
                 raise _ProbeSkip('Active automations on fixture models need isolated-process review: %s' % automations.ids)
 
     @api.model
-    def _quality_actual_probe_setup(self, outcome='pass'):
+    def _quality_actual_probe_setup(self, outcome='pass', unfinished_first=False, progress=None):
         """Own products, locations, operation type and QCP; existing warehouse is read only."""
         warehouse = self.env['stock.warehouse'].search([
             ('company_id', '=', self.env.company.id), ('manufacture_steps', '=', 'mrp_one_step')], limit=1)
@@ -201,7 +202,7 @@ class QualityActualBatchAcceptanceProbe(models.Model):
             'name': tag, 'code': 'mrp_operation', 'sequence_code': tag,
             'warehouse_id': warehouse.id, 'company_id': self.env.company.id,
             'default_location_src_id': location.id, 'default_location_dest_id': location.id,
-            'create_backorder': 'ask'})
+            'create_backorder': 'ask', 'reservation_method': 'at_confirm'})
         centers = self.env['mrp.workcenter'].create([
             {'name': tag + '-cut', 'costs_hour': 0}, {'name': tag + '-inspect', 'costs_hour': 0}])
         bom = self.env['mrp.bom'].create({
@@ -230,6 +231,14 @@ class QualityActualBatchAcceptanceProbe(models.Model):
         receipt._action_confirm(merge=False)
         receipt.write({'quantity': 20, 'picked': True})
         receipt._action_done()
+        scene = {'product': product, 'component': component, 'location': location,
+                 'receipt': receipt, 'bom': bom, 'centers': centers, 'team': team,
+                 'point': point, 'tag': tag}
+        if progress is None:
+            progress = {}
+        progress['inventory'] = {'after_receipt': self._quality_actual_probe_inventory(scene)}
+        _assert(progress['inventory']['after_receipt']['component']['on_hand'] == 20,
+                'Test receipt did not put twenty physical components into the fixture location')
         production = self.create({
             'product_id': product.id, 'product_qty': 5, 'product_uom_id': unit.id, 'bom_id': bom.id,
             'company_id': self.env.company.id, 'picking_type_id': picking_type.id,
@@ -242,24 +251,23 @@ class QualityActualBatchAcceptanceProbe(models.Model):
         orders = production.workorder_ids.sorted(key=lambda row: (row.operation_id.sequence, row.id))
         _assert(len(orders) == 2, 'Fixture needs exactly two real workorders')
         first, last = orders
+        scene.update(production=production, orders=orders)
+        # N5 identifies units at the final operation BEFORE any execution.
+        # The first operation then records its real three-unit partial work,
+        # leaving state=progress. No confirmed route/history is edited later.
+        check = self._quality_actual_probe_initialize_check(scene) if unfinished_first else None
+        if unfinished_first:
+            first.write({'quality_native_unit_ids': [(6, 0, check.sample_ids.controlled_unit_id.ids)]})
         first.button_start()
+        if unfinished_first:
+            self._quality_partial_probe_timer(first)
         first.button_finish()
         last.button_start(bypass=True)
         # Reuse the existing fixture's native timer fallback, never fake state
         # or quantities. Report that this is not a Shop Floor timer UI test.
         timer_fallback = not last.time_ids.filtered(lambda row: row.user_id == self.env.user and not row.date_end)
         self._quality_partial_probe_timer(last)
-        checks = self.env['quality.check'].search([
-            ('point_id', '=', point.id), ('production_id', '=', production.id), ('workorder_id', '=', last.id)])
-        _assert(len(checks) <= 1, 'Unexpected duplicate native checks; fixture is not unambiguous')
-        check = checks or self.env['quality.check'].create({
-            'point_id': point.id, 'team_id': team.id, 'test_type_id': test_type.id,
-            'product_id': product.id, 'production_id': production.id, 'workorder_id': last.id,
-            'measure_on': 'product'})
-        check._initialize_measurement_snapshot()
-        check.initialize_in_process_measurement_matrix()
-        _assert(len(check.sample_ids) == 3, 'Fixture did not generate exactly three actual samples')
-        check.initialize_qc_unit_identity()
+        check = check or self._quality_actual_probe_initialize_check(scene)
         samples = check.sample_ids.sorted('sample_number')
         for sample in samples:
             if outcome != 'pending' or sample != samples[-1:]:
@@ -271,18 +279,95 @@ class QualityActualBatchAcceptanceProbe(models.Model):
             check.do_pass()
         last.button_finish()
         units = production._full_release_units()
-        _assert(len(units) == 3 and first.state == 'done' and first.qty_produced == 3
+        _assert(len(units) == 3 and first.qty_produced == 3
+                and first.state == ('progress' if unfinished_first else 'done')
                 and last.qty_produced == 3 and len(last._quality_native_history()) == 3,
                 'Fixture did not confirm exact native processing for three units')
-        _assert(not first._quality_native_history(), 'Fixture fabricated early unit history')
+        if unfinished_first:
+            _assert(set(first._quality_native_history().controlled_unit_id.ids) == set(units.ids),
+                    'Unfinished first operation lacks its real per-unit processing evidence')
+        else:
+            _assert(not first._quality_native_history(), 'Fixture fabricated early unit history')
         _assert(not production.quality_transfer_controlled and not production.quality_unit_route_required,
                 'Fixture unexpectedly enabled a protected route')
         _assert(not orders.time_ids.filtered(lambda row: not row.date_end), 'Fixture left open work intervals')
         _assert(not production.message_partner_ids, 'Fixture acquired message recipients')
-        return {'production': production, 'orders': orders, 'check': check, 'point': point,
-                'units': units, 'samples': samples, 'product': product, 'component': component,
-                'location': location, 'bom': bom, 'centers': centers, 'team': team, 'tag': tag,
-                'synthetic_timer_preparation': timer_fallback}
+        scene.update(check=check, units=units, samples=samples, synthetic_timer_preparation=timer_fallback)
+        progress['inventory']['before_release'] = self._quality_actual_probe_inventory(scene)
+        return scene
+
+    @api.model
+    def _quality_actual_probe_initialize_check(self, scene):
+        production, point = scene['production'], scene['point']
+        last = scene['orders'][-1:]
+        checks = self.env['quality.check'].search([
+            ('point_id', '=', point.id), ('production_id', '=', production.id), ('workorder_id', '=', last.id)])
+        _assert(len(checks) <= 1, 'Unexpected duplicate native checks; fixture is not unambiguous')
+        check = checks or self.env['quality.check'].create({
+            'point_id': point.id, 'team_id': scene['team'].id, 'test_type_id': point.test_type_id.id,
+            'product_id': scene['product'].id, 'production_id': production.id, 'workorder_id': last.id,
+            'measure_on': 'product'})
+        check._initialize_measurement_snapshot()
+        check.initialize_in_process_measurement_matrix()
+        _assert(len(check.sample_ids) == 3, 'Fixture did not generate exactly three actual samples')
+        check.initialize_qc_unit_identity()
+        return check
+
+    @api.model
+    def _quality_actual_probe_inventory(self, scene):
+        """Read physical stock and free stock separately, retaining all evidence."""
+        self.env.flush_all()
+        Quant = self.env['stock.quant']
+        Quant.invalidate_model(['quantity', 'reserved_quantity'])
+        products = scene['product'] | scene['component']
+        quants = Quant.search([('product_id', 'in', products.ids)], order='id')
+        production = scene.get('production', self.env['mrp.production'])
+        children = self.search([('quality_native_parent_id', '=', production.id)]) if production else self.browse()
+        moves = (scene['receipt'] | production.move_raw_ids | production.move_finished_ids
+                 | children.move_raw_ids).sorted('id')
+        report = {
+            'location_id': scene['location'].id, 'company_id': self.env.company.id,
+            'production_id': production.id, 'backorder_ids': children.ids,
+            'receipt_move_ids': scene['receipt'].ids, 'move_ids': moves.ids,
+            'moves': moves.read(['product_id', 'company_id', 'state', 'quantity', 'product_uom_qty',
+                                 'location_id', 'location_dest_id', 'raw_material_production_id', 'production_id']),
+            'move_lines': moves.move_line_ids.sorted('id').read([
+                'move_id', 'product_id', 'company_id', 'state', 'quantity', 'product_uom_id',
+                'picked', 'location_id', 'location_dest_id']),
+            'quants': quants.read(['product_id', 'company_id', 'location_id', 'quantity',
+                                  'reserved_quantity', 'lot_id', 'package_id', 'owner_id']),
+        }
+        for label in ('product', 'component'):
+            product = scene[label]
+            exact = quants.filtered(lambda row: row.product_id == product and row.location_id == scene['location']
+                                    and row.company_id == self.env.company)
+            report[label] = {
+                'product_id': product.id, 'on_hand': sum(exact.mapped('quantity')),
+                'reserved': sum(exact.mapped('reserved_quantity')),
+                'available': Quant._get_available_quantity(product, scene['location'], strict=True, allow_negative=True),
+            }
+        child_lines = children.move_raw_ids.filtered(lambda row: row.state not in ('done', 'cancel') and not row.picked).move_line_ids
+        report['backorder_component_reserved'] = sum(
+            line.product_uom_id._compute_quantity(line.quantity, scene['component'].uom_id)
+            for line in child_lines if not line.picked and line.product_id == scene['component']
+            and line.location_id == scene['location'])
+        return report
+
+    @api.model
+    def _quality_actual_probe_assert_inventory(self, inventory):
+        # Fixed fixture: receipt 20 - actual consumption 3*2 = physical 14.
+        # Its at-confirm backorder for 2 reserves 2*2 = 4, leaving 10 free.
+        inventory['expected'] = {
+            'product': {'on_hand': 3, 'reserved': 0, 'available': 3},
+            'component': {'on_hand': 14, 'reserved': 4, 'available': 10},
+            'backorder_component_reserved': 4,
+        }
+        for label in ('product', 'component'):
+            _assert(all(inventory[label][key] == value for key, value in inventory['expected'][label].items()),
+                    'Inventory mismatch for %s: actual=%s expected=%s' % (
+                        label, inventory[label], inventory['expected'][label]))
+        _assert(inventory['backorder_component_reserved'] == 4,
+                'Component quant reservation does not match the real backorder move lines for four units')
 
     @api.model
     def _quality_actual_probe_stock_snapshot(self, scene):
@@ -300,6 +385,10 @@ class QualityActualBatchAcceptanceProbe(models.Model):
             'facts': production.native_stock_fact_ids.sorted('id').read(['unit_id', 'move_line_id']),
             'children': children.read(['state', 'product_qty', 'quality_native_parent_id']),
             'quants': quants.read(['product_id', 'location_id', 'quantity', 'reserved_quantity']),
+            'units': scene['units'].sorted('id').read(['name', 'production_id', 'registration_run_id']),
+            'admissions': scene['check'].unit_admission_ids.sorted('id').read(['controlled_unit_id', 'state']),
+            'executions': production.workorder_ids._quality_native_history().sorted('id').read([
+                'controlled_unit_id', 'workorder_id', 'state']),
         }
 
     @api.model
@@ -311,7 +400,7 @@ class QualityActualBatchAcceptanceProbe(models.Model):
         return dict(detail, stock_unchanged=True, release_action_called=True)
 
     @api.model
-    def _quality_actual_probe_positive(self, scene):
+    def _quality_actual_probe_positive(self, scene, progress=None):
         production, check, units = (scene[key] for key in ('production', 'check', 'units'))
         first, last = scene['orders']
         _assert(check.quality_state == 'pass' and len(check.unit_admission_ids.filtered(
@@ -320,6 +409,9 @@ class QualityActualBatchAcceptanceProbe(models.Model):
         old_samples = check.sample_ids.read(['sample_result', 'controlled_unit_id'])
         old_executions = last._quality_native_history().read(['state', 'controlled_unit_id', 'workorder_id'])
         production.action_release_quality_actual_batch()
+        inventory = self._quality_actual_probe_inventory(scene)
+        if progress is not None:
+            progress.setdefault('inventory', {})['after_release'] = inventory
         children = self.search([('quality_native_parent_id', '=', production.id)])
         raw = production.move_raw_ids.filtered(lambda row: row.state == 'done')
         finished = production.move_finished_ids.filtered(lambda row: row.state == 'done')
@@ -339,9 +431,7 @@ class QualityActualBatchAcceptanceProbe(models.Model):
                 and sum(raw.stock_valuation_layer_ids.mapped('quantity')) == -6
                 and sum(finished.stock_valuation_layer_ids.mapped('quantity')) == 3,
                 'Real component consumption, links or valuation quantities differ from the actual batch')
-        _assert(self.env['stock.quant']._get_available_quantity(scene['product'], scene['location']) == 3
-                and self.env['stock.quant']._get_available_quantity(scene['component'], scene['location']) == 14,
-                'Real inventory does not contain three finished units / fourteen remaining components')
+        self._quality_actual_probe_assert_inventory(inventory)
         _assert(len(self.env['quality.production.unit'].search([('product_id', '=', scene['product'].id)])) == 3
                 and not first._quality_native_history()
                 and not self.env['quality.check'].search([('workorder_id', '=', first.id)])
@@ -361,7 +451,16 @@ class QualityActualBatchAcceptanceProbe(models.Model):
             progress['stage'] = 'foreign_identity_safety'
             raise _ProbeSkip('Foreign-unit injection cannot reach the public action without bypassing identity guards; covered by the isolated validator ORM test.')
         progress['stage'] = 'fixture'
-        scene = self._quality_actual_probe_setup({'N1': 'fail', 'N2': 'pending'}.get(code, 'pass'))
+        try:
+            scene = self._quality_actual_probe_setup({'N1': 'fail', 'N2': 'pending'}.get(code, 'pass'),
+                                                   unfinished_first=code == 'N5', progress=progress)
+        except AccessError:
+            raise
+        except UserError as error:
+            if code == 'N5' and str(error) in {
+                    _(PARTIAL_WO_MESSAGE), _('Не підтверджено виконання попередньої операції для цих виробів.')}:
+                raise _ProbeSkip('Native predecessor guard prevents safe N5 fixture preparation; no release tested: %s' % error) from error
+            raise
         progress['synthetic_timer_preparation'] = scene['synthetic_timer_preparation']
         progress['shop_floor_timer_start_proven'] = False
         production, check, samples = (scene[key] for key in ('production', 'check', 'samples'))
@@ -369,7 +468,7 @@ class QualityActualBatchAcceptanceProbe(models.Model):
         if code in ('P1', 'N14', 'N7'):
             progress['stage'] = 'native_release_and_stock_assertions'
             progress['release_action_attempted'] = True
-            detail = self._quality_actual_probe_positive(scene)
+            detail = self._quality_actual_probe_positive(scene, progress)
             if code == 'N7':
                 progress['stage'] = 'duplicate_release'
                 detail.update(self._quality_actual_probe_deny(scene, {
@@ -399,13 +498,9 @@ class QualityActualBatchAcceptanceProbe(models.Model):
             _assert(alert._matrix_hold_is_open() and check._matrix_alert_hold_error(samples[:1]), 'Alert did not hold the selected sample')
             messages = {control_message(samples[:1])}
         elif code == 'N5':
-            operation = self.env['mrp.routing.workcenter'].create({
-                'name': scene['tag'] + '-unfinished', 'bom_id': scene['bom'].id,
-                'workcenter_id': scene['centers'][0].id, 'sequence': 0})
-            unfinished = self.env['mrp.workorder'].create({
-                'name': operation.name, 'production_id': production.id, 'operation_id': operation.id,
-                'workcenter_id': operation.workcenter_id.id, 'product_uom_id': production.product_uom_id.id})
-            _assert(unfinished.state != 'done' and not unfinished.qty_produced, 'Additional preceding operation is already complete')
+            unfinished = scene['orders'][0]
+            _assert(unfinished.state == 'progress' and unfinished.qty_produced == 3,
+                    'First operation must retain its real partial execution and unfinished state')
             messages = {_('Не підтверджено фактичне виконання операції %(operation)s для всієї виготовленої партії.',
                           operation=unfinished.display_name)}
         elif code in ('N8', 'N12'):

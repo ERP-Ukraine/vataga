@@ -44,6 +44,36 @@ class TestActualBatchAcceptanceProbe(TransactionCase):
                                   result['backorder_quantity'], result['stock_facts']), (3, 6, 2, 3))
                 self.assertTrue(result['historical_evidence_unchanged'])
 
+    def test_n5_uses_real_partial_first_operation_without_late_route_changes(self):
+        before = self._counts()
+        with self.assertRaises(_ProbeRollback), self.env.cr.savepoint():
+            scene = self.probe._quality_actual_probe_setup(unfinished_first=True)
+            first = scene['orders'][0]
+            self.assertEqual((first.state, first.qty_produced), ('progress', 3))
+            self.assertEqual(len(first._quality_native_history()), 3)
+            self.assertEqual(scene['units'].registration_run_id.workorder_id, scene['orders'][-1:])
+            self.assertEqual(len(scene['bom'].operation_ids), 2)
+            raise _ProbeRollback()
+        self.env.invalidate_all(flush=False)
+        self.assertEqual(self._counts(), before)
+
+    def test_physical_inventory_and_backorder_reservation_are_distinct(self):
+        before = self._counts()
+        progress = {}
+        with self.assertRaises(_ProbeRollback):
+            with self.env.cr.savepoint():
+                self.probe._quality_actual_probe_case('P1', progress)
+                stock = progress['inventory']
+                self.assertEqual(stock['after_receipt']['component']['on_hand'], 20)
+                self.assertEqual(stock['after_release']['component'], {
+                    'product_id': stock['after_release']['component']['product_id'],
+                    'on_hand': 14, 'reserved': 4, 'available': 10})
+                self.assertEqual(stock['after_release']['backorder_component_reserved'], 4)
+                self.assertTrue(stock['after_release']['move_lines'])
+                raise _ProbeRollback()
+        self.env.invalidate_all(flush=False)
+        self.assertEqual(self._counts(), before)
+
     def test_negatives_call_real_action_and_match_exact_business_condition(self):
         for code in ('N1', 'N2', 'N3', 'N4', 'N5', 'N7', 'N8', 'N12'):
             with self.subTest(code=code):
@@ -60,8 +90,8 @@ class TestActualBatchAcceptanceProbe(TransactionCase):
     def test_unexpected_error_after_real_stock_still_rolls_back(self):
         before = self._counts()
         original = type(self.probe)._quality_actual_probe_positive
-        def fail_after_stock(record, scene):
-            original(record, scene)
+        def fail_after_stock(record, scene, progress=None):
+            original(record, scene, progress)
             raise RuntimeError('Injected after real probe stock')
         with patch.object(type(self.probe), '_quality_actual_probe_positive', fail_after_stock):
             with self.assertRaisesRegex(RuntimeError, 'Injected'), self.env.cr.savepoint():

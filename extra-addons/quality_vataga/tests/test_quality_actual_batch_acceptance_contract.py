@@ -44,6 +44,9 @@ def load():
     scope = {'_': lambda text, **kw: text % kw if kw else text, '_assert': check,
              '_ProbeRollback': ProbeRollback, 'UserError': UserError,
              'AccessError': AccessError, 'ValidationError': ValidationError}
+    native = ast.parse((ROOT / 'models/quality_native_workorder.py').read_text(encoding='utf-8'))
+    scope['PARTIAL_WO_MESSAGE'] = ast.literal_eval(next(node.value for node in native.body
+        if isinstance(node, ast.Assign) and node.targets[0].id == 'PARTIAL_WO_MESSAGE'))
     exec(compile(ast.fix_missing_locations(tree), str(SOURCE), 'exec'), scope)
     return scope
 
@@ -204,6 +207,21 @@ class TestProbeRollbackOrchestration(unittest.TestCase):
                          ('FAIL', 'AttributeError', 'test_native_action'))
         self.assert_clean(result)
 
+    def test_inventory_evidence_survives_failed_assertion_and_rollback(self):
+        def fail(code, progress):
+            self.scenario(code, progress)
+            progress['inventory'] = {'after_release': {
+                'component': {'on_hand': 13, 'reserved': 4, 'available': 9},
+                'expected': {'component': {'on_hand': 14, 'reserved': 4, 'available': 10}},
+                'location_id': 20, 'company_id': 1, 'move_ids': [100, 101]}}
+            raise ValidationError('Physical inventory mismatch')
+        self.inner._quality_actual_probe_case = fail
+        result = self.probe._quality_actual_probe_isolated_case('P1')
+        self.assertEqual(result['status'], 'FAIL')
+        self.assertEqual(result['inventory']['after_release']['component']['on_hand'], 13)
+        self.assertEqual(result['inventory']['after_release']['expected']['component']['on_hand'], 14)
+        self.assert_clean(result)
+
     def test_explicit_skip_is_not_pass_and_still_rolls_back(self):
         def skip(code, progress):
             self.scenario(code, progress)
@@ -245,6 +263,177 @@ class TestProbeRollbackOrchestration(unittest.TestCase):
         result = self.probe._quality_actual_probe_isolated_case('P1')
         self.assertEqual((result['status'], result['stage'], result['error_type']),
                          ('FAIL', 'open_transaction', 'RuntimeError'))
+
+
+class TestActualProbeInventoryBalance(unittest.TestCase):
+    def setUp(self):
+        scope = load()
+        self.probe = scope['QualityActualBatchAcceptanceProbe']()
+        self.stock = {'product': {'on_hand': 3, 'reserved': 0, 'available': 3},
+                      'component': {'on_hand': 14, 'reserved': 4, 'available': 10},
+                      'backorder_component_reserved': 4}
+
+    def test_fourteen_physical_components_with_four_reserved_leaves_ten_available(self):
+        self.probe._quality_actual_probe_assert_inventory(self.stock)
+        self.assertEqual(self.stock['expected']['component']['on_hand'], 14)
+        self.assertEqual(self.stock['expected']['component']['available'], 10)
+
+    def test_actual_shortage_is_not_accepted_as_reservation(self):
+        self.stock['component'].update(on_hand=13, available=9)
+        with self.assertRaisesRegex(ValidationError, 'actual=.*expected='):
+            self.probe._quality_actual_probe_assert_inventory(self.stock)
+        self.assertEqual(self.stock['expected']['component']['on_hand'], 14)
+
+    def test_available_api_must_agree_with_physical_stock_minus_reservations(self):
+        self.stock['component']['available'] = 14
+        with self.assertRaises(ValidationError):
+            self.probe._quality_actual_probe_assert_inventory(self.stock)
+
+    def test_finished_product_shortage_still_fails(self):
+        self.stock['product'].update(on_hand=2, available=2)
+        with self.assertRaises(ValidationError):
+            self.probe._quality_actual_probe_assert_inventory(self.stock)
+
+    def test_component_reservation_must_have_backorder_move_line_evidence(self):
+        self.stock['backorder_component_reserved'] = 0
+        with self.assertRaisesRegex(ValidationError, 'real backorder move lines'):
+            self.probe._quality_actual_probe_assert_inventory(self.stock)
+
+    def test_missing_expected_at_confirm_reservation_is_not_silently_accepted(self):
+        self.stock['component'].update(reserved=0, available=14)
+        with self.assertRaises(ValidationError):
+            self.probe._quality_actual_probe_assert_inventory(self.stock)
+
+    def test_inventory_reader_flushes_and_reports_quant_locations_and_real_move_lines(self):
+        class Rows(list):
+            @property
+            def ids(self):
+                return [row.id for row in self]
+            def __or__(self, other):
+                return Rows(list(self) + [row for row in other if row.id not in self.ids])
+            def __getattr__(self, name):
+                if name == 'id':
+                    return self[0].id if self else False
+                if not self:
+                    return Rows()
+                values = [getattr(row, name) for row in self]
+                if all(isinstance(value, Rows) for value in values):
+                    result = Rows()
+                    for value in values:
+                        result |= value
+                    return result
+                return values[0]
+            def sorted(self, name):
+                return Rows(sorted(self, key=lambda row: getattr(row, name)))
+            def filtered(self, predicate):
+                return Rows(row for row in self if predicate(row))
+            def mapped(self, name):
+                return [getattr(row, name) for row in self]
+            def read(self, fields):
+                def value(item):
+                    return (item.id, 'fixture') if getattr(item, 'id', False) else item
+                return [dict(id=row.id, **{name: value(getattr(row, name, False)) for name in fields}) for row in self]
+        company, location = NS(id=1), NS(id=10)
+        uom = NS(id=1, _compute_quantity=lambda quantity, target: quantity)
+        finished, component = Rows([NS(id=1, uom_id=uom)]), Rows([NS(id=2, uom_id=uom)])
+        def line(index, product, quantity, state='done'):
+            return NS(id=index, product_id=product, quantity=quantity, state=state, picked=False,
+                      product_uom_id=uom, company_id=company, location_id=location, location_dest_id=location)
+        receipt_line, raw_line, finished_line, reserved_line = (
+            line(100, component, 20), line(101, component, 6), line(102, finished, 3),
+            line(103, component, 4, 'assigned'))
+        def move(index, item, quantity, state='done'):
+            return NS(id=index, state=state, picked=False, quantity=quantity,
+                      move_line_ids=Rows([item]), company_id=company)
+        receipt, raw, output, reserved = (Rows([move(50, receipt_line, 20)]),
+                                        Rows([move(51, raw_line, 6)]), Rows([move(52, finished_line, 3)]),
+                                        Rows([move(53, reserved_line, 4, 'assigned')]))
+        for movement in receipt | raw | output | reserved:
+            movement.move_line_ids[0].move_id = movement
+        production = Rows([NS(id=7, move_raw_ids=raw, move_finished_ids=output)])
+        children = Rows([NS(id=8, move_raw_ids=reserved)])
+        quants = Rows([
+            NS(id=1, product_id=finished, company_id=company, location_id=location, quantity=3, reserved_quantity=0),
+            NS(id=2, product_id=component, company_id=company, location_id=location, quantity=14, reserved_quantity=4),
+            NS(id=3, product_id=component, company_id=company, location_id=NS(id=99), quantity=-20, reserved_quantity=0),
+        ])
+        events = []
+        Quant = NS(invalidate_model=Mock(side_effect=lambda fields: events.append('invalidate')),
+                   search=Mock(side_effect=lambda domain, order: events.append('search') or quants),
+                   _get_available_quantity=Mock(side_effect=lambda product, loc, **kw: 3 if product.id == 1 else 10))
+        class Env:
+            def __getitem__(self, name):
+                return Quant if name == 'stock.quant' else Rows()
+            def flush_all(self):
+                events.append('flush')
+        self.probe.env = Env()
+        self.probe.env.company = company
+        self.probe.search = Mock(return_value=children)
+        self.probe.browse = Mock(return_value=Rows())
+        actual = self.probe._quality_actual_probe_inventory({
+            'product': finished, 'component': component, 'location': location,
+            'receipt': receipt, 'production': production})
+        self.assertEqual(events[:3], ['flush', 'invalidate', 'search'])
+        self.assertEqual(actual['component'], {'product_id': 2, 'on_hand': 14, 'reserved': 4, 'available': 10})
+        self.assertEqual(actual['backorder_component_reserved'], 4)
+        self.assertEqual((actual['location_id'], actual['company_id']), (10, 1))
+        self.assertEqual(actual['move_ids'], [50, 51, 52, 53])
+        self.assertEqual([row['id'] for row in actual['move_lines']], [100, 101, 102, 103])
+        self.assertEqual(len(actual['quants']), 3)  # Also retain the other location for diagnosis.
+        self.assertEqual(Quant._get_available_quantity.call_args.kwargs, {'strict': True, 'allow_negative': True})
+
+
+class TestActualProbeN5Fixture(unittest.TestCase):
+    def setUp(self):
+        self.scope = load()
+        self.probe = self.scope['QualityActualBatchAcceptanceProbe']()
+        self.first = NS(state='progress', qty_produced=3, display_name='Temporary cutting')
+        self.production = NS(action_release_quality_actual_batch=Mock(side_effect=UserError(
+            'Не підтверджено фактичне виконання операції Temporary cutting для всієї виготовленої партії.')))
+        self.probe._quality_actual_probe_setup = Mock(return_value={
+            'production': self.production, 'check': NS(), 'samples': [], 'orders': [self.first],
+            'synthetic_timer_preparation': True})
+        self.probe._quality_actual_probe_stock_snapshot = Mock(return_value={
+            'quants': [14, 4], 'units': [1, 2, 3], 'valuation': [], 'children': []})
+
+    def test_n5_attempts_real_public_action_and_checks_exact_unfinished_operation_reason(self):
+        progress = {}
+        result = self.probe._quality_actual_probe_case('N5', progress)
+        self.assertEqual(result['status'], 'PASS')
+        self.assertTrue(result['stock_unchanged'])
+        self.assertTrue(progress['release_action_attempted'])
+        self.production.action_release_quality_actual_batch.assert_called_once_with()
+        self.assertTrue(self.probe._quality_actual_probe_setup.call_args.kwargs['unfinished_first'])
+
+    def test_native_predecessor_guard_means_skip_not_successful_release_rejection(self):
+        self.probe._quality_actual_probe_setup.side_effect = UserError(self.scope['PARTIAL_WO_MESSAGE'])
+        with self.assertRaises(self.scope['_ProbeSkip']):
+            self.probe._quality_actual_probe_case('N5', {})
+        self.production.action_release_quality_actual_batch.assert_not_called()
+
+    def test_setup_access_and_immutability_errors_are_not_hidden_as_pass_or_skip(self):
+        for error in (AccessError('ACL failure'), UserError('Ідентичність та результат підтвердженої операції незмінні.')):
+            self.probe._quality_actual_probe_setup.side_effect = error
+            with self.subTest(error=type(error).__name__), self.assertRaises(type(error)):
+                self.probe._quality_actual_probe_case('N5', {})
+
+    def test_initial_identification_precedes_first_execution_and_no_late_operation_is_added(self):
+        tree = ast.parse(SOURCE.read_text(encoding='utf-8'))
+        setup = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
+                     and node.name == '_quality_actual_probe_setup')
+        initialize = next(node.lineno for node in ast.walk(setup) if isinstance(node, ast.Call)
+                          and isinstance(node.func, ast.Attribute) and node.func.attr == '_quality_actual_probe_initialize_check')
+        first_finish = next(node.lineno for node in ast.walk(setup) if isinstance(node, ast.Call)
+                            and isinstance(node.func, ast.Attribute) and node.func.attr == 'button_finish'
+                            and isinstance(node.func.value, ast.Name) and node.func.value.id == 'first')
+        self.assertLess(initialize, first_finish)
+        case = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
+                    and node.name == '_quality_actual_probe_case')
+        branch = next(node for node in ast.walk(case) if isinstance(node, ast.If)
+                      and ast.unparse(node.test) == "code == 'N5'")
+        self.assertFalse(any(isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                             and node.func.attr in ('create', 'unlink')
+                             for statement in branch.body for node in ast.walk(statement)))
 
 
 class TestProbeReportAndSource(unittest.TestCase):
