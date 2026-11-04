@@ -112,4 +112,4 @@ class TestPartialProbeContract(unittest.TestCase):
 
     def test_actual_batch_fix_has_separate_patch_version(self):
         manifest = ast.literal_eval((ROOT / '__manifest__.py').read_text(encoding='utf-8'))
-        self.assertEqual(manifest['version'], '17.0.2.63')
+        self.assertEqual(manifest['version'], '17.0.2.64')
