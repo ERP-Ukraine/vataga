@@ -109,9 +109,10 @@ class NativeBackorderProduction(models.Model):
                         or child.bom_id != operation.production.bom_id
                         or child.product_uom_id != operation.production.product_uom_id):
                     raise ValidationError(_('Замовлення на залишок не відповідає вихідному виробничому замовленню.'))
-            if 'quality_transfer_controlled' in children._fields and not operation.actual_batch:
+            if 'quality_transfer_controlled' in children._fields:
                 for child in children:
-                    child._enable_quality_transfer_control()
+                    if not operation.actual_batch:
+                        child._enable_quality_transfer_control()
                     if ('quality_unit_route_required' in operation.production._fields
                             and operation.production.quality_unit_route_required):
                         child._enable_required_unit_route()
@@ -173,6 +174,9 @@ class NativeBackorderProduction(models.Model):
                 # dependencies. Copy that actual graph onto new WOs only.
                 mapping[original.id].blocked_by_workorder_ids = [Command.set([
                     mapping[predecessor.id].id for predecessor in original.blocked_by_workorder_ids])]
+            if (operation.actual_batch and 'quality_unit_route_required' in child._fields
+                    and child.quality_unit_route_required):
+                child._capture_full_required_qcp()
         return children
 
 

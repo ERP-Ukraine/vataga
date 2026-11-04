@@ -1,5 +1,6 @@
 """Automatic identity and individual WO eligibility, without Enterprise ORM."""
 from contextlib import nullcontext
+import math
 from types import SimpleNamespace as NS
 import unittest
 from unittest.mock import Mock
@@ -83,7 +84,7 @@ class TestCanonicalIdentityReuse(unittest.TestCase):
         check._check_identification_access = lambda: production
         check.invalidate_recordset = Mock()
         check._qc_existing_units = lambda: self.units
-        check._qc_identity_workorder = lambda: Record(id=50)
+        check._qc_identity_workorder = lambda: Record(id=50, quality_native_identity_pending=False)
         check.product_id = NS(tracking='none')
         production.lot_producing_id = False
         check._identify_samples = Mock()
@@ -189,10 +190,15 @@ class TestAutomaticEligibility(unittest.TestCase):
 class TestNativeFinishAcknowledgement(unittest.TestCase):
     def setUp(self):
         self.wo = shipped_class('models/quality_native_workorder.py', 'QualityNativeWorkorder',
-            {'_quality_confirm_on_native_finish'}, native_operation_allows=lambda production: False)()
+            {'_quality_confirm_on_native_finish'}, math=math, native_operation_allows=lambda production: False)()
         wo = self.wo
         wo.ensure_one, wo._quality_native_automatic = Mock(), lambda: True
+        wo.invalidate_recordset = Mock()
+        wo._check_quality_native_start = Mock()
+        wo._quality_native_is_final = lambda: False
+        wo._prepare_quality_native_checks = Mock()
         wo.state = 'progress'
+        wo.quality_native_identity_pending = False
         wo.quality_transfer_controlled = False
         wo.product_uom_id = NS(_compute_quantity=lambda qty, uom, round=False: qty)
         wo.env = NS(ref=lambda xmlid: wo.product_uom_id)
@@ -236,6 +242,22 @@ class TestNativeFinishAcknowledgement(unittest.TestCase):
         self.wo._quality_validate_native_checks.assert_called_once()
         self.wo.action_confirm_quality_native_units.assert_not_called()
         self.wo.button_pending.assert_not_called()
+
+    def test_final_full_physical_batch_closes_before_qc(self):
+        self.wo._quality_native_is_final = lambda: True
+        self.wo._quality_validate_native_checks.side_effect = UserError('Pending QC')
+        self.assertFalse(self.wo._quality_confirm_on_native_finish())
+        self.wo._quality_validate_native_checks.assert_not_called()
+        self.wo._prepare_quality_native_checks.assert_called_once()
+
+    def test_final_partial_physical_batch_is_confirmed_before_qc(self):
+        self.wo._quality_native_is_final = lambda: True
+        self.wo.qty_production = 3
+        self.wo._quality_validate_native_checks.side_effect = UserError('Pending QC')
+        self.assertTrue(self.wo._quality_confirm_on_native_finish())
+        self.wo._quality_validate_native_checks.assert_not_called()
+        self.wo.action_confirm_quality_native_units.assert_called_once()
+        self.wo.button_pending.assert_called_once()
 
     def test_ordinary_identified_partial_batch_uses_same_safe_acknowledgement(self):
         self.wo._quality_native_automatic = lambda: False

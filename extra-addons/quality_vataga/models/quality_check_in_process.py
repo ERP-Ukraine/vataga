@@ -214,7 +214,7 @@ class QualityCheckInProcess(models.Model):
             )
         return False
 
-    def _ensure_in_process_measurement_samples(self):
+    def _ensure_in_process_measurement_samples(self, manufactured=False):
         for check in self.filtered(lambda check: (
             check.x_control_stage == 'in_process'
             and check.quality_state == 'none'
@@ -227,10 +227,35 @@ class QualityCheckInProcess(models.Model):
                 'SELECT id FROM quality_check WHERE id = %s FOR UPDATE',
                 [check.id],
             )
-            check.invalidate_recordset(['in_process_sample_quantity', 'sample_ids'])
-            if check.in_process_sample_quantity or check.sample_ids:
+            check.invalidate_recordset(['in_process_sample_quantity', 'sample_ids', 'operation_run_id', 'quality_state'])
+            if check.quality_state != 'none':
                 continue
             quantity, error = check._get_in_process_sample_quantity()
+            if manufactured and not error and quantity != check.in_process_sample_quantity:
+                # Only an untouched, unidentified draft can follow the actual
+                # manufacturing quantity. Never resize an inspected batch or
+                # change any established sample-to-QUNIT correspondence.
+                samples = check.sample_ids.sorted('sample_number')
+                for sample in samples:
+                    sample.invalidate_recordset()
+                    sample.measurement_value_ids.invalidate_recordset()
+                pristine = (not check.operation_run_id and not samples.controlled_unit_id
+                            and not any(sample._has_entered_results() or sample.x_was_reworked
+                                        for sample in samples)
+                            and not check.env['quality.alert'].sudo().search_count([('check_id', '=', check.id)], limit=1))
+                if pristine:
+                    surplus = samples[quantity:]
+                    if surplus:
+                        from .quality_check_sample import QualityCheckSample
+                        super(QualityCheckSample, surplus.sudo()).unlink()
+                    if len(samples) < quantity:
+                        check.with_context(
+                            quality_vataga_in_process_initialization=IN_PROCESS_SAMPLE_TOKEN,
+                        )._create_measurement_samples(quantity - len(samples))
+                    super(QualityCheckInProcess, check).write({'in_process_sample_quantity': quantity})
+                    continue
+            if check.in_process_sample_quantity or check.sample_ids:
+                continue
             if error:
                 continue
             check.with_context(

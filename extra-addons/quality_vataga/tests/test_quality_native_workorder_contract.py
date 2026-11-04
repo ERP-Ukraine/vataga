@@ -62,13 +62,14 @@ class TestNativeWorkorderValidation(unittest.TestCase):
         self.scope.env = SimpleNamespace(ref=lambda xmlid: uom)
         self.production = SimpleNamespace(_full_release_units=lambda: self.units,
                                           _check_quality_transfer_boundary=Mock())
-        self.row = SimpleNamespace(state='progress', product_uom_id=uom, qty_producing=2,
+        self.row = SimpleNamespace(state='progress', quality_native_identity_pending=False, product_uom_id=uom, qty_producing=2,
                                    qty_production=2, qty_produced=0, production_id=self.production,
                                    _quality_native_checks=Mock(return_value=[]),
                                    _quality_native_units=Mock(return_value=self.units),
                                    _check_quality_execution_access=Mock(),
                                    _quality_validate_native_checks=Mock())
         self.row._quality_native_completion_units = self.row._quality_native_units
+        self.row._quality_native_is_final = lambda: False
         self.scope.rows = [self.row]
         self.scope.production_id = self.production
         self.scope._check_quality_native_start = Mock()
@@ -76,6 +77,11 @@ class TestNativeWorkorderValidation(unittest.TestCase):
     def test_full_batch_allows_finish_with_exact_physical_units(self):
         self.scope._check_quality_native_finish()
         self.row._quality_validate_native_checks.assert_called_once_with([], self.units)
+
+    def test_final_physical_completion_does_not_validate_own_qc(self):
+        self.row._quality_native_is_final = lambda: True
+        self.scope._check_quality_native_finish()
+        self.row._quality_validate_native_checks.assert_not_called()
 
     def test_partial_count_cannot_close_workorder(self):
         self.row._quality_native_units.return_value = self.units[:1]
@@ -271,7 +277,7 @@ class TestNativeWorkorderTransactions(unittest.TestCase):
         self.wo = cls()
         self.wo.bypasses, self.wo.facts, self.wo.timer_open = [], [], True
         self.units = Rows([SimpleNamespace(id=11), SimpleNamespace(id=12)])
-        self.row = SimpleNamespace(id=1, state='progress', qty_produced=0, qty_production=2,
+        self.row = SimpleNamespace(id=1, state='progress', quality_native_identity_pending=False, qty_produced=0, qty_production=2,
                                    _quality_native_automatic=lambda: False,
                                    _quality_confirm_on_native_finish=lambda: False,
                                    quality_execution_ids=[], _quality_native_units=lambda: self.units)

@@ -88,7 +88,7 @@ class QualityFullReleaseProduction(models.Model):
     def _check_standard_release_quantity(self, units):
         self.ensure_one()
         if self.qty_producing not in (0, self.product_qty) or len(units) != self.product_qty:
-            raise UserError(_('Дозволено лише повний випуск усієї придатної партії. Частковий випуск і замовлення на залишок закриті.'))
+            raise UserError(_('Для повної партії використайте «Виготовити все», для виготовленої частини — «Випустити фактичну партію».'))
         if self.product_id.tracking == 'serial' and len(units) != 1:
             raise UserError(_('Підтримується повний випуск одного серійного виробу на виробниче замовлення. Випуск кількох серійних виробів потребує штатного розділення, яке в цій фазі закрите.'))
 
@@ -210,6 +210,18 @@ class QualityFullReleaseProduction(models.Model):
         self._lock_quality_transfer_scope()
         workorders = self._full_release_workorders()
         requirements = {tuple(row) for row in (self.quality_full_required_qcp or [])}
+        parent = self.quality_native_parent_id
+        if parent and self.quality_unit_route_required:
+            # Sticky requirements survive native splitting, including a QCP
+            # subsequently changed/deleted from the current applicability.
+            # WO IDs must refer to the child route, never the original batch.
+            mapping = {row.quality_native_parent_workorder_id.id: row for row in workorders
+                       if row.quality_native_parent_workorder_id}
+            if mapping:
+                for point, operation, original in parent.quality_full_required_qcp or []:
+                    if original and original not in mapping:
+                        raise ValidationError(_('Не відновлено вимогу контролю операції замовлення на залишок.'))
+                    requirements.add((point, operation, mapping[original].id if original else 0))
         requirements |= self._applicable_full_qcp(workorders)
         for check in self._full_release_checks().filtered(
                 lambda item: item.x_control_stage == 'in_process' and item.unit_admission_role == 'required'):

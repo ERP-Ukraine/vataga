@@ -178,7 +178,7 @@ class QualityUnitExecution(models.Model):
             prepared.append(dict(vals, transfer_id=False, state='processed',
                                  ended_at=fields.Datetime.now(), ended_by_id=self.env.uid,
                                  result_reference='Робоче завдання: %s' % workorder.id,
-                                 stop_reason=False, check_ids=[] if partial else [(6, 0, workorder._quality_native_checks().ids)]))
+                                 stop_reason=False, check_ids=[] if partial else [(6, 0, workorder._quality_native_checks(require_all=False).ids)]))
         context = {key: value for key, value in self.env.context.items() if not key.startswith('default_')}
         return super(QualityUnitExecution, self.with_context(context)).create(prepared)
 

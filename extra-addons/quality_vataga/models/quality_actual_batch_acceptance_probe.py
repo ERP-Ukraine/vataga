@@ -527,7 +527,11 @@ class QualityActualBatchAcceptanceProbe(models.Model):
         progress['shop_floor_timer_start_proven'] = False
         production, check, samples = (scene[key] for key in ('production', 'check', 'samples'))
         progress['stage'] = 'scenario_preparation'
-        if code in ('P1', 'N14', 'N7'):
+        # Historical codes N5/N12 now exercise supported physical partial
+        # completion and the required unit route, rather than obsolete bans.
+        if code in ('P1', 'N14', 'N7', 'N5', 'N12'):
+            if code == 'N12':
+                production.action_require_quality_unit_route()
             if code == 'N14':
                 self._quality_actual_probe_last_only_qc(scene, progress, 'before_release')
             progress['stage'] = 'native_release_and_stock_assertions'
@@ -574,21 +578,11 @@ class QualityActualBatchAcceptanceProbe(models.Model):
             alert._bind_matrix_failure_scope(samples[:1], 'Temporary acceptance probe: unresolved hold')
             _assert(alert._matrix_hold_is_open() and check._matrix_alert_hold_error(samples[:1]), 'Alert did not hold the selected sample')
             messages = {control_message(samples[:1])}
-        elif code == 'N5':
-            unfinished = scene['orders'][0]
-            _assert(unfinished.state == 'progress' and unfinished.qty_produced == 3,
-                    'First operation must retain its real partial execution and unfinished state')
-            messages = {_('Не підтверджено фактичне виконання операції %(operation)s для всієї виготовленої партії.',
-                          operation=unfinished.display_name)}
-        elif code in ('N8', 'N12'):
-            if code == 'N8':
-                production.qty_producing = 5
-                _assert(len(production._full_release_units()) == 3 and production.qty_producing == 5,
-                        'Quantity mismatch was not established')
-            else:
-                production.action_require_quality_unit_route()
-                _assert(production.quality_unit_route_required, 'Required route was not enabled normally')
-            messages = {_('Випуск фактичної партії дозволено лише для відкритого замовлення без попереднього випуску, обов’язкового поштучного маршруту, історичних передач та партійного або серійного відстеження. Кількість має точно відповідати виготовленим виробам у штуках.')}
+        elif code == 'N8':
+            production.qty_producing = 5
+            _assert(len(production._full_release_units()) == 3 and production.qty_producing == 5,
+                    'Quantity mismatch was not established')
+            messages = {_('Випуск фактичної партії дозволено лише для відкритого замовлення без попереднього випуску, історичних передач та партійного або серійного відстеження. Кількість має точно відповідати виготовленим виробам у штуках.')}
         else:
             raise ValidationError('Unknown acceptance scenario: %s' % code)
         progress['stage'] = 'expected_business_rejection'

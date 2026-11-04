@@ -413,13 +413,13 @@ class TestActualProbeN5Fixture(unittest.TestCase):
         self.probe._quality_actual_probe_stock_snapshot = Mock(return_value={
             'quants': [14, 4], 'units': [1, 2, 3], 'valuation': [], 'children': []})
 
-    def test_n5_attempts_real_public_action_and_checks_exact_unfinished_operation_reason(self):
+    def test_n5_uses_positive_stock_audit_for_confirmed_partial_physical_work(self):
+        self.probe._quality_actual_probe_positive = Mock(return_value={'release_action_called': True})
         progress = {}
         result = self.probe._quality_actual_probe_case('N5', progress)
         self.assertEqual(result['status'], 'PASS')
-        self.assertTrue(result['stock_unchanged'])
         self.assertTrue(progress['release_action_attempted'])
-        self.production.action_release_quality_actual_batch.assert_called_once_with()
+        self.probe._quality_actual_probe_positive.assert_called_once()
         self.assertTrue(self.probe._quality_actual_probe_setup.call_args.kwargs['unfinished_first'])
 
     def test_native_predecessor_guard_means_skip_not_successful_release_rejection(self):
@@ -444,13 +444,6 @@ class TestActualProbeN5Fixture(unittest.TestCase):
                             and isinstance(node.func, ast.Attribute) and node.func.attr == 'button_finish'
                             and isinstance(node.func.value, ast.Name) and node.func.value.id == 'first')
         self.assertLess(initialize, first_finish)
-        case = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
-                    and node.name == '_quality_actual_probe_case')
-        branch = next(node for node in ast.walk(case) if isinstance(node, ast.If)
-                      and ast.unparse(node.test) == "code == 'N5'")
-        self.assertFalse(any(isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                             and node.func.attr in ('create', 'unlink')
-                             for statement in branch.body for node in ast.walk(statement)))
 
 
 class EvidenceRows(list):

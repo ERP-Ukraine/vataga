@@ -95,10 +95,10 @@ class TestActualBatchValidation(unittest.TestCase):
         self.last.state = 'done'
         self.assertTrue(self.validate())
 
-    def test_required_route_cannot_be_opened(self):
+    def test_required_route_uses_same_protected_actual_batch_release(self):
         self.production.quality_unit_route_required = True
-        with self.assertRaises(UserError):
-            self.validate()
+        self.assertTrue(self.validate())
+        self.production._validate_quality_batch_controls.assert_called_once()
 
     def test_historical_transfers_cannot_be_opened(self):
         self.production.quality_transfer_controlled = True
@@ -142,7 +142,7 @@ class TestActualBatchValidation(unittest.TestCase):
 
     def test_missing_or_wrong_registration_is_rejected(self):
         for name, value in (('state', 'draft'), ('quantity', 5), ('production_id', object()),
-                            ('unit_ids', self.units[:2]), ('workorder_id', Rows([self.first]))):
+                            ('unit_ids', self.units[:2]), ('workorder_id', Rows())):
             original = getattr(self.run, name)
             setattr(self.run, name, value)
             with self.subTest(field=name), self.assertRaises(UserError):
@@ -150,12 +150,24 @@ class TestActualBatchValidation(unittest.TestCase):
             setattr(self.run, name, original)
 
     def test_early_operation_must_be_finished_for_exact_actual_quantity(self):
-        for name, value in (('state', 'progress'), ('state', 'cancel'), ('qty_produced', 2), ('qty_produced', 5)):
+        for name, value in (('state', 'progress'), ('state', 'cancel'), ('qty_produced', 2)):
             original = getattr(self.first, name)
             setattr(self.first, name, value)
             with self.subTest(field=name, value=value), self.assertRaises(UserError):
                 self.validate()
             setattr(self.first, name, original)
+
+    def test_completed_early_aggregate_is_not_rewritten_or_backfilled(self):
+        self.first.qty_produced = 5
+        self.assertTrue(self.validate())
+        self.assertEqual(self.first.qty_produced, 5)
+        self.assertFalse(self.first._quality_native_history())
+
+    def test_partial_early_physical_execution_is_enough_after_qc(self):
+        self.first.state = 'progress'
+        self.first._quality_native_history = lambda: self.history
+        self.run.workorder_id = Rows([self.first])
+        self.assertTrue(self.validate())
 
     def test_final_operation_requires_exact_processed_identity_set(self):
         original = self.history
@@ -188,9 +200,13 @@ class TestActualBatchValidation(unittest.TestCase):
                 self.validate()
 
     def test_dependencies_and_tracking_remain_closed(self):
+        self.first._quality_native_predecessors = lambda: Rows()
+        self.last._quality_native_predecessors = lambda: Rows()
         self.production.allow_workorder_dependencies = True
         with self.assertRaises(UserError):
             self.validate()
+        self.last._quality_native_predecessors = lambda: Rows([self.first])
+        self.assertTrue(self.validate())
         self.production.allow_workorder_dependencies = False
         for tracking in ('lot', 'serial'):
             self.production.product_id.tracking = tracking

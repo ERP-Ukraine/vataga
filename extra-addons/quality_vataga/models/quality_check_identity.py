@@ -291,6 +291,9 @@ class QualityCheckIdentity(models.Model):
             workorder = self._qc_identity_workorder()
             if not workorder and production.workorder_ids:
                 return
+            if (workorder and workorder.quality_native_identity_pending
+                    and any(sample._has_entered_results() for sample in samples)):
+                return  # Existing results require explicit correspondence confirmation.
             # An execution-backed historical QC already has explicit identities.
             explicit = self.quality_execution_ids.controlled_unit_id
             if explicit:

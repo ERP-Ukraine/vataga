@@ -54,7 +54,7 @@ class TestActualBatchAcceptanceProbe(TransactionCase):
         return result
 
     def test_p1_n14_real_stock_rollback_and_no_fictional_early_evidence(self):
-        for code in ('P1', 'N14'):
+        for code in ('P1', 'N14', 'N5', 'N12'):
             with self.subTest(code=code):
                 result = self._case_rolled_back(code)
                 self.assertEqual((result['finished_quantity'], result['component_quantity'],
@@ -92,7 +92,7 @@ class TestActualBatchAcceptanceProbe(TransactionCase):
         self.assertEqual(self._counts(), before)
 
     def test_negatives_call_real_action_and_match_exact_business_condition(self):
-        for code in ('N1', 'N2', 'N3', 'N4', 'N5', 'N7', 'N8', 'N12'):
+        for code in ('N1', 'N2', 'N3', 'N4', 'N7', 'N8'):
             with self.subTest(code=code):
                 result = self._case_rolled_back(code)
                 self.assertTrue(result['stock_unchanged'])

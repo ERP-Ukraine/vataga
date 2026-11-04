@@ -24,14 +24,14 @@ class QualityActualBatchProduction(models.Model):
         for production in self:
             production.quality_actual_batch_available = bool(
                 production.state in ('confirmed', 'progress', 'to_close')
-                and not production.quality_unit_route_required and not production.quality_transfer_controlled
+                and not production.quality_transfer_controlled
                 and 0 < production.qty_producing < production.product_qty
                 and production.workorder_ids.quality_execution_ids)
 
     def _validate_quality_actual_batch(self, units, quantity):
         """Re-run at the stock boundary, including after native splitting."""
         self.ensure_one()
-        if (self.quality_unit_route_required or self.quality_transfer_controlled
+        if (self.quality_transfer_controlled
                 or self.company_id not in self.env.companies
                 or self.state not in ('confirmed', 'progress', 'to_close') or self.qty_produced
                 or not math.isfinite(quantity) or quantity <= 0 or quantity != int(quantity)
@@ -39,7 +39,7 @@ class QualityActualBatchProduction(models.Model):
                 or self.product_uom_id != self.env.ref('uom.product_uom_unit')
                 or self.product_id.uom_id != self.product_uom_id
                 or self.product_id.tracking != 'none'):
-            raise ValidationError(_('Випуск фактичної партії дозволено лише для відкритого замовлення без попереднього випуску, обов’язкового поштучного маршруту, історичних передач та партійного або серійного відстеження. Кількість має точно відповідати виготовленим виробам у штуках.'))
+            raise ValidationError(_('Випуск фактичної партії дозволено лише для відкритого замовлення без попереднього випуску, історичних передач та партійного або серійного відстеження. Кількість має точно відповідати виготовленим виробам у штуках.'))
         _read(units)
         if (not units or len(units) != quantity or set(units.ids) != set(self._full_release_units().ids)
                 or any(unit._quality_current_production() != self or unit.company_id != self.company_id
@@ -58,17 +58,23 @@ class QualityActualBatchProduction(models.Model):
         self._check_named_stock_history()
         workorders = self._full_release_workorders().sorted(
             key=lambda row: (row.operation_id.sequence if row.operation_id else 0, row.id))
-        if (not workorders or registration.workorder_id != workorders[-1:]
-                or self.allow_workorder_dependencies):
-            raise ValidationError(_('Випуск фактичної партії потребує послідовного маршруту без залежностей та реєстрації виробів на останній операції.'))
+        if not workorders or not registration.workorder_id or registration.workorder_id not in workorders:
+            raise ValidationError(_('Випуск фактичної партії потребує реєстрації виробів на операції цього маршруту.'))
+        if self.allow_workorder_dependencies and any(
+                set(workorder._quality_native_predecessors().ids) != set(workorders[:index].ids)
+                for index, workorder in enumerate(workorders)):
+            raise ValidationError(_('Випуск фактичної партії підтримує лише послідовний маршрут без паралельних гілок.'))
         if workorders.time_ids.filtered(lambda timer: not timer.date_end):
             raise ValidationError(_('Спочатку підтвердьте обробку та закрийте всі робочі інтервали.'))
         for workorder in workorders:
             history = workorder._quality_native_history()
             processed = history.filtered(lambda row: row.state == 'processed')
-            if (workorder.qty_produced != quantity
-                    or (workorder != workorders[-1:] and workorder.state != 'done')
-                    or (workorder == workorders[-1:] and workorder.state not in ('progress', 'done'))):
+            # Earlier native completions may predate identities. Their real
+            # aggregate quantity is evidence, not permission to invent history.
+            if (workorder.qty_produced < quantity
+                    or (history and workorder.qty_produced != quantity)
+                    or (not history and workorder.state != 'done')
+                    or workorder.state not in ('progress', 'done')):
                 raise ValidationError(_('Не підтверджено фактичне виконання операції %(operation)s для всієї виготовленої партії.', operation=workorder.display_name))
             if history or workorder == workorders[-1:]:
                 if (len(processed) != quantity or len(history) != len(processed)
@@ -111,7 +117,9 @@ class QualityActualBatchProduction(models.Model):
                 production._record_standard_stock_facts(units)
                 if (children.state in ('draft', 'done', 'cancel') or children.qty_produced
                         or children._full_release_units() or children.quality_transfer_controlled
-                        or children.quality_unit_route_required):
+                        or children.quality_unit_route_required != production.quality_unit_route_required
+                        or children._full_release_checks().filtered(lambda check: check.operation_run_id
+                            or check.quality_state != 'none' or check.sample_ids.controlled_unit_id)):
                     raise ValidationError(_('Замовлення на залишок не повинно успадковувати виготовлені вироби або інший режим маршруту.'))
             production.message_post(body=_(
                 'Фактичну партію з %(quantity)s виробів випущено на склад. Замовлення на залишок: %(order)s.',

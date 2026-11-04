@@ -282,6 +282,7 @@ class TestFullReleaseRoutingContract(unittest.TestCase):
         production._full_release_checks = Mock(return_value=Rows())
         production._applicable_full_qcp = Mock(return_value={(31, 33, 3)})
         production.quality_full_required_qcp = []
+        production.quality_native_parent_id = False
         production._capture_full_required_qcp()
         production._applicable_full_qcp.return_value = set()
         self.assertEqual(production._capture_full_required_qcp(), {(31, 33, 3)})
