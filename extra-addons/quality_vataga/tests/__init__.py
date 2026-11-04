@@ -56,3 +56,4 @@ from . import test_quality_production_loss
 from . import test_quality_partial_release
 from . import test_quality_partial_release_contract
 from . import test_quality_actual_batch_release
+from . import test_quality_actual_batch_acceptance
