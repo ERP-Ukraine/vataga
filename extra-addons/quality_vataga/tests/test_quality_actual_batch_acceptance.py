@@ -31,6 +31,23 @@ class TestActualBatchAcceptanceProbe(TransactionCase):
                 result = self.probe._quality_actual_probe_case(code, progress)
                 self.assertEqual(result['status'], 'PASS')
                 self.assertTrue(result['release_action_called'])
+                if code in ('P1', 'N7', 'N14'):
+                    evidence = progress['physical_evidence']
+                    self.assertEqual(evidence['before'], evidence['after'])
+                    self.assertEqual(evidence['after']['unit_count'], 3)
+                    self.assertEqual(set(evidence['assertions'].values()), {'PASS'})
+                if code == 'N7':
+                    self.assertTrue(result['duplicate_release_verified'])
+                    self.assertTrue(progress['duplicate_release']['attempted'])
+                    self.assertEqual(progress['duplicate_release']['status'], 'PASS')
+                    self.assertEqual(progress['duplicate_release']['before'], progress['duplicate_release']['after'])
+                if code == 'N14':
+                    self.assertTrue(result['last_operation_only_qc_verified'])
+                    for phase in ('before_release', 'after_release'):
+                        qc = progress['last_operation_only_qc'][phase]
+                        self.assertEqual(qc['status'], 'PASS')
+                        self.assertFalse(qc['first_check_ids'])
+                        self.assertEqual(qc['actual_requirements'], qc['expected_requirements'])
                 raise _ProbeRollback()
         self.env.invalidate_all(flush=False)
         self.assertEqual(self._counts(), before)

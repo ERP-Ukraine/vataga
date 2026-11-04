@@ -400,15 +400,80 @@ class QualityActualBatchAcceptanceProbe(models.Model):
         return dict(detail, stock_unchanged=True, release_action_called=True)
 
     @api.model
+    def _quality_actual_probe_evidence(self, scene):
+        """Physical identities use database IDs, never Many2one display labels."""
+        first, last = scene['orders']
+        units = self.env['quality.production.unit'].search([
+            ('product_id', '=', scene['product'].id)], order='id')
+        return {
+            'unit_count': len(units),
+            'unit_ids': units.ids,
+            'first_execution_ids': first._quality_native_history().sorted('id').ids,
+            'first_check_ids': self.env['quality.check'].search([
+                ('workorder_id', '=', first.id)], order='id').ids,
+            'last_check_ids': self.env['quality.check'].search([
+                ('workorder_id', '=', last.id)], order='id').ids,
+            'executions': [dict(id=row.id, state=row.state,
+                                controlled_unit_id=row.controlled_unit_id.id,
+                                workorder_id=row.workorder_id.id)
+                           for row in last._quality_native_history().sorted('id')],
+            'samples': [dict(id=row.id, sample_result=row.sample_result,
+                             controlled_unit_id=row.controlled_unit_id.id)
+                        for row in scene['check'].sample_ids.sorted('id')],
+        }
+
+    @api.model
+    def _quality_actual_probe_assert_evidence(self, evidence, expected_unit_ids):
+        before, after = evidence['before'], evidence['after']
+        expected_unit_ids = sorted(expected_unit_ids)
+        evidence.update(expected_unit_ids=expected_unit_ids, expected_unit_count=3)
+        conditions = {
+            'unit_count': before['unit_count'] == after['unit_count'] == 3,
+            'unit_ids': before['unit_ids'] == after['unit_ids'] == expected_unit_ids,
+            'first_executions_absent': before['first_execution_ids'] == after['first_execution_ids'] == [],
+            'first_checks_absent': before['first_check_ids'] == after['first_check_ids'] == [],
+            'last_check_ids_unchanged': before['last_check_ids'] == after['last_check_ids'],
+            'execution_history_unchanged': before['executions'] == after['executions'],
+            'sample_results_unchanged': before['samples'] == after['samples'],
+        }
+        # Populate every result before raising, retaining exact before/after
+        # evidence even when more than one independent invariant is broken.
+        evidence['assertions'] = {name: 'PASS' if valid else 'FAIL' for name, valid in conditions.items()}
+        for name, valid in conditions.items():
+            _assert(valid, 'Physical evidence assertion %s failed: before=%s after=%s expected_unit_ids=%s'
+                    % (name, before, after, expected_unit_ids))
+
+    @api.model
+    def _quality_actual_probe_last_only_qc(self, scene, progress, phase):
+        progress['stage'] = 'last_operation_qc_requirements_' + phase
+        first, last = scene['orders']
+        production = scene['production']
+        expected = [[scene['point'].id, last.operation_id.id, last.id]]
+        applicable = production._applicable_full_qcp(scene['orders'])
+        captured = {tuple(row) for row in production.quality_full_required_qcp or []}
+        actual = [list(row) for row in sorted(applicable | captured)]
+        first_checks = self.env['quality.check'].search([('workorder_id', '=', first.id)], order='id').ids
+        last_checks = self.env['quality.check'].search([('workorder_id', '=', last.id)], order='id').ids
+        valid = actual == expected and not first_checks and last_checks == [scene['check'].id]
+        detail = dict(status='PASS' if valid else 'FAIL', expected_requirements=expected,
+                      actual_requirements=actual, applicable_requirements=[list(row) for row in sorted(applicable)],
+                      captured_requirements=[list(row) for row in sorted(captured)],
+                      first_check_ids=first_checks, last_check_ids=last_checks,
+                      expected_last_check_ids=[scene['check'].id])
+        progress.setdefault('last_operation_only_qc', {})[phase] = detail
+        _assert(valid, 'QC must be required only on the last operation: %s' % detail)
+
+    @api.model
     def _quality_actual_probe_positive(self, scene, progress=None):
         production, check, units = (scene[key] for key in ('production', 'check', 'units'))
-        first, last = scene['orders']
         _assert(check.quality_state == 'pass' and len(check.unit_admission_ids.filtered(
             lambda row: row.state == 'confirmed' and not row._get_effectiveness_error())) == 3,
             'Positive fixture lacks three real effective admissions')
-        old_samples = check.sample_ids.read(['sample_result', 'controlled_unit_id'])
-        old_executions = last._quality_native_history().read(['state', 'controlled_unit_id', 'workorder_id'])
+        evidence = {'before': self._quality_actual_probe_evidence(scene)}
+        if progress is not None:
+            progress['physical_evidence'] = evidence
         production.action_release_quality_actual_batch()
+        evidence['after'] = self._quality_actual_probe_evidence(scene)
         inventory = self._quality_actual_probe_inventory(scene)
         if progress is not None:
             progress.setdefault('inventory', {})['after_release'] = inventory
@@ -432,12 +497,9 @@ class QualityActualBatchAcceptanceProbe(models.Model):
                 and sum(finished.stock_valuation_layer_ids.mapped('quantity')) == 3,
                 'Real component consumption, links or valuation quantities differ from the actual batch')
         self._quality_actual_probe_assert_inventory(inventory)
-        _assert(len(self.env['quality.production.unit'].search([('product_id', '=', scene['product'].id)])) == 3
-                and not first._quality_native_history()
-                and not self.env['quality.check'].search([('workorder_id', '=', first.id)])
-                and old_samples == check.sample_ids.read(['sample_result', 'controlled_unit_id'])
-                and old_executions == last._quality_native_history().read(['state', 'controlled_unit_id', 'workorder_id']),
-                'Native release created fictional units/early checks or rewrote physical evidence')
+        if progress is not None:
+            progress['stage'] = 'physical_evidence_assertions'
+        self._quality_actual_probe_assert_evidence(evidence, units.ids)
         return {'finished_quantity': 3, 'component_quantity': 6, 'backorder_quantity': 2,
                 'stock_facts': 3, 'release_action_called': True, 'historical_evidence_unchanged': True}
 
@@ -466,13 +528,28 @@ class QualityActualBatchAcceptanceProbe(models.Model):
         production, check, samples = (scene[key] for key in ('production', 'check', 'samples'))
         progress['stage'] = 'scenario_preparation'
         if code in ('P1', 'N14', 'N7'):
+            if code == 'N14':
+                self._quality_actual_probe_last_only_qc(scene, progress, 'before_release')
             progress['stage'] = 'native_release_and_stock_assertions'
             progress['release_action_attempted'] = True
             detail = self._quality_actual_probe_positive(scene, progress)
+            if code == 'N14':
+                self._quality_actual_probe_last_only_qc(scene, progress, 'after_release')
+                detail['last_operation_only_qc_verified'] = True
             if code == 'N7':
                 progress['stage'] = 'duplicate_release'
-                detail.update(self._quality_actual_probe_deny(scene, {
-                    _('Це виробниче замовлення вже завершено. Повторний випуск заборонено.')}))
+                duplicate = progress['duplicate_release'] = {'attempted': False, 'status': 'NOT RUN',
+                    'before': self._quality_actual_probe_inventory(scene)}
+                duplicate.update(attempted=True, status='FAIL')
+                rejection = self._quality_actual_probe_deny(scene, {
+                    _('Це виробниче замовлення вже завершено. Повторний випуск заборонено.')})
+                duplicate.update(rejection)
+                detail.update(rejection)
+                duplicate['after'] = self._quality_actual_probe_inventory(scene)
+                duplicate['status'] = 'PASS' if duplicate['before'] == duplicate['after'] else 'FAIL'
+                _assert(duplicate['status'] == 'PASS',
+                        'Repeated release changed inventory or backorder moves: %s' % duplicate)
+                detail['duplicate_release_verified'] = True
             return dict(detail, status='PASS')
         control_message = lambda sample: _(
             'Перевірка якості %(check)s / %(unit)s: потрібні завершена перевірка з результатом «Придатний», вибрані засоби вимірювальної техніки та відсутність утримань.',

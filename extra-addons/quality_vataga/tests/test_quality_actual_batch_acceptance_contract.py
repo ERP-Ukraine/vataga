@@ -231,6 +231,23 @@ class TestProbeRollbackOrchestration(unittest.TestCase):
         self.assertEqual(result['status'], 'SKIP')
         self.assert_clean(result)
 
+    def test_individual_physical_evidence_failures_survive_transaction_rollback(self):
+        def fail(code, progress):
+            self.scenario(code, progress)
+            snapshot = dict(unit_count=3, unit_ids=[1, 2, 3], first_execution_ids=[],
+                            first_check_ids=[], last_check_ids=[5], executions=[], samples=[])
+            progress['physical_evidence'] = {
+                'before': snapshot, 'after': dict(snapshot, first_check_ids=[99])}
+            self.inner._quality_actual_probe_assert_evidence(progress['physical_evidence'], [1, 2, 3])
+        self.inner._quality_actual_probe_case = fail
+        result = self.probe._quality_actual_probe_isolated_case('P1')
+        self.assertEqual(result['status'], 'FAIL')
+        evidence = result['physical_evidence']
+        self.assertEqual(evidence['assertions']['first_checks_absent'], 'FAIL')
+        self.assertEqual(evidence['after']['first_check_ids'], [99])
+        self.assertEqual(evidence['assertions']['unit_ids'], 'PASS')
+        self.assert_clean(result)
+
     def test_access_failure_is_fail_not_successful_negative(self):
         self.inner._quality_actual_probe_case = Mock(side_effect=AccessError('unavailable stock facts'))
         result = self.probe._quality_actual_probe_isolated_case('N3')
@@ -434,6 +451,235 @@ class TestActualProbeN5Fixture(unittest.TestCase):
         self.assertFalse(any(isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                              and node.func.attr in ('create', 'unlink')
                              for statement in branch.body for node in ast.walk(statement)))
+
+
+class EvidenceRows(list):
+    @property
+    def ids(self):
+        return [row.id for row in self]
+
+    def sorted(self, field):
+        return EvidenceRows(sorted(self, key=lambda row: getattr(row, field)))
+
+
+class TestActualProbeStableEvidence(unittest.TestCase):
+    def setUp(self):
+        self.probe = load()['QualityActualBatchAcceptanceProbe']()
+        self.units = EvidenceRows([NS(id=index, display_name='Unit %s' % index) for index in (1, 2, 3)])
+        self.first = NS(id=10, operation_id=NS(id=100), display_name='MO / first')
+        self.last = NS(id=20, operation_id=NS(id=200), display_name='MO / last')
+        self.first_history = EvidenceRows()
+        self.history = EvidenceRows([NS(id=index + 30, state='processed', controlled_unit_id=unit,
+                                        workorder_id=self.last) for index, unit in enumerate(self.units)])
+        self.first._quality_native_history = lambda: self.first_history
+        self.last._quality_native_history = lambda: self.history
+        self.check = NS(id=50, sample_ids=EvidenceRows([
+            NS(id=index + 60, sample_result='pass', controlled_unit_id=unit)
+            for index, unit in enumerate(self.units)]))
+        self.first_checks = EvidenceRows()
+        self.last_checks = EvidenceRows([self.check])
+        self.requirements = {(70, 200, 20)}
+        self.production = NS(id=90, quality_full_required_qcp=[], _applicable_full_qcp=lambda orders: self.requirements,
+            action_release_quality_actual_batch=Mock(side_effect=UserError(
+                'Це виробниче замовлення вже завершено. Повторний випуск заборонено.')))
+        outer = self
+        class Env:
+            def __getitem__(self, name):
+                if name == 'quality.production.unit':
+                    return NS(search=lambda *args, **kw: outer.units)
+                if name == 'quality.check':
+                    return NS(search=lambda domain, **kw:
+                              outer.first_checks if domain[0][2] == 10 else outer.last_checks)
+                raise AssertionError(name)
+        self.probe.env = Env()
+        self.scene = dict(orders=[self.first, self.last], product=NS(id=80), check=self.check,
+                          production=self.production, point=NS(id=70), samples=self.check.sample_ids,
+                          synthetic_timer_preparation=True)
+        self.before = self.probe._quality_actual_probe_evidence(self.scene)
+
+    def evidence(self):
+        return {'before': self.before, 'after': self.probe._quality_actual_probe_evidence(self.scene)}
+
+    def assert_rejected(self, name):
+        evidence = self.evidence()
+        with self.assertRaisesRegex(ValidationError, name):
+            self.probe._quality_actual_probe_assert_evidence(evidence, [1, 2, 3])
+        self.assertEqual(evidence['assertions'][name], 'FAIL')
+        self.assertIn('after', evidence)
+
+    def test_many2one_display_name_change_and_record_order_do_not_change_identity(self):
+        self.last.display_name = 'MO-001 / last'
+        self.units[0].display_name = 'Renamed unit'
+        self.history.reverse()
+        self.check.sample_ids.reverse()
+        evidence = self.evidence()
+        self.probe._quality_actual_probe_assert_evidence(evidence, [3, 2, 1])
+        self.assertEqual(set(evidence['assertions'].values()), {'PASS'})
+        self.assertEqual(evidence['after']['executions'][0], {
+            'id': 30, 'state': 'processed', 'controlled_unit_id': 1, 'workorder_id': 20})
+
+    def test_extra_unit_fails_count_with_exact_ids_retained(self):
+        self.units.append(NS(id=4))
+        self.assert_rejected('unit_count')
+
+    def test_same_unit_count_with_replaced_identity_fails(self):
+        self.units[-1] = NS(id=4)
+        self.assert_rejected('unit_ids')
+
+    def test_early_execution_is_rejected(self):
+        self.first_history.append(NS(id=90))
+        self.assert_rejected('first_executions_absent')
+
+    def test_early_qc_is_rejected(self):
+        self.first_checks.append(NS(id=91))
+        self.assert_rejected('first_checks_absent')
+
+    def test_additional_final_qc_is_rejected(self):
+        self.last_checks.append(NS(id=92))
+        self.assert_rejected('last_check_ids_unchanged')
+
+    def test_changed_execution_identity_state_unit_or_workorder_fails(self):
+        for field, value in (('id', 99), ('state', 'cancel'),
+                             ('controlled_unit_id', NS(id=99)), ('workorder_id', NS(id=99))):
+            row = self.history[0]
+            original = getattr(row, field)
+            with self.subTest(field=field):
+                setattr(row, field, value)
+                self.assert_rejected('execution_history_unchanged')
+            setattr(row, field, original)
+
+    def test_changed_sample_identity_result_or_unit_fails(self):
+        for field, value in (('id', 99), ('sample_result', 'fail'), ('controlled_unit_id', NS(id=99))):
+            row = self.check.sample_ids[0]
+            original = getattr(row, field)
+            with self.subTest(field=field):
+                setattr(row, field, value)
+                self.assert_rejected('sample_results_unchanged')
+            setattr(row, field, original)
+
+    def test_missing_execution_and_sample_are_rejected(self):
+        self.history.pop()
+        self.check.sample_ids.pop()
+        evidence = self.evidence()
+        with self.assertRaises(ValidationError):
+            self.probe._quality_actual_probe_assert_evidence(evidence, [1, 2, 3])
+        self.assertEqual(evidence['assertions']['execution_history_unchanged'], 'FAIL')
+        self.assertEqual(evidence['assertions']['sample_results_unchanged'], 'FAIL')
+
+    def prepare_case(self):
+        self.probe._quality_actual_probe_setup = Mock(return_value=self.scene)
+        self.probe._quality_actual_probe_positive = Mock(return_value={'release_action_called': True})
+        self.probe._quality_actual_probe_stock_snapshot = Mock(return_value={'unchanged': True})
+        self.probe._quality_actual_probe_inventory = Mock(return_value={'quants': [3, 14, 4, 10], 'move_ids': [1, 2]})
+
+    def test_n7_reaches_public_duplicate_action_and_checks_inventory_after_rejection(self):
+        self.prepare_case()
+        progress = {}
+        result = self.probe._quality_actual_probe_case('N7', progress)
+        self.production.action_release_quality_actual_batch.assert_called_once_with()
+        self.assertEqual(self.probe._quality_actual_probe_stock_snapshot.call_count, 2)
+        self.assertEqual(self.probe._quality_actual_probe_inventory.call_count, 2)
+        self.assertTrue(result['duplicate_release_verified'])
+        self.assertTrue(result['stock_unchanged'])
+        self.assertEqual(progress['duplicate_release']['status'], 'PASS')
+
+    def test_n7_rejects_duplicate_inventory_even_if_business_rejection_matches(self):
+        self.prepare_case()
+        self.probe._quality_actual_probe_inventory.side_effect = [{'quants': [3, 14]}, {'quants': [6, 8]}]
+        progress = {}
+        with self.assertRaisesRegex(ValidationError, 'Repeated release changed inventory'):
+            self.probe._quality_actual_probe_case('N7', progress)
+        self.assertEqual(progress['duplicate_release']['status'], 'FAIL')
+
+    def test_n7_does_not_claim_duplicate_test_when_positive_step_fails(self):
+        self.prepare_case()
+        self.probe._quality_actual_probe_positive.side_effect = ValidationError('physical evidence')
+        progress = {}
+        with self.assertRaises(ValidationError):
+            self.probe._quality_actual_probe_case('N7', progress)
+        self.production.action_release_quality_actual_batch.assert_not_called()
+        self.assertNotIn('duplicate_release', progress)
+
+    def test_n14_proves_actual_final_only_requirements_before_and_after_release(self):
+        self.prepare_case()
+        progress = {}
+        result = self.probe._quality_actual_probe_case('N14', progress)
+        self.assertTrue(result['last_operation_only_qc_verified'])
+        self.assertEqual(set(progress['last_operation_only_qc']), {'before_release', 'after_release'})
+        self.assertTrue(all(row['status'] == 'PASS' for row in progress['last_operation_only_qc'].values()))
+
+    def test_n14_requires_final_qcp_and_rejects_early_qcp_or_qc(self):
+        for requirements, early_checks in ((set(), []), ({(70, 100, 10), (70, 200, 20)}, []),
+                                           ({(70, 200, 20)}, [NS(id=99)])):
+            self.requirements = requirements
+            self.first_checks = EvidenceRows(early_checks)
+            progress = {}
+            with self.subTest(requirements=requirements, early=early_checks), self.assertRaises(ValidationError):
+                self.probe._quality_actual_probe_last_only_qc(self.scene, progress, 'before_release')
+            self.assertEqual(progress['last_operation_only_qc']['before_release']['status'], 'FAIL')
+
+    def test_n14_rejects_sticky_early_requirement_even_if_current_assignment_is_final_only(self):
+        self.production.quality_full_required_qcp = [[71, 100, 10]]
+        progress = {}
+        with self.assertRaises(ValidationError):
+            self.probe._quality_actual_probe_last_only_qc(self.scene, progress, 'after_release')
+        detail = progress['last_operation_only_qc']['after_release']
+        self.assertEqual(detail['captured_requirements'], [[71, 100, 10]])
+        self.assertEqual(detail['status'], 'FAIL')
+
+    def test_positive_path_uses_stable_evidence_instead_of_display_name_read(self):
+        tree = ast.parse(SOURCE.read_text(encoding='utf-8'))
+        method = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
+                      and node.name == '_quality_actual_probe_positive')
+        calls = [node.func.attr for node in ast.walk(method)
+                 if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)]
+        self.assertNotIn('read', calls)
+        self.assertEqual(calls.count('_quality_actual_probe_evidence'), 2)
+        self.assertIn('_quality_actual_probe_assert_evidence', calls)
+
+    def test_real_positive_method_preserves_evidence_when_native_split_renames_workorder(self):
+        self.scene['units'] = self.units
+        self.check.quality_state = 'pass'
+        self.check.unit_admission_ids = NS(filtered=lambda predicate: [1, 2, 3])
+        group = NS(id=5)
+        self.production.procurement_group_id = group
+        self.production.workorder_ids = NS(mapped=lambda name: ['done', 'done'])
+        class Facts:
+            unit_id = self.units
+            move_line_id = NS(ids=[101])
+            def __len__(self):
+                return 3
+        self.production.native_stock_fact_ids = Facts()
+        raw_lines = NS(ids=[100])
+        finished_lines = NS(ids=[101], mapped=lambda name: [3], consume_line_ids=raw_lines)
+        raw = NS(mapped=lambda name: [6], move_line_ids=raw_lines,
+                 stock_valuation_layer_ids=NS(mapped=lambda name: [-6]))
+        finished = NS(move_line_ids=finished_lines,
+                      stock_valuation_layer_ids=NS(mapped=lambda name: [3]))
+        self.production.move_raw_ids = NS(filtered=lambda predicate: raw)
+        self.production.move_finished_ids = NS(filtered=lambda predicate: finished)
+        class Children:
+            product_qty, qty_produced, state = 2, 0, 'confirmed'
+            procurement_group_id = group
+            def __len__(self):
+                return 1
+            def _full_release_units(self):
+                return []
+        self.probe.search = Mock(return_value=Children())
+        def native_release():
+            self.production.state, self.production.product_qty, self.production.qty_produced = 'done', 3, 3
+            self.last.display_name = 'MO-001 / last'
+        self.production.action_release_quality_actual_batch = Mock(side_effect=native_release)
+        inventory = {'product': {'on_hand': 3, 'reserved': 0, 'available': 3},
+                     'component': {'on_hand': 14, 'reserved': 4, 'available': 10},
+                     'backorder_component_reserved': 4}
+        self.probe._quality_actual_probe_inventory = Mock(return_value=inventory)
+        progress = {}
+        result = self.probe._quality_actual_probe_positive(self.scene, progress)
+        self.production.action_release_quality_actual_batch.assert_called_once_with()
+        self.assertTrue(result['historical_evidence_unchanged'])
+        self.assertEqual(progress['physical_evidence']['before'], progress['physical_evidence']['after'])
+        self.assertEqual(self.last.display_name, 'MO-001 / last')
 
 
 class TestProbeReportAndSource(unittest.TestCase):
