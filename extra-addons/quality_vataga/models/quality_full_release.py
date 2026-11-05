@@ -332,6 +332,8 @@ class QualityFullReleaseProduction(models.Model):
         if workorders.time_ids.filtered(lambda timer: not timer.date_end):
             raise ValidationError(_('Спочатку закрийте всі робочі інтервали виробничого замовлення.'))
         for workorder in workorders:
+            if workorder.quality_native_identity_pending:
+                raise ValidationError(_('Уточніть відповідність підтвердженої обробки виробам перед складським випуском.'))
             if not self.quality_transfer_controlled:
                 if workorder.state != 'done' or workorder.qty_produced < quantity:
                     raise ValidationError(_('Не завершено операцію %(operation)s для всієї партії.', operation=workorder.display_name))

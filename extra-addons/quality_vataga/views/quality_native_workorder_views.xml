@@ -9,16 +9,17 @@
                 <field name="quality_transfer_controlled" invisible="1"/>
                 <field name="quality_native_managed" invisible="1"/>
                 <field name="qty_produced" invisible="1"/>
+                <field name="quality_native_identity_pending" invisible="1"/>
                 <group string="Обробка та якість" groups="mrp.group_mrp_user" invisible="not quality_native_managed">
                     <field name="quality_native_status" nolabel="1"/>
                     <field name="quality_native_hold_reason" invisible="not quality_native_hold_reason"/>
-                    <div colspan="2">Почніть роботу та підтвердьте її штатними кнопками. Якщо оброблено лише частину планової кількості або є утримання, фактична обробка збережеться, а робоче завдання залишиться відкритим.</div>
+                    <div colspan="2">Почніть роботу та підтвердьте її штатною кнопкою завершення. Операція завершиться на фактично оброблену кількість; невиготовлений залишок збережеться у виробничому замовленні. Контроль якості та складський випуск виконуються окремо.</div>
                     <button name="button_start" type="object" string="Почати" class="btn-primary"
                             invisible="production_state in ('draft', 'done', 'cancel') or working_state == 'blocked' or state in ('done', 'cancel') or is_user_working"/>
                     <button name="button_pending" type="object" string="Пауза"
                             invisible="not is_user_working"/>
                     <button name="button_finish" type="object" string="Підтвердити обробку" class="btn-primary"
-                            invisible="state in ('done', 'cancel') or (not is_user_working and not qty_produced)"/>
+                            invisible="state == 'cancel' or (state == 'done' and not quality_native_identity_pending) or (not is_user_working and not qty_produced)"/>
                 </group>
             </xpath>
             <xpath expr="/form/sheet/notebook" position="inside">

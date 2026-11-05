@@ -87,6 +87,8 @@ class TestFullBatchReadinessContract(unittest.TestCase):
         self.workorders = Rows([Record(id=index, display_name=name, state='done', qty_produced=2,
             operation_id=Record(id=index), time_ids=Rows()) for index, name in ((11, 'Cutting'), (22, 'Crimping'), (33, 'Inspection'))])
         production._full_release_workorders = Mock(return_value=self.workorders)
+        for workorder in self.workorders:
+            workorder.quality_native_identity_pending = False
         production._capture_full_required_qcp = Mock(return_value={(31, 33, 33)})
         production._applicable_full_qcp = Mock(return_value=set())
         self.run = Record(id=100, workorder_id=self.workorders[-1])
@@ -144,6 +146,11 @@ class TestFullBatchReadinessContract(unittest.TestCase):
 
     def test_n6_quality_pass_is_not_operation_completion(self):
         self.workorders[0].state = 'progress'
+        with self.assertRaises(UserError):
+            self.production._validate_quality_full_batch(self.units)
+
+    def test_pending_identity_blocks_even_a_physically_done_full_batch(self):
+        self.workorders[-1].quality_native_identity_pending = True
         with self.assertRaises(UserError):
             self.production._validate_quality_full_batch(self.units)
 

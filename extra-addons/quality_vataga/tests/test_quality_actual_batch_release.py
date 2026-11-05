@@ -89,7 +89,7 @@ class TestQualityActualBatchRelease(QualityFullReleaseCase):
     def test_t2_t3_t6_t7_t8_t9_t14_required_two_of_three_without_opening_qc(self):
         production, check = self._manufactured_without_opening_qc()
         last = production.workorder_ids.sorted('id')[-1:]
-        self.assertEqual((last.qty_produced, last.state, production.qty_produced), (2, 'progress', 0))
+        self.assertEqual((last.qty_produced, last.state, production.qty_produced), (2, 'done', 0))
         self.assertTrue(production.quality_unit_route_required)
         self.assertEqual(check.sample_ids.mapped('sample_number'), [1, 2])
         self.assertEqual(len(production._full_release_units()), 2)
@@ -156,6 +156,8 @@ class TestQualityActualBatchRelease(QualityFullReleaseCase):
         production, check = self._manufactured_without_opening_qc(entered=True)
         last = production.workorder_ids.sorted('id')[-1:]
         self.assertEqual((last.qty_produced, last.quality_native_identity_pending), (2, True))
+        self.assertEqual(last.state, 'done')
+        self.assertFalse(last.time_ids.filtered(lambda timer: not timer.date_end))
         self.assertEqual(check.in_process_sample_quantity, 3)
         self.assertEqual(set(check.sample_ids.mapped('sample_result')), {'pass'})
         self.assertFalse(check.operation_run_id or last.quality_execution_ids)

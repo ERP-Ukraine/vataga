@@ -33,7 +33,7 @@ class TestQualityActualBatchLot(QualityFullReleaseCase):
             'name': 'ACTUAL-LOT-%s' % uuid4().hex,
             'product_id': self.product.id, 'company_id': self.env.company.id})
 
-    def _manufactured(self, actual=2, registered_lot=None, result='pass'):
+    def _manufactured(self, actual=2, registered_lot=None, result='pass', finish_method='button_finish'):
         self.point.picking_type_ids = [Command.clear()]
         self.point.quality_unit_route_required = True
         production = self.env['mrp.production'].create({
@@ -55,8 +55,11 @@ class TestQualityActualBatchLot(QualityFullReleaseCase):
             check._identify_samples('new', [
                 {'sample_id': sample.id, 'lot_id': registered_lot.id} for sample in check.sample_ids],
                 workorder=last, confirmed=True)
-        last.button_finish()
-        self.assertEqual((len(production._full_release_units()), last.qty_produced), (actual, actual))
+        if finish_method:
+            getattr(last, finish_method)()
+            self.assertEqual((len(production._full_release_units()), last.qty_produced), (actual, actual))
+            self.assertEqual(last.state, 'done')
+            self.assertFalse(production.workorder_ids.time_ids.filtered(lambda timer: not timer.date_end))
         self.assertTrue(production.quality_unit_route_required)
         # Reproduce a lot assigned after immutable QUNIT registration.
         production.lot_producing_id = registered_lot or self._lot()
@@ -128,6 +131,32 @@ class TestQualityActualBatchLot(QualityFullReleaseCase):
         production, check = self._manufactured()
         production.lot_producing_id = False
         self._denied(production)
+
+    def test_physical_done_pending_qc_restart_and_all_finish_aliases(self):
+        for method in ('button_finish', 'button_done', 'action_mark_as_done'):
+            production, check = self._manufactured(result='pending', finish_method=method)
+            last = production.workorder_ids.sorted('id')[-1:]
+            self.assertEqual((last.state, last.qty_produced, production.product_qty, production.qty_produced),
+                             ('done', 2, 3, 0))
+            self.assertEqual(check.quality_state, 'none')
+            self.assertFalse(production.native_stock_fact_ids or self._children(production))
+            evidence = (last.quality_execution_ids.read(), last.time_ids.read(),
+                        production._full_release_units().read(), check.sample_ids.read())
+            for retry in (last.button_finish, last.button_done, last.action_mark_as_done):
+                retry()
+            with self.assertRaises(UserError):
+                last.button_start()
+            last.button_start(bypass=True)  # QC callback must not restart completed work.
+            self.assertEqual((last.quality_execution_ids.read(), last.time_ids.read(),
+                              production._full_release_units().read(), check.sample_ids.read()), evidence)
+            last.invalidate_recordset()
+            self.assertEqual(last.state, 'done')
+            self._denied(production)
+            self._fill(check)
+            check.do_pass()
+            self.assertEqual((check.x_admitted_qty, last.state), (2, 'done'))
+            production.action_release_quality_actual_batch()
+            self.assertEqual((production.qty_produced, self._children(production).product_qty), (2, 1))
 
     def test_t3_t4_wrong_product_or_company_lot_is_rejected(self):
         production, check = self._manufactured()
@@ -237,7 +266,10 @@ class TestQualityActualBatchLot(QualityFullReleaseCase):
             receipt._action_done()
             production, check = fixture._manufactured()
             production_id = production.id
+            unfinished, pending = fixture._manufactured(finish_method=None)
+            workorder_id = unfinished.workorder_ids.sorted('id')[-1].id
             cr.commit()
+        self._assert_parallel_physical_finish(registry, uid, workorder_id)
         snapshot_ready, committed = Event(), Event()
 
         def stale_request():
@@ -276,3 +308,41 @@ class TestQualityActualBatchLot(QualityFullReleaseCase):
             self.assertEqual(env['mrp.production'].search_count([('quality_native_parent_id', '=', production_id)]), 1)
             self.assertEqual(sum(production.move_raw_ids.filtered(lambda row: row.state == 'done').mapped('quantity')), 4)
             self.assertEqual(sum(production.move_finished_ids.stock_valuation_layer_ids.mapped('quantity')), 2)
+
+    def _assert_parallel_physical_finish(self, registry, uid, workorder_id):
+        snapshot_ready, committed = Event(), Event()
+        def stale_finish():
+            with registry.cursor() as cr:
+                env = api.Environment(cr, uid, {})
+                workorder = env['mrp.workorder'].browse(workorder_id)
+                self.assertEqual(workorder.qty_produced, 0)
+                snapshot_ready.set()
+                if not committed.wait(20):
+                    raise AssertionError('Physical finish did not commit')
+                with self.assertRaises(errors.SerializationFailure):
+                    workorder.button_finish()
+                cr.rollback()
+                env = api.Environment(cr, uid, {})
+                env['mrp.workorder'].browse(workorder_id).button_finish()
+                cr.commit()
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(stale_finish)
+            try:
+                self.assertTrue(snapshot_ready.wait(20))
+                with registry.cursor() as cr:
+                    env = api.Environment(cr, uid, {})
+                    env['mrp.workorder'].browse(workorder_id).button_finish()
+                    cr.commit()
+                committed.set()
+                future.result(timeout=30)
+            finally:
+                committed.set()
+        with registry.cursor() as cr:
+            env = api.Environment(cr, uid, {})
+            workorder = env['mrp.workorder'].browse(workorder_id)
+            self.assertEqual((workorder.state, workorder.qty_produced), ('done', 2))
+            self.assertEqual(len(workorder.quality_execution_ids), 2)
+            self.assertEqual(len(workorder.production_id._full_release_units()), 2)
+            self.assertFalse(workorder.time_ids.filtered(lambda timer: not timer.date_end))
+            self.assertFalse(workorder.production_id.native_stock_fact_ids)
+            self.assertEqual(workorder.production_id.product_qty, 3)

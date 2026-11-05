@@ -79,7 +79,7 @@ class QualityActualBatchProduction(models.Model):
             processed = history.filtered(lambda row: row.state == 'processed')
             # Earlier native completions may predate identities. Their real
             # aggregate quantity is evidence, not permission to invent history.
-            if (workorder.qty_produced < quantity
+            if (workorder.quality_native_identity_pending or workorder.qty_produced < quantity
                     or (history and workorder.qty_produced != quantity)
                     or (not history and workorder.state != 'done')
                     or workorder.state not in ('progress', 'done')):

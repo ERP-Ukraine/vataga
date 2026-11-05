@@ -22,6 +22,7 @@ def load(methods, parent=object):
              '_': lambda text: text, 'native_operation_allows': lambda productions: False,
         'PARTIAL_WO_MESSAGE': 'Partial WO requires Enterprise validation',
         'partial_execution_allows': lambda record: False}
+    scope['physical_finish_scope'] = lambda record: None
     exec(compile(ast.fix_missing_locations(ast.Module(body=[cls], type_ignores=[])), str(path), 'exec'), scope)
     return scope['QualityNativeWorkorder']
 
@@ -69,6 +70,7 @@ class TestNativeWorkorderValidation(unittest.TestCase):
                                    _check_quality_execution_access=Mock(),
                                    _quality_validate_native_checks=Mock())
         self.row._quality_native_completion_units = self.row._quality_native_units
+        self.row._quality_native_automatic = lambda: False
         self.row._quality_native_is_final = lambda: False
         self.scope.rows = [self.row]
         self.scope.production_id = self.production
@@ -273,7 +275,7 @@ class TestNativeUnitSelection(unittest.TestCase):
 
 class TestNativeWorkorderTransactions(unittest.TestCase):
     def setUp(self):
-        cls = load({'write', 'button_start', 'button_finish'}, NativeParent)
+        cls = load({'write', 'button_start', 'button_finish', '_finish_quality_native_work'}, NativeParent)
         self.wo = cls()
         self.wo.bypasses, self.wo.facts, self.wo.timer_open = [], [], True
         self.units = Rows([SimpleNamespace(id=11), SimpleNamespace(id=12)])

@@ -195,6 +195,7 @@ class TestNativeFinishAcknowledgement(unittest.TestCase):
         wo.ensure_one, wo._quality_native_automatic = Mock(), lambda: True
         wo.invalidate_recordset = Mock()
         wo._check_quality_native_start = Mock()
+        wo._check_quality_execution_access = Mock()
         wo._quality_native_is_final = lambda: False
         wo._prepare_quality_native_checks = Mock()
         wo.state = 'progress'
@@ -203,6 +204,7 @@ class TestNativeFinishAcknowledgement(unittest.TestCase):
         wo.product_uom_id = NS(_compute_quantity=lambda qty, uom, round=False: qty)
         wo.env = NS(ref=lambda xmlid: wo.product_uom_id)
         wo.qty_production = wo.qty_producing = 1
+        wo.qty_produced = 1
         units = Rows([Record(id=1)])
         wo.production_id = NS(_full_release_units=lambda: units, _check_quality_transfer_boundary=Mock())
         wo._quality_native_units = lambda: units
@@ -211,15 +213,15 @@ class TestNativeFinishAcknowledgement(unittest.TestCase):
         wo._quality_validate_native_checks = Mock()
         wo.action_confirm_quality_native_units, wo.button_pending = Mock(), Mock()
 
-    def test_missing_own_qc_records_physical_work_but_does_not_close_wo(self):
+    def test_missing_own_qc_does_not_prevent_native_physical_closure(self):
         self.wo._quality_native_checks.side_effect = UserError('Missing QCP')
-        self.assertTrue(self.wo._quality_confirm_on_native_finish())
+        self.assertFalse(self.wo._quality_confirm_on_native_finish())
         self.wo.action_confirm_quality_native_units.assert_called_once()
-        self.wo.button_pending.assert_called_once()
+        self.wo.button_pending.assert_not_called()
         self.assertEqual(self.wo.state, 'progress')
 
     def test_hidden_qc_does_not_grant_permission_to_record_work(self):
-        self.wo._quality_native_checks.side_effect = AccessError('Hidden QC')
+        self.wo._prepare_quality_native_checks.side_effect = AccessError('Hidden QC')
         with self.assertRaises(AccessError):
             self.wo._quality_confirm_on_native_finish()
         self.wo.action_confirm_quality_native_units.assert_not_called()
@@ -228,19 +230,20 @@ class TestNativeFinishAcknowledgement(unittest.TestCase):
     def test_actual_three_of_five_records_only_three_and_keeps_remainder(self):
         self.wo.qty_production = 5
         self.wo.qty_producing = 3
+        self.wo.qty_produced = 3
         units = Rows(Record(id=index) for index in (1, 2, 3))
         self.wo.production_id._full_release_units = lambda: units
         self.wo._quality_native_units = lambda: units
-        self.assertTrue(self.wo._quality_confirm_on_native_finish())
-        self.wo._quality_validate_native_checks.assert_called_once()
+        self.assertFalse(self.wo._quality_confirm_on_native_finish())
+        self.wo._quality_validate_native_checks.assert_not_called()
         self.wo.action_confirm_quality_native_units.assert_called_once()
-        self.wo.button_pending.assert_called_once()
+        self.wo.button_pending.assert_not_called()
         self.assertEqual(self.wo.state, 'progress')
 
     def test_full_ready_batch_still_uses_native_finish(self):
         self.assertFalse(self.wo._quality_confirm_on_native_finish())
-        self.wo._quality_validate_native_checks.assert_called_once()
-        self.wo.action_confirm_quality_native_units.assert_not_called()
+        self.wo._quality_validate_native_checks.assert_not_called()
+        self.wo.action_confirm_quality_native_units.assert_called_once()
         self.wo.button_pending.assert_not_called()
 
     def test_final_full_physical_batch_closes_before_qc(self):
@@ -254,10 +257,10 @@ class TestNativeFinishAcknowledgement(unittest.TestCase):
         self.wo._quality_native_is_final = lambda: True
         self.wo.qty_production = 3
         self.wo._quality_validate_native_checks.side_effect = UserError('Pending QC')
-        self.assertTrue(self.wo._quality_confirm_on_native_finish())
+        self.assertFalse(self.wo._quality_confirm_on_native_finish())
         self.wo._quality_validate_native_checks.assert_not_called()
         self.wo.action_confirm_quality_native_units.assert_called_once()
-        self.wo.button_pending.assert_called_once()
+        self.wo.button_pending.assert_not_called()
 
     def test_ordinary_identified_partial_batch_uses_same_safe_acknowledgement(self):
         self.wo._quality_native_automatic = lambda: False

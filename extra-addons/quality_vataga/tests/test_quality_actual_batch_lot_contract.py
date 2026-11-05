@@ -153,6 +153,12 @@ class TestActualBatchLotPolicy(unittest.TestCase):
         with self.assertRaisesRegex(UserError, 'серійним відстеженням не підтримується'):
             self.validate()
 
+    def test_pending_identity_blocks_even_with_exact_processed_units_and_pass(self):
+        self.qc.workorders[-1].quality_native_identity_pending = True
+        self.qc.workorders[-1].state = 'done'
+        with self.assertRaises(UserError):
+            self.validate()
+
     def test_t17_duplicate_or_foreign_identity_is_rejected(self):
         duplicate = Rows([self.units[0], self.units[0]])
         with self.assertRaises(UserError):

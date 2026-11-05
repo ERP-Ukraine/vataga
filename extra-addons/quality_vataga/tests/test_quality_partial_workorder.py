@@ -36,7 +36,8 @@ class TestQualityPartialWorkorder(native_cases.QualityCheckInProcessCase):
         for order in orders:
             order.button_start(bypass=True)
             order.button_finish()
-            self.assertEqual((order.state, order.qty_produced, order.qty_remaining), ('progress', 3, 2))
+            self.assertEqual((order.state, order.qty_produced, order.qty_remaining),
+                             ('done' if required else 'progress', 3, 2))
             self.assertEqual(order.quality_execution_ids.controlled_unit_id, units)
             self.assertEqual(len(order.quality_execution_ids), 3)
             order.button_finish()  # Idempotent acknowledgement after the pause.
@@ -131,7 +132,7 @@ class TestQualityPartialWorkorder(native_cases.QualityCheckInProcessCase):
         good = check.sample_ids.filtered(lambda sample: sample.sample_result == 'pass').controlled_unit_id
         failed = units - good
         self.assertEqual((check.x_admitted_qty, check.x_held_qty), (4, 1))
-        self.assertEqual((orders[1].state, orders[1].qty_produced), ('progress', 5))
+        self.assertEqual((orders[1].state, orders[1].qty_produced), ('done', 5))
         self.assertEqual(len(orders[1].quality_execution_ids), 5)
         orders[1].button_finish()
         self.assertEqual(len(orders[1].quality_execution_ids), 5)

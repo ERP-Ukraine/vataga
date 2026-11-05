@@ -48,7 +48,7 @@ class TestUnidentifiedManufacturing(unittest.TestCase):
         wo.write = write
 
     def test_t3_missing_identity_retains_actual_two_without_fabricating_execution(self):
-        self.assertTrue(self.wo._quality_confirm_on_native_finish())
+        self.assertFalse(self.wo._quality_confirm_on_native_finish())
         self.assertEqual((self.wo.qty_produced, self.wo.state), (2, 'progress'))
         self.assertTrue(self.wo.quality_native_identity_pending)
         self.assertEqual(self.writes, [{'qty_produced': 2, 'quality_native_identity_pending': True}])
@@ -60,13 +60,13 @@ class TestUnidentifiedManufacturing(unittest.TestCase):
             with lock:  # Models the existing MO transaction lock, not its DB implementation.
                 return self.wo._quality_confirm_on_native_finish()
         with ThreadPoolExecutor(max_workers=2) as pool:
-            self.assertEqual(list(pool.map(lambda _: request(), range(2))), [True, True])
+            self.assertEqual(list(pool.map(lambda _: request(), range(2))), [False, False])
         self.assertEqual(len(self.writes), 1)
         self.assertEqual(self.wo.qty_produced, 2)
 
     def test_established_three_identities_are_not_guessed_to_be_two(self):
         self.wo.production_id._full_release_units = lambda: Rows(Record(id=i) for i in range(3))
-        self.assertTrue(self.wo._quality_confirm_on_native_finish())
+        self.assertFalse(self.wo._quality_confirm_on_native_finish())
         self.assertTrue(self.wo.quality_native_identity_pending)
         self.assertEqual(self.wo.qty_produced, 2)
 

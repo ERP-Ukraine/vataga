@@ -71,6 +71,8 @@ class TestActualBatchValidation(unittest.TestCase):
                             for index, unit in enumerate(self.units))
         self.last._quality_native_history = lambda: self.history
         self.workorders = Rows([self.first, self.last])
+        for workorder in self.workorders:
+            workorder.quality_native_identity_pending = False
         self.run = Row(id=20, state='registered', quantity=3, production_id=p,
                        unit_ids=self.units, workorder_id=Rows([self.last]))
         for unit in self.units:
