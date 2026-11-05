@@ -145,7 +145,7 @@ patch(MrpDisplayRecord.prototype, {
         if (!production.data.quality_unit_route_required) {
             return super.validate();
         }
-        if (!record.data.quality_native_managed || this.qualityFinishing) {
+        if (!record.data.quality_native_managed || this.qualityFinishing || this.state.validated) {
             return;
         }
         this.qualityFinishing = true;
@@ -156,8 +156,16 @@ patch(MrpDisplayRecord.prototype, {
                 await this.env.reload(production).catch(() => {});
                 throw error;
             }
-            this.env.searchModel.removeRecordFromCache(record.resId);
-            await this.env.reload(production);
+            // Hide the finished card even if Shop Floor retains it in its list cache.
+            this.state.validated = true;
+            try {
+                await this.env.reload(production);
+            } catch {
+                this.env.services.notification.add(
+                    _t("Операцію завершено. Оновіть сторінку, щоб побачити зміни."),
+                    { type: "warning" }
+                );
+            }
         } finally {
             this.qualityFinishing = false;
         }
