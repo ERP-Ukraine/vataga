@@ -248,6 +248,9 @@ class TestQualityActualBatchLot(QualityFullReleaseCase):
         registry, uid = self.registry, self.env.uid
         with registry.cursor() as cr:
             env = api.Environment(cr, uid, {})
+            if not env.user.employee_id:
+                env['hr.employee'].create({'name': 'Concurrent Shop Floor operator', 'user_id': uid,
+                                           'company_id': env.company.id})
             class Fixture(TestCase):
                 _manufactured = TestQualityActualBatchLot._manufactured
                 _lot = TestQualityActualBatchLot._lot
@@ -346,10 +349,10 @@ class TestQualityActualBatchLot(QualityFullReleaseCase):
                 if not committed.wait(20):
                     raise AssertionError('Physical finish did not commit')
                 with self.assertRaises(errors.SerializationFailure):
-                    workorder.button_finish()
+                    workorder.do_finish()
                 cr.rollback()
                 env = api.Environment(cr, uid, {})
-                env['mrp.workorder'].browse(workorder_id).button_finish()
+                env['mrp.workorder'].browse(workorder_id).do_finish()
                 cr.commit()
         with ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(stale_finish)
@@ -357,7 +360,7 @@ class TestQualityActualBatchLot(QualityFullReleaseCase):
                 self.assertTrue(snapshot_ready.wait(20))
                 with registry.cursor() as cr:
                     env = api.Environment(cr, uid, {})
-                    env['mrp.workorder'].browse(workorder_id).button_finish()
+                    env['mrp.workorder'].browse(workorder_id).do_finish()
                     cr.commit()
                 committed.set()
                 future.result(timeout=30)

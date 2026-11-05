@@ -263,14 +263,15 @@ class QualityFullReleaseProduction(models.Model):
                 if not samples or any(not row.controlled_unit_id for row in samples) or samples.controlled_unit_id & units:
                     raise UserError(_('Випуск утримує відкрите сповіщення про якість %(alert)s.', alert=alert.display_name))
 
-    def _validate_full_release_lot(self, units, lot):
+    def _validate_full_release_lot(self, units, lot, registering=False):
         """Validate one real lot for full or actual-batch native completion."""
         self.ensure_one()
         if self.product_id.tracking == 'none':
             if lot:
                 raise ValidationError(_('Для товару без tracking партію готової продукції не задають.'))
             return self.env['stock.lot']
-        if self.product_id.tracking == 'serial' and (len(units) != 1 or self.product_qty != 1):
+        if self.product_id.tracking == 'serial' and (
+                self.product_qty != 1 or len(units) != 1 and (units or not registering)):
             raise ValidationError(_('Повний серійний випуск підтримується лише для одного виробу на виробниче замовлення.'))
         if self.product_id.tracking not in ('lot', 'serial'):
             raise ValidationError(_('Невідомий спосіб відстеження готового виробу.'))

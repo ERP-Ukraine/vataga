@@ -5,6 +5,7 @@ from contextvars import ContextVar
 
 from odoo import _, api, fields, models
 from odoo.exceptions import AccessError, UserError, ValidationError
+from odoo.http import request
 
 from .native_backorder import native_operation_allows
 
@@ -29,6 +30,55 @@ def partial_execution_allows(workorder, units=None):
 PARTIAL_WO_MESSAGE = (
     'Не підтверджено обробку або допуск потрібних виробів. Завершіть фактичну обробку штатною кнопкою робочого завдання. Невиготовлений залишок зберігається у плані до окремого складського випуску з замовленням на залишок.'
 )
+
+
+class QualityShopFloorProduction(models.Model):
+    _inherit = 'mrp.production'
+
+    def action_register_quality_shop_floor_quantity(self, quantity, lot_id=False):
+        """Set the working quantity and prepare open moves in one transaction."""
+        self.ensure_one()
+        self.check_access_rights('write')
+        self.check_access_rule('write')
+        with self.env.cr.savepoint():
+            self._check_quality_transfer_boundary()
+            self.invalidate_recordset()
+            if (not self.quality_unit_route_required or self.state not in ('confirmed', 'progress', 'to_close')
+                    or self.qty_produced or not self.env.user.has_group('mrp.group_mrp_user')
+                    or self.company_id not in self.env.companies):
+                raise UserError(_('Реєстрація доступна оператору відкритого поштучного замовлення.'))
+            self._check_company()
+            if (type(quantity) not in (int, float) or not 0 < quantity <= self.product_qty
+                    or not math.isfinite(quantity) or quantity != int(quantity)
+                    or self.product_uom_id != self.env.ref('uom.product_uom_unit')
+                    or self.product_tracking == 'serial' and quantity != 1):
+                raise ValidationError(_('Задайте фактичну цілу кількість виготовлених виробів у межах плану.'))
+            if lot_id is not False and (type(lot_id) is not int or lot_id <= 0):
+                raise ValidationError(_('Оберіть партію / серійний номер готової продукції.'))
+            lot = self._validate_full_release_lot(
+                self._full_release_units(), self.env['stock.lot'].browse(lot_id), registering=True)
+            if self.workorder_ids.filtered(lambda workorder: workorder.state == 'done' and workorder.qty_produced != quantity):
+                raise UserError(_('Кількість має відповідати вже підтвердженій обробці цього замовлення.'))
+            if self.qty_producing != quantity or self.lot_producing_id != lot:
+                self.write({'qty_producing': quantity, 'lot_producing_id': lot.id or False})
+                self._set_qty_producing()
+                if self.qty_produced or self.state == 'done':
+                    raise ValidationError(_('Реєстрація кількості не може проводити складський випуск.'))
+        return True
+
+
+class QualityShopFloorCheck(models.Model):
+    _inherit = 'quality.check'
+
+    quality_shop_floor_deferred = fields.Boolean(compute='_compute_quality_shop_floor_deferred')
+
+    @api.depends('x_control_stage', 'test_type')
+    def _compute_quality_shop_floor_deferred(self):
+        for check in self:
+            check.quality_shop_floor_deferred = (
+                check.x_control_stage == 'in_process'
+                and check.test_type not in ('instructions', 'register_consumed_materials',
+                                            'register_byproducts', 'register_production', 'print_label'))
 
 
 class QualityNativeWorkorder(models.Model):
@@ -460,6 +510,10 @@ class QualityNativeWorkorder(models.Model):
                     workorder._check_quality_execution_access()
                     if workorder.time_ids.filtered(lambda timer: not timer.date_end and timer.user_id != self.env.user):
                         raise UserError(_('Цю обробку вже виконує інший оператор.'))
+                    if self.env.context.get('mrp_display') and not bypass and workorder.state != 'cancel':
+                        if not workorder.qty_producing:
+                            raise UserError(_('Спочатку зареєструйте фактичну кількість у робочому цеху.'))
+                        workorder._check_shop_floor_operator()
                 if (not native_operation_allows(workorder.production_id) and workorder._quality_native_automatic()
                         and workorder.state not in ('done', 'cancel')
                         and not workorder.time_ids.filtered(lambda timer: not timer.date_end)):
@@ -484,6 +538,52 @@ class QualityNativeWorkorder(models.Model):
                    for workorder in self):
                 bypass = True
             return super(QualityNativeWorkorder, starting).button_start(bypass=bypass) if starting else True
+
+    def _check_shop_floor_operator(self, require_timer=False):
+        self.ensure_one()
+        employee_id = (self.env['hr.employee'].get_session_owner() if request
+                       else self.env.user.employee_id.id)
+        active = self.time_ids.filtered(lambda timer: not timer.date_end)
+        if (not employee_id or (not self.all_employees_allowed and employee_id not in self.allowed_employees.ids)
+                or (require_timer and not active)
+                or active.filtered(lambda timer: timer.user_id != self.env.user
+                                   or timer.employee_id.id != employee_id)):
+            raise UserError(_('Увійдіть у робочий цех під працівником, який виконує цю операцію.'))
+        return employee_id
+
+    def start_employee(self, employee_id):
+        if self._quality_native_automatic() and not native_operation_allows(self.production_id):
+            self._check_quality_execution_access()
+            self.production_id._check_quality_transfer_boundary()
+            self.invalidate_recordset()
+            self._check_quality_native_start()
+            if self.env.context.get('mrp_display') or employee_id != self.env.user.employee_id.id:
+                if employee_id != self._check_shop_floor_operator():
+                    raise UserError(_('Почніть роботу під вибраним працівником.'))
+            if (self.state != 'progress' or not self.qty_producing
+                    or (not self.all_employees_allowed and employee_id not in self.allowed_employees.ids)
+                    or self.time_ids.filtered(lambda timer: not timer.date_end and (
+                        timer.user_id != self.env.user or timer.employee_id.id != employee_id))):
+                raise UserError(_('Почніть роботу штатною кнопкою під своїм працівником.'))
+        return super().start_employee(employee_id)
+
+    def do_finish(self):
+        if self and self._quality_native_automatic():
+            # Enterprise do_finish ends the timer before calling record_production.
+            return self.record_production()
+        return super().do_finish()
+
+    def record_production(self):
+        if not self or not self._quality_native_automatic():
+            return super().record_production()
+        with self.env.cr.savepoint():
+            self._check_quality_execution_access()
+            self.production_id._check_quality_transfer_boundary()
+            self.invalidate_recordset()
+            if self.state == 'done':
+                return True  # A repeated Shop Floor RPC must not reconcile or restart a WO.
+            self._check_shop_floor_operator(require_timer=True)
+            return self._finish_quality_native_work('button_finish')
 
     def _quality_confirm_on_native_finish(self):
         """Prepare exact physical facts; native completion closes the WO next."""
@@ -616,9 +716,7 @@ class QualityNativeWorkorder(models.Model):
         # Only this WO's Vataga inspection can be performed after physical
         # completion. Other Shop Floor steps must be completed there first.
         if pending.filtered(lambda check: not (
-                check.x_control_stage == 'in_process'
-                and check.test_type not in ('instructions', 'register_consumed_materials',
-                                            'register_byproducts', 'register_production')
+                check.quality_shop_floor_deferred
                 and check.workorder_id == self
                 and check._identity_production() == self.production_id
                 and check.product_id == self.product_id

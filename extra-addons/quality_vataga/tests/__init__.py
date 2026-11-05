@@ -57,4 +57,5 @@ from . import test_quality_partial_release
 from . import test_quality_partial_release_contract
 from . import test_quality_actual_batch_release
 from . import test_quality_actual_batch_lot
+from . import test_quality_shop_floor
 from . import test_quality_actual_batch_acceptance

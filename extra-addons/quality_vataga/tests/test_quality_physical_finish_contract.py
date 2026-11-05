@@ -131,6 +131,13 @@ class EnterpriseDouble(NativeDouble):
         self.employee_ids = []
         return super().end_all()
 
+    def do_finish(self):
+        self.end_all()
+        return self.record_production()
+
+    def record_production(self):
+        return self.button_finish()
+
 
 class TestPhysicalFinishLifecycle(unittest.TestCase):
     def setUp(self):
@@ -146,13 +153,14 @@ class TestPhysicalFinishLifecycle(unittest.TestCase):
             '_quality_native_automatic', '_check_quality_native_start', '_check_quality_native_finish',
             '_quality_confirm_on_native_finish', '_finish_quality_native_work',
             'verify_quality_checks', 'button_finish', 'button_done', 'action_mark_as_done', 'button_start', 'write',
+            'do_finish', 'record_production', '_check_shop_floor_operator',
             'action_confirm_quality_native_units', '_check_quality_native_selection', '_compute_quality_native_status'}, parent=EnterpriseDouble,
             math=math, uuid=NS(uuid4=lambda: 'request'), _PARTIAL_EXECUTION=partial, _PHYSICAL_FINISH=finish,
             partial_execution_allows=partial_allows, physical_finish_scope=finish_scope,
-            native_operation_allows=lambda production: False, PARTIAL_WO_MESSAGE='upstream not processed')
+            native_operation_allows=lambda production: False, PARTIAL_WO_MESSAGE='upstream not processed', request=False)
         self.units = Rows(NS(id=i, display_name='QUNIT/%s' % i) for i in (101, 102))
         self.history = Rows()
-        self.operator = NS(id=1)
+        self.operator = NS(id=1, employee_id=NS(id=4))
         uom = NS(id=1, _compute_quantity=lambda qty, unit, round=False: qty)
         lock = RLock()
         self.production = NS(quality_unit_route_required=True, state='progress', product_qty=3,
@@ -164,7 +172,8 @@ class TestPhysicalFinishLifecycle(unittest.TestCase):
             quality_transfer_controlled=False, quality_native_identity_pending=False,
             production_id=self.production, product_uom_id=uom,
             product_id=NS(id=20), company_id=NS(id=30), check_ids=Rows(), employee_ids=[self.operator],
-            time_ids=Rows([NS(id=1, user_id=self.operator, date_end=False)]),
+            time_ids=Rows([NS(id=1, user_id=self.operator, employee_id=self.operator.employee_id, date_end=False)]),
+            all_employees_allowed=True,
             _check_quality_execution_access=Mock(), _prepare_quality_native_checks=Mock(),
             _quality_native_is_final=lambda: True, _quality_native_predecessors=lambda: Rows(),
             _quality_native_units=lambda: self.units, _quality_native_history=lambda: self.history,
@@ -218,6 +227,7 @@ class TestPhysicalFinishLifecycle(unittest.TestCase):
                    product_id=self.row.product_id, company_id=self.row.company_id,
                    _identity_production=lambda: self.production)
         check.__dict__.update(values)
+        check.quality_shop_floor_deferred = check.test_type == 'measure' and check.x_control_stage == 'in_process'
         self.row.check_ids.append(check)
         return check
 
@@ -264,6 +274,7 @@ class TestPhysicalFinishLifecycle(unittest.TestCase):
                 other.operation_run_id = None
                 other.company_id = own.company_id
                 other.__dict__.update(changes)
+                other.quality_shop_floor_deferred = other.test_type == 'measure' and other.x_control_stage == 'in_process'
                 with self.assertRaisesRegex(UserError, 'інші обов’язкові кроки'):
                     self.wo.button_finish()
                 self.assertEqual((own.quality_state, other.quality_state), ('none', 'none'))
@@ -292,6 +303,36 @@ class TestPhysicalFinishLifecycle(unittest.TestCase):
         for name in ('button_finish', 'button_done', 'action_mark_as_done'):
             getattr(self.wo, name)()
         self.assertEqual((self.env.native_calls, len(self.history), len(self.row.time_ids)), (1, 2, 1))
+
+    def test_shop_floor_do_finish_bypasses_native_early_close_and_record_production(self):
+        check = self._pending_check()
+        with patch.object(EnterpriseDouble, 'do_finish', side_effect=AssertionError('early timer close')), \
+                patch.object(EnterpriseDouble, 'record_production', side_effect=AssertionError('early MO split')):
+            self.wo.do_finish()
+            self.wo.do_finish()
+            self.wo.record_production()
+        self.assertEqual((self.row.state, self.row.qty_produced, self.env.native_calls), ('done', 2, 1))
+        self.assertEqual((self.production.product_qty, self.production.qty_produced, check.quality_state), (3, 0, 'none'))
+        self.assertEqual(self.history.controlled_unit_id.ids, [101, 102])
+        self.assertTrue(self.row.time_ids[0].date_end)
+
+    def test_shop_floor_error_rolls_back_finish_and_preserves_open_timer(self):
+        self.env.fail_native = True
+        with self.assertRaisesRegex(UserError, 'native finish failed'):
+            self.wo.do_finish()
+        self.assertEqual((self.row.state, self.row.qty_produced, len(self.history)), ('progress', 0, 0))
+        self.assertFalse(self.row.time_ids[0].date_end)
+
+    def test_shop_floor_checks_employee_and_ordinary_dispatch(self):
+        self.row.time_ids[0].employee_id = NS(id=5)
+        self.env.context = {'employee_id': 5}
+        with self.assertRaisesRegex(UserError, 'під працівником'):
+            self.wo.do_finish()
+        self.assertFalse(self.row.time_ids[0].date_end)
+        self.production.quality_unit_route_required = False
+        with patch.object(EnterpriseDouble, 'do_finish', return_value='native') as finish:
+            self.assertEqual(self.wo.do_finish(), 'native')
+        finish.assert_called_once_with()
 
     def test_all_three_aliases_use_the_same_canonical_native_finish(self):
         for name in ('button_finish', 'button_done', 'action_mark_as_done'):
@@ -339,7 +380,7 @@ class TestPhysicalFinishLifecycle(unittest.TestCase):
 
     def test_t15_serialized_parallel_completion_records_one_exact_set(self):
         with ThreadPoolExecutor(max_workers=2) as pool:
-            self.assertEqual(list(pool.map(lambda _: self.wo.button_finish(), range(2))), [True, True])
+            self.assertEqual(list(pool.map(lambda _: self.wo.do_finish(), range(2))), [True, True])
         self.assertEqual((self.env.native_calls, self.row.qty_produced, len(self.history)), (1, 2, 2))
 
     def test_t16_ambiguity_retains_physical_done_without_inventing_execution(self):
@@ -416,6 +457,33 @@ class TestPhysicalFinishLifecycle(unittest.TestCase):
         self.assertEqual((self.row.state, self.row.qty_produced, self.production.product_qty), ('done', 2, 3))
         self.assertEqual((self.production.qty_produced, len(self.units), len(self.history)), (0, 2, 2))
         self.assertTrue(all(timer.date_end for timer in self.row.time_ids))
+
+    def test_local_enterprise_do_finish_splits_before_button_finish_without_adapter(self):
+        source = os.environ.get('ODOO17_ENTERPRISE_WORKORDER')
+        if not source:
+            self.skipTest('Set ODOO17_ENTERPRISE_WORKORDER to execute the available Enterprise method bodies.')
+        path = Path(source)
+        tree = ast.parse(path.read_text(encoding='utf-8'))
+        enterprise = next(node for node in tree.body if isinstance(node, ast.ClassDef)
+                          and node.name == 'MrpProductionWorkcenterLine')
+        names = {'do_finish', 'pre_record_production', 'record_production'}
+        methods = [node for node in enterprise.body if isinstance(node, ast.FunctionDef) and node.name in names]
+        scope = {'_': lambda message: message, 'UserError': UserError,
+                 'float_compare': lambda left, right, **kwargs: (left > right) - (left < right)}
+        exec(compile(ast.Module(body=methods, type_ignores=[]), str(path), 'exec'), scope)
+        native = EnterpriseDouble([self.row], self.env)
+        native.qty_remaining = 3
+        native.is_first_started_wo = True
+        native._check_company = lambda: None
+        native.product_uom_id.rounding = 1
+        self.production._split_productions = Mock(side_effect=UserError('stock boundary'))
+        self.env.__class__.__getitem__ = lambda env, model: NS(search=lambda *args, **kwargs: [True])
+        with patch.multiple(EnterpriseDouble, create=True, **{name: scope[name] for name in names}):
+            with self.assertRaisesRegex(UserError, 'stock boundary'):
+                native.do_finish()
+            self.assertTrue(self.row.time_ids[0].date_end)
+            self.production._split_productions.assert_called_once_with()
+            self.assertEqual(self.env.native_calls, 0)
 
     def test_unexpected_native_plan_or_stock_change_aborts_whole_finish(self):
         original = NativeDouble.button_finish
