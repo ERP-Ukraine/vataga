@@ -24,6 +24,10 @@ class TestQualityActualBatchLot(QualityFullReleaseCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        cls.test_type = cls.env['quality.point.test_type'].search([('technical_name', '=', 'passfail')], limit=1)
+        if not cls.test_type:
+            raise AssertionError('Enterprise pass/fail quality check type is required')
+        cls.point.test_type_id = cls.test_type
         cls.bom.operation_ids.sorted('id')[1].unlink()
         cls.warehouse.manu_type_id.create_backorder = 'ask'
         cls.product.tracking = 'lot'  # Disposable fixture product only.
@@ -33,9 +37,10 @@ class TestQualityActualBatchLot(QualityFullReleaseCase):
             'name': 'ACTUAL-LOT-%s' % uuid4().hex,
             'product_id': self.product.id, 'company_id': self.env.company.id})
 
-    def _manufactured(self, actual=2, registered_lot=None, result='pass', finish_method='button_finish'):
+    def _manufactured(self, actual=2, registered_lot=None, result='pass',
+                      finish_method='button_finish', protected=True):
         self.point.picking_type_ids = [Command.clear()]
-        self.point.quality_unit_route_required = True
+        self.point.quality_unit_route_required = protected
         production = self.env['mrp.production'].create({
             'product_id': self.product.id, 'product_qty': 3, 'product_uom_id': self.product.uom_id.id,
             'bom_id': self.bom.id, 'picking_type_id': self.warehouse.manu_type_id.id,
@@ -59,10 +64,14 @@ class TestQualityActualBatchLot(QualityFullReleaseCase):
             getattr(last, finish_method)()
             self.assertEqual((len(production._full_release_units()), last.qty_produced), (actual, actual))
             self.assertEqual(last.state, 'done')
+            self.assertEqual(check.quality_state, 'none')
+            self.assertFalse(check.unit_admission_ids)
             self.assertFalse(production.workorder_ids.time_ids.filtered(lambda timer: not timer.date_end))
-        self.assertTrue(production.quality_unit_route_required)
+        self.assertEqual(production.quality_unit_route_required, protected)
         # Reproduce a lot assigned after immutable QUNIT registration.
         production.lot_producing_id = registered_lot or self._lot()
+        if result is None:
+            return production, check
         self._fill(check)
         if result != 'pass':
             check.update_measurement_visual_result(check.sample_ids[-1].id, 'no' if result == 'fail' else False)
@@ -157,6 +166,23 @@ class TestQualityActualBatchLot(QualityFullReleaseCase):
             self.assertEqual((check.x_admitted_qty, last.state), (2, 'done'))
             production.action_release_quality_actual_batch()
             self.assertEqual((production.qty_produced, self._children(production).product_qty), (2, 1))
+
+    def test_enterprise_verifier_only_defers_during_the_managed_finish(self):
+        for protected in (False, True):
+            production, check = self._manufactured(finish_method=None, result=None, protected=protected)
+            workorder = check.workorder_id.with_context(lang='en_US', quality_physical_workorder_finish=True)
+            self.assertIn(check, workorder.check_ids)
+            with self.assertRaisesRegex(UserError, 'Quality Checks using the Shop Floor'):
+                with self.env.cr.savepoint():
+                    workorder.verify_quality_checks()
+            if protected:
+                workorder.button_finish()
+                self.assertEqual((workorder.state, workorder.qty_produced), ('done', 2))
+            else:
+                with self.assertRaisesRegex(UserError, 'Quality Checks using the Shop Floor'):
+                    workorder.button_finish()
+                self.assertEqual(workorder.state, 'progress')
+            self.assertEqual((production.qty_produced, check.quality_state), (0, 'none'))
 
     def test_t3_t4_wrong_product_or_company_lot_is_rejected(self):
         production, check = self._manufactured()

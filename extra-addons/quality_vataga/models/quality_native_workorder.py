@@ -587,8 +587,8 @@ class QualityNativeWorkorder(models.Model):
                               lambda move: move.state == 'done').ids))
                 token = _PHYSICAL_FINISH.set((self.env.cr, workorder.id, quantity))
                 try:
-                    # Odoo's canonical finish closes all timers and uses the
-                    # already recorded qty_produced, without posting stock.
+                    # Keep Enterprise button_finish and end_all in the MRO.
+                    # Only verify_quality_checks may defer this WO's own QC.
                     super(QualityNativeWorkorder, workorder).button_finish()
                     if (workorder.state != 'done' or workorder.qty_produced != quantity
                             or workorder.qty_producing != quantity
@@ -597,11 +597,34 @@ class QualityNativeWorkorder(models.Model):
                     after = (production.product_qty, production.qty_produced,
                              set((production.move_raw_ids | production.move_finished_ids).filtered(
                                  lambda move: move.state == 'done').ids))
-                    if after != before:
+                    if after != before or production.state == 'done':
                         raise ValidationError(_('Завершення обробки не повинно змінювати план або проводити склад. Усі зміни скасовано.'))
                 finally:
                     _PHYSICAL_FINISH.reset(token)
         return True
+
+    def verify_quality_checks(self):
+        if not physical_finish_scope(self):
+            return super().verify_quality_checks()
+
+        pending = self.check_ids.filtered(lambda check: check.quality_state not in ('pass', 'fail'))
+        if not pending:
+            return super().verify_quality_checks()
+
+        pending.check_access_rights('read')
+        pending.check_access_rule('read')
+        # Only this WO's Vataga inspection can be performed after physical
+        # completion. Other Shop Floor steps must be completed there first.
+        if pending.filtered(lambda check: not (
+                check.x_control_stage == 'in_process'
+                and check.test_type not in ('instructions', 'register_consumed_materials',
+                                            'register_byproducts', 'register_production')
+                and check.workorder_id == self
+                and check._identity_production() == self.production_id
+                and check.product_id == self.product_id
+                and (not check.company_id or check.company_id == self.company_id)
+                and (not check.operation_run_id or check.operation_run_id.workorder_id == self))):
+            raise UserError(_('Спочатку завершіть інші обов’язкові кроки цього робочого завдання у виробничому цеху.'))
 
     def button_finish(self):
         return self._finish_quality_native_work('button_finish')

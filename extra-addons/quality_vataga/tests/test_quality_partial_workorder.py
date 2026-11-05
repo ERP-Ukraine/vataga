@@ -197,13 +197,17 @@ class TestQualityPartialWorkorder(native_cases.QualityCheckInProcessCase):
             workorder.button_start()
             workorder.button_finish()
         orders[2].button_start()
-        self._fill(check)
-        check.do_pass()  # ORM completion also initializes unambiguous identities.
         orders[2].button_finish()
         self.assertEqual(set(orders.mapped('state')), {'done'})
+        self.assertEqual(check.quality_state, 'none')
+        self.assertFalse(check.unit_admission_ids or orders[:2].check_ids)
         self.assertFalse(orders[:2].quality_execution_ids)
         self.assertEqual(len(orders[2].quality_execution_ids), 5)
         self.assertEqual(orders[2].quality_native_unit_ids, check.sample_ids.controlled_unit_id)
+        self._fill(check)
+        check.do_pass()
+        self.assertEqual(check.x_admitted_qty, 5)
+        self.assertFalse(orders.time_ids.filtered(lambda timer: not timer.date_end))
 
     def test_retest_during_next_operation_does_not_add_unprocessed_fifth(self):
         production, orders, check = self._mixed()
