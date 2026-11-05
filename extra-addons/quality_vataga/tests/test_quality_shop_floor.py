@@ -15,8 +15,11 @@ class TestQualityShopFloor(QualityFullReleaseCase):
     def setUpClass(cls):
         super().setUpClass()
         cls.product.tracking = 'lot'
-        cls.point.test_type_id = cls.env['quality.point.test_type'].search(
+        cls.test_type = cls.env['quality.point.test_type'].search(
             [('technical_name', '=', 'passfail')], limit=1)
+        if not cls.test_type:
+            raise AssertionError('Enterprise pass/fail quality check type is required')
+        cls.point.test_type_id = cls.test_type
         cls.employee = cls.env.user.employee_id or cls.env['hr.employee'].create({
             'name': 'Shop Floor operator', 'user_id': cls.env.uid, 'company_id': cls.env.company.id})
         cls.warehouse.manu_type_id.create_backorder = 'ask'
