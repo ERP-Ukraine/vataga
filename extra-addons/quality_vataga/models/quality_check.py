@@ -585,7 +585,11 @@ class QualityCheck(models.Model):
             )
 
         quantity = sum(
-            move.product_uom._compute_quantity(move.quantity, unit, round=False)
+            move.product_uom._compute_quantity(
+                move.quantity if move.state == 'done' else move._get_picked_quantity(),
+                unit,
+                round=False,
+            )
             for move in production.move_finished_ids
             if move.product_id == production.product_id
             and move.state != 'cancel'

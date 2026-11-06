@@ -380,7 +380,12 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
 
         production.qty_producing = 3
         finished_move.write({'quantity': 3, 'picked': True})
+        picked_line = finished_move.move_line_ids.filtered('picked')
+        picked_line.copy({
+            'move_id': finished_move.id, 'quantity': 2, 'picked': False,
+        })
         self.assertEqual(production.product_qty, 5)
+        self.assertEqual(finished_move.quantity, 5)
         data = check.get_measurement_matrix_data()
         self.assertEqual(
             [sample['sample_number'] for sample in data['samples']], [1, 2, 3],
@@ -402,7 +407,7 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
             lambda value: value.parameter_type == 'numeric',
         )
         check.update_measurement_value(first_value.id, {'numeric_input': '7'})
-        finished_move.quantity = 2
+        picked_line.quantity = 2
         reopened = check.get_measurement_matrix_data()
         self.assertEqual([sample['id'] for sample in reopened['samples']], samples.ids)
         self.assertEqual(check.sample_ids, samples)
