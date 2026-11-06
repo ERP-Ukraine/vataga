@@ -281,6 +281,7 @@ class TestNativeWorkorderTransactions(unittest.TestCase):
         self.units = Rows([SimpleNamespace(id=11), SimpleNamespace(id=12)])
         self.row = SimpleNamespace(id=1, state='progress', quality_native_identity_pending=False, qty_produced=0, qty_production=2,
                                    _quality_native_automatic=lambda: False,
+                                   _quality_uses_physical_finish=lambda: False,
                                    _quality_confirm_on_native_finish=lambda: False,
                                    quality_execution_ids=[], _quality_native_units=lambda: self.units)
         self.row._quality_native_completion_units = self.row._quality_native_units

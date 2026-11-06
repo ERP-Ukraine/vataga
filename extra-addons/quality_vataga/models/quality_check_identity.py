@@ -234,12 +234,14 @@ class QualityCheckIdentity(models.Model):
             row['controlled_unit_name'] = unit.name or ''
         if self.x_control_stage == 'in_process':
             data['operation_run_id'] = self.operation_run_id.id or False
-            data['can_initialize_identity'] = bool(can_identify and self.quality_state == 'none' and not self.operation_run_id)
-        if self.x_control_stage == 'in_process' and self.quality_state == 'none' and not self.operation_run_id and can_identify:
-            units = self._qc_existing_units()
-            data['identity_choices'] = [{'id': unit.id, 'name': unit.name} for unit in units]
-            data['identity_required'] = bool(self.sample_ids)
-            data['identity_reason'] = _('Оберіть наявні вироби. Якщо операцію або фізичний склад партії не визначено, уточніть їх у стандартному робочому завданні; нові ідентифікатори не створюються навмання.')
+            data['can_initialize_identity'] = bool(
+                can_identify and self.quality_state == 'none' and not self.operation_run_id
+                and self._requires_qc_unit_identity())
+            if data['can_initialize_identity']:
+                units = self._qc_existing_units()
+                data['identity_choices'] = [{'id': unit.id, 'name': unit.name} for unit in units]
+                data['identity_required'] = bool(self.sample_ids)
+                data['identity_reason'] = _('Оберіть наявні вироби. Якщо операцію або фізичний склад партії не визначено, уточніть їх у стандартному робочому завданні; нові ідентифікатори не створюються навмання.')
         return data
 
     def initialize_qc_unit_identity(self):
@@ -249,6 +251,19 @@ class QualityCheckIdentity(models.Model):
         with self.env.cr.savepoint():
             self._ensure_qc_unit_identity()
             return self.get_measurement_matrix_data()
+
+    def _requires_qc_unit_identity(self):
+        """Ordinary batch inspections may be completed without per-unit records."""
+        self.ensure_one()
+        production = self._identity_production()
+        if not production:
+            return False
+        return bool(
+            production.quality_unit_route_required or production.quality_transfer_controlled
+            or self.operation_run_id or self.sample_ids.controlled_unit_id or self.quality_execution_ids
+            or self._qc_existing_units()
+            or self.env['quality.production.run'].sudo().search_count(
+                [('production_id', '=', production.id)], limit=1))
 
     def _qc_existing_units(self):
         """Discover hidden identities too; never interpret ACL filtering as absence."""
@@ -261,8 +276,9 @@ class QualityCheckIdentity(models.Model):
             ('native_continuation_ids.production_id', '=', production.id),
         ]).ids
         units = self.env['quality.production.unit'].browse(ids)
-        units.check_access_rights('read')
-        units.check_access_rule('read')
+        if units:
+            units.check_access_rights('read')
+            units.check_access_rule('read')
         return units.filtered(lambda unit: unit._quality_current_production() == production)
 
     def _qc_identity_workorder(self):
@@ -278,7 +294,8 @@ class QualityCheckIdentity(models.Model):
         self.ensure_one()
         if (self.x_control_stage != 'in_process' or self.quality_state != 'none'
                 or self.operation_run_id or not self.sample_ids
-                or self._get_in_process_batch_error(validate_current=True)):
+                or self._get_in_process_batch_error(validate_current=True)
+                or not self._requires_qc_unit_identity()):
             return
         with self.env.cr.savepoint():
             production = self._check_identification_access()

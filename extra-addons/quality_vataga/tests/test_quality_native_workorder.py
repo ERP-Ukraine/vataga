@@ -13,6 +13,8 @@ from . import test_quality_production_identity as identities
 class TestQualityNativeWorkorder(QualityCheckInProcessCase):
     _workorder = identities.TestQualityProductionIdentity._workorder
     _inspector = identities.TestQualityProductionIdentity._inspector
+    _register = identities.TestQualityProductionIdentity._register
+    _wizard = identities.TestQualityProductionIdentity._wizard
 
     def _route(self, quantity=2, operations=2):
         if 'workorder_id' not in self.env['quality.check']._fields:
@@ -26,7 +28,7 @@ class TestQualityNativeWorkorder(QualityCheckInProcessCase):
 
     def _pass(self, production, workorder):
         check = self._check(production, workorder_id=workorder.id)
-        check.initialize_qc_unit_identity()
+        self._register(check, workorder=workorder)
         self._fill(check)
         check.do_pass()
         return check
@@ -106,7 +108,7 @@ class TestQualityNativeWorkorder(QualityCheckInProcessCase):
     def test_mixed_and_partial_native_completion_keep_remainder_and_timer(self):
         production, workorders = self._route()
         check = self._check(production, workorder_id=workorders[0].id)
-        check.initialize_qc_unit_identity()
+        self._register(check, workorder=workorders[0])
         self._fill(check)
         check.update_measurement_visual_result(check.sample_ids[-1].id, 'no')
         check.do_fail()
@@ -133,7 +135,7 @@ class TestQualityNativeWorkorder(QualityCheckInProcessCase):
     def test_open_alert_holds_unit_even_after_pass_retest(self):
         production, workorders = self._route()
         original = self._check(production, workorder_id=workorders[0].id)
-        original.initialize_qc_unit_identity()
+        self._register(original, workorder=workorders[0])
         self._fill(original)
         original.update_measurement_visual_result(original.sample_ids[-1].id, 'no')
         alert = self.env['quality.alert'].create({
@@ -153,7 +155,7 @@ class TestQualityNativeWorkorder(QualityCheckInProcessCase):
     def test_pass_retest_keeps_identity_and_supersedes_old_fail(self):
         production, workorders = self._route()
         original = self._check(production, workorder_id=workorders[0].id)
-        original.initialize_qc_unit_identity()
+        self._register(original, workorder=workorders[0])
         self._fill(original)
         original.update_measurement_visual_result(original.sample_ids[-1].id, 'no')
         original.do_fail()

@@ -24,7 +24,7 @@ class TestQualityShopFloor(QualityFullReleaseCase):
             'name': 'Shop Floor operator', 'user_id': cls.env.uid, 'company_id': cls.env.company.id})
         cls.warehouse.manu_type_id.create_backorder = 'ask'
 
-    def _order(self, quantity=2, register=True, protected=True, check_first=False):
+    def _order(self, quantity=2, register=True, protected=True, check_first=False, with_check=None):
         self.point.picking_type_ids = [Command.clear()]
         self.point.quality_unit_route_required = protected
         if check_first:
@@ -43,7 +43,9 @@ class TestQualityShopFloor(QualityFullReleaseCase):
         self.point.picking_type_ids = [Command.set(self.warehouse.manu_type_id.ids)]
         workorders = production.workorder_ids.sorted('id')
         target = workorders[0] if check_first else workorders[-1]
-        check = self._check(production, workorder_id=target.id) if protected else self.env['quality.check']
+        if with_check is None:
+            with_check = protected
+        check = self._check(production, workorder_id=target.id) if with_check else self.env['quality.check']
         if quantity is None:
             return production, check, workorders
         if register:
@@ -109,6 +111,67 @@ class TestQualityShopFloor(QualityFullReleaseCase):
                 child = production.procurement_group_id.mrp_production_ids - production
                 self.assertEqual(child.mapped('product_qty'), [1] if quantity == 2 else [])
                 self.assertFalse(child.native_stock_fact_ids or child._full_release_units())
+
+    def test_ordinary_two_operations_finish_then_inspect_and_release(self):
+        self.bom.operation_ids.sorted('id')[1].unlink()
+        for method in ('button_finish', 'do_finish'):
+            with self.subTest(method=method):
+                production, check, (first, last) = self._order(
+                    quantity=3, register=False, protected=False, with_check=True)
+                self.assertFalse(production.quality_unit_route_required or last.quality_native_managed)
+                self._start(first)
+                self._rpc(first, 'button_finish')
+                self.assertEqual((first.state, first.qty_produced), ('done', 3))
+                self._start(last)
+                timer = last.time_ids.filtered(lambda row: not row.date_end)
+                self.assertEqual((last.state, last.qty_producing, len(timer)), ('progress', 3, 1))
+                self.assertEqual(check.quality_state, 'none')
+                evidence = check.sample_ids.read(['sample_result', 'controlled_unit_id'])
+                with patch.object(quality_native_workorder, 'request', method == 'do_finish'), \
+                        patch.object(type(self.employee), 'get_session_owner', return_value=self.employee.id):
+                    self._rpc(last, method)
+                    self._rpc(last, method)
+                self.assertEqual((last.state, last.qty_produced), ('done', 3))
+                self.assertEqual(last.time_ids, timer)
+                self.assertTrue(timer.date_end)
+                self.assertEqual(timer.employee_id, self.employee)
+                self.assertEqual(check.quality_state, 'none')
+                self.assertEqual(check.sample_ids.read(['sample_result', 'controlled_unit_id']), evidence)
+                self._assert_unposted(production)
+
+                for close in (production.pre_button_mark_done, production.button_mark_done, production._post_inventory):
+                    self._assert_denied_unchanged(production, close)
+                check.initialize_in_process_measurement_matrix()
+                data = check.initialize_qc_unit_identity()
+                self.assertFalse(data['can_initialize_identity'])
+                self._fill(check)
+                self._assert_denied_unchanged(production)
+                check.do_pass()
+                self.assertEqual(check.quality_state, 'pass')
+                self.assertFalse(check.operation_run_id or check.unit_admission_ids or production._full_release_units())
+                production.button_mark_done()
+                self.assertEqual((production.state, production.qty_produced), ('done', 3))
+                self.assertEqual(sum(production.move_raw_ids.filtered(lambda row: row.state == 'done').mapped('quantity')), 6)
+                self.assertFalse(production.native_stock_fact_ids)
+
+    def test_ordinary_pending_predecessor_blocks_start_until_batch_pass(self):
+        production, check, workorders = self._order(
+            quantity=3, register=False, protected=False, check_first=True, with_check=True)
+        first, second = workorders[:2]
+        self._start(first)
+        self._rpc(first, 'button_finish')
+        with self.assertRaises(UserError), self.env.cr.savepoint():
+            self._start(second)
+        self.assertFalse(second.time_ids)
+        check.initialize_in_process_measurement_matrix()
+        self._fill(check)
+        with self.assertRaises(UserError), self.env.cr.savepoint():
+            self._start(second)
+        self.assertFalse(second.time_ids)
+        check.do_pass()
+        self._start(second)
+        self.assertEqual(second.state, 'progress')
+        self.assertFalse(check.operation_run_id or check.unit_admission_ids or production._full_release_units())
 
     def test_sf_fail_and_alert_keep_inventory_blocked(self):
         for fail in (True, False):

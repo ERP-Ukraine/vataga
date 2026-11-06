@@ -19,6 +19,7 @@ class TestQualityQcSimplification(QualityCheckInProcessCase):
         production = self._production(quantity)
         production.product_qty = quantity
         workorder = self._workorder(production, 'QC phase 1')
+        production.action_require_quality_unit_route()
         check = self._check(production, workorder_id=workorder.id)
         return production, workorder, check
 

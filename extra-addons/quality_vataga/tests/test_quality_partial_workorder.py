@@ -12,6 +12,8 @@ from . import test_quality_native_workorder as native_cases
 class TestQualityPartialWorkorder(native_cases.QualityCheckInProcessCase):
     _route = native_cases.TestQualityNativeWorkorder._route
     _workorder = native_cases.TestQualityNativeWorkorder._workorder
+    _register = native_cases.TestQualityNativeWorkorder._register
+    _wizard = native_cases.TestQualityNativeWorkorder._wizard
 
     def test_three_of_five_records_actual_batch_without_fictitious_units_or_stock(self):
         self._assert_three_of_five_processing(required=True)
@@ -26,7 +28,10 @@ class TestQualityPartialWorkorder(native_cases.QualityCheckInProcessCase):
         production.qty_producing = 3
         self.point.quality_unit_route_required = required
         check = self._check(production, workorder_id=orders[0].id)
-        check.initialize_qc_unit_identity()
+        if required:
+            check.initialize_qc_unit_identity()
+        else:
+            self._register(check, workorder=orders[0])
         self.assertEqual(len(check.sample_ids), 3)
         units = check.sample_ids.controlled_unit_id
         self.assertEqual(len(units), 3)

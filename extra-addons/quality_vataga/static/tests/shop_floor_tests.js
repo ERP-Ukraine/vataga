@@ -5,11 +5,11 @@ import { MrpDisplayRecord } from "@mrp_workorder/mrp_display/mrp_display_record"
 import { QualityShopFloorQuantityDialog } from "@quality_vataga/shop_floor/shop_floor";
 
 QUnit.module("quality_vataga Shop Floor", () => {
-    function card({ managed = true, last = false, failure = null, reload = async () => {} } = {}) {
+    function card({ managed = true, physicalFinish = managed, last = false, failure = null, reload = async () => {} } = {}) {
         const calls = [];
         const component = Object.create(MrpDisplayRecord.prototype);
         const data = {
-            quality_native_managed: managed,
+            quality_shop_floor_physical_finish: physicalFinish,
             state: "progress",
             is_last_unfinished_wo: last,
             check_ids: { records: [] },
@@ -165,6 +165,22 @@ QUnit.module("quality_vataga Shop Floor", () => {
             ["notification", "Операцію завершено. Оновіть сторінку, щоб побачити зміни.", { type: "warning" }],
             ["reload", 31],
         ]);
+    });
+
+    QUnit.test("An ordinary WO with own pending inspection finishes without stopping the timer separately", async (assert) => {
+        const { component, data, calls, production } = card({ managed: false, physicalFinish: true });
+        data.check_ids.records.push({ data: { quality_state: "none", quality_shop_floor_deferred: true } });
+        data.employee_ids.records.push({ resId: 42 });
+        assert.strictEqual(component.displayDoneButton, true);
+        const componentStep = { data: { quality_state: "none", quality_shop_floor_deferred: false } };
+        data.check_ids.records.push(componentStep);
+        assert.strictEqual(component.displayDoneButton, false);
+        componentStep.data.quality_state = "pass";
+        await component.onClickValidateButton();
+        assert.deepEqual(calls, [["mrp.workorder", "do_finish", [[17]]], ["reload", 31]]);
+        assert.strictEqual(component.state.validated, true);
+        assert.strictEqual(data.check_ids.records[0].data.quality_state, "none");
+        assert.strictEqual(production.data.quality_unit_route_required, false);
     });
 
     QUnit.test("An ordinary WO still runs the native precheck and deferred validation", async (assert) => {

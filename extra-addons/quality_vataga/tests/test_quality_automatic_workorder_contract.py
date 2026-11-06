@@ -67,27 +67,41 @@ class Rows(list):
 class TestCanonicalIdentityReuse(unittest.TestCase):
     def setUp(self):
         self.check = shipped_class('models/quality_check_identity.py', 'QualityCheckIdentity',
-                                   {'_ensure_qc_unit_identity'})()
+                                   {'_ensure_qc_unit_identity', '_requires_qc_unit_identity'})()
         check = self.check
-        production = Record(id=1, _lock_quality_transfer_scope=Mock(), workorder_ids=Rows())
+        production = Record(id=1, _lock_quality_transfer_scope=Mock(), workorder_ids=Rows(),
+                            quality_unit_route_required=False, quality_transfer_controlled=False)
         run = Record(id=2, state='registered', production_id=production)
         self.units = Rows(Record(id=number + 10, unit_number=number,
             registration_run_id=run, production_id=production) for number in (3, 1, 2))
         run.unit_ids = self.units
         self.run, self.production = run, production
         check.ensure_one = Mock()
-        check.env = NS(cr=NS(savepoint=nullcontext))
+        class Env:
+            cr = NS(savepoint=nullcontext)
+            def __getitem__(self, model):
+                assert model == 'quality.production.run'
+                return NS(sudo=lambda: NS(search_count=lambda *args, **kwargs: 0))
+        check.env = Env()
         check.x_control_stage, check.quality_state, check.operation_run_id = 'in_process', 'none', False
-        check.sample_ids = Rows(Record(id=number, sample_number=number) for number in (1, 2, 3))
-        check.quality_execution_ids = NS(controlled_unit_id=Rows())
+        check.sample_ids = Rows(Record(id=number, sample_number=number, controlled_unit_id=Rows())
+                               for number in (1, 2, 3))
+        check.quality_execution_ids = Rows()
         check._get_in_process_batch_error = lambda **kw: False
-        check._check_identification_access = lambda: production
+        check._identity_production = check._check_identification_access = lambda: production
         check.invalidate_recordset = Mock()
         check._qc_existing_units = lambda: self.units
         check._qc_identity_workorder = lambda: Record(id=50, quality_native_identity_pending=False)
         check.product_id = NS(tracking='none')
         production.lot_producing_id = False
         check._identify_samples = Mock()
+
+    def test_ordinary_qc_does_not_initialize_unit_identity(self):
+        self.units.clear()
+        self.assertFalse(self.check._requires_qc_unit_identity())
+        self.check._ensure_qc_unit_identity()
+        self.check._identify_samples.assert_not_called()
+        self.production._lock_quality_transfer_scope.assert_not_called()
 
     def test_complete_registration_reuses_canonical_numbers_without_new_units(self):
         self.check._ensure_qc_unit_identity()
@@ -121,6 +135,37 @@ class TestCanonicalIdentityReuse(unittest.TestCase):
         self.check._ensure_qc_unit_identity()
         self.check._identify_samples.assert_not_called()
         self.production._lock_quality_transfer_scope.assert_not_called()
+
+
+class TestBatchInspectionCompletion(unittest.TestCase):
+    def test_batch_result_checks_samples_and_does_not_require_a_run(self):
+        cls = shipped_class('models/quality_check_unit_admission.py', 'QualityCheckUnitAdmission', {'write'})
+        check = Record(
+            id=1, x_control_stage='in_process', measurement_matrix_required=True,
+            quality_state='none', operation_run_id=False, equipment_selection_complete=True,
+            sample_ids=Rows([Record(id=1, is_complete=True)]),
+            _lock_unit_admission_scope=Mock(), _requires_qc_unit_identity=Mock(return_value=False),
+            _ensure_qc_unit_identity=Mock(), _validate_measurement_sample_structure=Mock())
+        recordset = cls()
+        recordset.env = NS(cr=NS(savepoint=nullcontext))
+        recordset.filtered = Rows([check]).filtered
+        recordset._write_with_qc_admissions = Mock(return_value=True)
+
+        self.assertTrue(recordset.write({'quality_state': 'pass'}))
+        check._ensure_qc_unit_identity.assert_not_called()
+        check._validate_measurement_sample_structure.assert_called_once_with()
+        recordset._write_with_qc_admissions.assert_called_once_with({'quality_state': 'pass'})
+        recordset._write_with_qc_admissions.reset_mock()
+
+        check.sample_ids[0].is_complete = False
+        with self.assertRaisesRegex(UserError, 'Заповніть усі вимірювання'):
+            recordset.write({'quality_state': 'pass'})
+        check.sample_ids[0].is_complete = True
+        check._requires_qc_unit_identity.return_value = True
+        with self.assertRaisesRegex(UserError, 'Оберіть наявні вироби'):
+            recordset.write({'quality_state': 'pass'})
+        check._ensure_qc_unit_identity.assert_called_once_with()
+        recordset._write_with_qc_admissions.assert_not_called()
 
 
 class TestAutomaticEligibility(unittest.TestCase):

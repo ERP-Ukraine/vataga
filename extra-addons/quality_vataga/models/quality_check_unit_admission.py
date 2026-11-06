@@ -88,9 +88,10 @@ class QualityCheckUnitAdmission(models.Model):
                     if vals['quality_state'] == 'none' and check.quality_state != 'none':
                         check._guard_unit_admission_evidence_edit()
                     if vals['quality_state'] in ('pass', 'fail'):
-                        check._ensure_qc_unit_identity()
-                        if not check.operation_run_id:
-                            raise ValidationError(_('Оберіть наявні вироби у матриці перед завершенням контролю.'))
+                        if check._requires_qc_unit_identity():
+                            check._ensure_qc_unit_identity()
+                            if not check.operation_run_id:
+                                raise ValidationError(_('Оберіть наявні вироби у матриці перед завершенням контролю.'))
                         check._validate_measurement_sample_structure()
                         if not check.sample_ids or any(not sample.is_complete for sample in check.sample_ids) or not check.equipment_selection_complete:
                             raise ValidationError(_('Заповніть усі вимірювання, візуальний контроль та ЗВТ перед завершенням перевірки якості.'))

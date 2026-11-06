@@ -35,14 +35,13 @@ class TestQualityActualBatchRelease(QualityFullReleaseCase):
         last.button_start(bypass=True)
         self.point.picking_type_ids = [Command.set(self.warehouse.manu_type_id.ids)]
         check = self._check(production, workorder_id=last.id)
+        self._identify(check, last)
         self._fill(check)
         if result == 'fail':
             check.update_measurement_visual_result(check.sample_ids[-1].id, 'no')
             check.do_fail()
         elif result == 'pass':
             check.do_pass()
-        else:
-            check.initialize_qc_unit_identity()
         if finish:
             last.button_finish()
         else:

@@ -71,7 +71,7 @@ patch(MrpDisplayAction.prototype, {
         return {
             ...fields,
             "mrp.production": [...fields["mrp.production"], "quality_unit_route_required"],
-            "mrp.workorder": [...fields["mrp.workorder"], "quality_native_managed"],
+            "mrp.workorder": [...fields["mrp.workorder"], "quality_shop_floor_physical_finish"],
             "quality.check": [...fields["quality.check"], "quality_shop_floor_deferred"],
         };
     },
@@ -90,7 +90,7 @@ patch(MrpDisplayRecord.prototype, {
     },
 
     _workorderDisplayDoneButton() {
-        if (!this.props.record.data.quality_native_managed) {
+        if (!this.props.record.data.quality_shop_floor_physical_finish) {
             return super._workorderDisplayDoneButton();
         }
         return this.record.state === "progress" && this.record.check_ids.records.every(({ data }) =>
@@ -99,7 +99,7 @@ patch(MrpDisplayRecord.prototype, {
     },
 
     displayInstruction(record) {
-        if (this.props.record.data.quality_native_managed && record?.data.quality_shop_floor_deferred) {
+        if (this.props.record.data.quality_shop_floor_physical_finish && record?.data.quality_shop_floor_deferred) {
             const checks = this.checks;
             record = checks.slice(checks.indexOf(record) + 1).find(({ data }) =>
                 !data.quality_shop_floor_deferred && data.quality_state === "none"
@@ -134,7 +134,7 @@ patch(MrpDisplayRecord.prototype, {
     },
 
     onClickValidateButton() {
-        if (this.props.record.data.quality_native_managed) {
+        if (this.props.record.data.quality_shop_floor_physical_finish) {
             return this.validate();
         }
         return super.onClickValidateButton();
@@ -142,10 +142,13 @@ patch(MrpDisplayRecord.prototype, {
 
     async validate() {
         const { record, production } = this.props;
-        if (!production.data.quality_unit_route_required) {
-            return super.validate();
+        if (!record.data.quality_shop_floor_physical_finish) {
+            if (!production.data.quality_unit_route_required) {
+                return super.validate();
+            }
+            return;
         }
-        if (!record.data.quality_native_managed || this.qualityFinishing || this.state.validated) {
+        if (this.qualityFinishing || this.state.validated) {
             return;
         }
         this.qualityFinishing = true;

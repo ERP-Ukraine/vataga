@@ -1,4 +1,4 @@
-"""QUNIT evidence at native WO boundaries. No stock or timer implementation."""
+"""Physical completion and QUNIT evidence at native workorder boundaries."""
 import math
 import uuid
 from contextvars import ContextVar
@@ -6,6 +6,7 @@ from contextvars import ContextVar
 from odoo import _, api, fields, models
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.http import request
+from odoo.tools import float_compare
 
 from .native_backorder import native_operation_allows
 
@@ -89,6 +90,7 @@ class QualityNativeWorkorder(models.Model):
         'workorder_id', 'unit_id', string='Вироби цієї операції', copy=False,
         help='У сучасному поштучному маршруті система фіксує дозволений склад при штатному запуску робочого завдання. Поле зберігається для перегляду та аудиту.')
     quality_native_managed = fields.Boolean(compute='_compute_quality_native_managed')
+    quality_shop_floor_physical_finish = fields.Boolean(compute='_compute_quality_shop_floor_physical_finish')
     quality_native_status = fields.Text(string='Результат операції', compute='_compute_quality_native_status')
     quality_native_hold_reason = fields.Text(string='Що утримує вироби', compute='_compute_quality_native_status')
     quality_native_identity_pending = fields.Boolean(
@@ -103,6 +105,27 @@ class QualityNativeWorkorder(models.Model):
     def _quality_native_automatic(self):
         self.ensure_one()
         return self.production_id.quality_unit_route_required and not self.quality_transfer_controlled
+
+    @api.depends('check_ids.quality_state', 'check_ids.quality_shop_floor_deferred',
+                 'production_id.quality_unit_route_required', 'production_id.quality_transfer_revision',
+                 'quality_transfer_controlled', 'quality_native_identity_pending')
+    def _compute_quality_shop_floor_physical_finish(self):
+        for workorder in self:
+            workorder.quality_shop_floor_physical_finish = workorder._quality_uses_physical_finish()
+
+    def _quality_uses_physical_finish(self):
+        self.ensure_one()
+        if native_operation_allows(self.production_id) or self.quality_transfer_controlled:
+            return False
+        if self._quality_native_automatic():
+            return True
+        # Legacy MOs with unit evidence keep their existing completion policy.
+        # The pending step selects the path; verify_quality_checks authorizes deferral.
+        return bool(self.check_ids.filtered(
+            lambda check: check.quality_state == 'none' and check.quality_shop_floor_deferred
+        ) and not self.quality_native_identity_pending
+            and not self.production_id._full_release_units()
+            and not self._quality_native_history())
 
     def _quality_native_available_units(self, universe):
         """Read-only eligibility; mutation callers still lock and revalidate."""
@@ -469,12 +492,13 @@ class QualityNativeWorkorder(models.Model):
         for workorder in self:
             if workorder.state == 'done':
                 continue  # Never backfill a previously completed operation.
-            if workorder._quality_native_automatic():
-                scope = physical_finish_scope(workorder)
-                if (not scope or workorder.qty_producing != scope[2]
-                        or workorder.qty_produced not in (0, scope[2])):
-                    raise UserError(_('Підтвердьте фактичну обробку штатною кнопкою завершення робочого завдання.'))
+            scope = physical_finish_scope(workorder)
+            if scope:
+                if workorder.qty_producing != scope[2] or workorder.qty_produced not in (0, scope[2]):
+                    raise UserError(_('Фактична кількість змінилася під час завершення робочого завдання.'))
                 continue  # Own QC gates advancement/release, not physical closure.
+            if workorder._quality_native_automatic():
+                raise UserError(_('Підтвердьте фактичну обробку штатною кнопкою завершення робочого завдання.'))
             if workorder.quality_native_identity_pending:
                 raise UserError(_('Підтверджене виготовлення потребує відповідності зразків виробам перед закриттям операції.'))
             checks = workorder._quality_native_checks(require_all=not workorder._quality_native_is_final())
@@ -568,22 +592,15 @@ class QualityNativeWorkorder(models.Model):
         return super().start_employee(employee_id)
 
     def do_finish(self):
-        if self and self._quality_native_automatic():
-            # Enterprise do_finish ends the timer before calling record_production.
-            return self.record_production()
+        if self and self._quality_uses_physical_finish():
+            # Enterprise ends the timer here, before its QC check and early split.
+            return self._finish_quality_native_work('button_finish', shop_floor=True)
         return super().do_finish()
 
     def record_production(self):
-        if not self or not self._quality_native_automatic():
-            return super().record_production()
-        with self.env.cr.savepoint():
-            self._check_quality_execution_access()
-            self.production_id._check_quality_transfer_boundary()
-            self.invalidate_recordset()
-            if self.state == 'done':
-                return True  # A repeated Shop Floor RPC must not reconcile or restart a WO.
-            self._check_shop_floor_operator(require_timer=True)
-            return self._finish_quality_native_work('button_finish')
+        if self and self._quality_uses_physical_finish():
+            return self._finish_quality_native_work('button_finish', shop_floor=True)
+        return super().record_production()
 
     def _quality_confirm_on_native_finish(self):
         """Prepare exact physical facts; native completion closes the WO next."""
@@ -645,63 +662,82 @@ class QualityNativeWorkorder(models.Model):
             return True
         return False
 
-    def _finish_quality_native_work(self, method):
-        """One protected physical lifecycle for all three native finish aliases."""
+    def _finish_quality_native_work(self, method, shop_floor=False):
+        """Use native button_finish when confirming work before its own QC."""
         with self.env.cr.savepoint():
-            if not any(workorder._quality_native_automatic() for workorder in self):
-                remaining = self.filtered(lambda workorder: not workorder._quality_confirm_on_native_finish())
-                if not remaining:
-                    return True
+            physical = self.filtered(lambda workorder: workorder._quality_uses_physical_finish())
+            remaining = self
+            if physical:
+                physical.production_id._check_quality_transfer_boundary()
+                physical.invalidate_recordset()
+                physical = physical.filtered(lambda workorder: workorder._quality_uses_physical_finish())
+                remaining -= physical
+            for workorder in physical:
+                workorder._check_quality_execution_access()
+                automatic = workorder._quality_native_automatic()
+                if workorder.state in ('done', 'cancel'):
+                    if (workorder.state == 'done' and automatic and not shop_floor
+                            and workorder.quality_native_identity_pending
+                            and len(workorder.production_id._full_release_units()) == workorder.qty_produced):
+                        workorder.action_confirm_quality_native_units()
+                    continue
+                if shop_floor:
+                    workorder._check_shop_floor_operator(require_timer=True)
+                quantity = workorder.qty_producing
+                if (not math.isfinite(quantity) or quantity > workorder.qty_production
+                        or float_compare(quantity, 0, precision_rounding=workorder.product_uom_id.rounding) <= 0):
+                    raise ValidationError(_('Задайте фактичну кількість виготовлених виробів у межах плану.'))
+                if automatic and (workorder.product_uom_id != self.env.ref('uom.product_uom_unit')
+                                  or quantity != int(quantity)):
+                    raise ValidationError(_('Задайте фактичну цілу кількість виготовлених виробів у межах плану.'))
+                timers = workorder.time_ids.filtered(lambda timer: not timer.date_end)
+                if (workorder.state != 'progress'
+                        or timers.filtered(lambda timer: timer.user_id != self.env.user)
+                        or not timers and (not automatic or not workorder.qty_produced)):
+                    raise UserError(_('Завершити обробку має оператор, який почав штатну роботу.'))
+                if not automatic:
+                    if workorder.production_id.state not in ('confirmed', 'progress', 'to_close'):
+                        raise UserError(_('Обробку можна підтвердити лише у відкритому виробничому замовленні.'))
+                    if workorder.working_state == 'blocked':
+                        raise UserError(_('Спочатку розблокуйте робочий центр.'))
+                    if not shop_floor:
+                        employee = self.env.user.employee_id
+                        if ((not workorder.all_employees_allowed and employee.id not in workorder.allowed_employees.ids)
+                                or timers.filtered(lambda timer: timer.employee_id and timer.employee_id != employee)):
+                            raise UserError(_('Завершити обробку має працівник, який її виконує.'))
+                if automatic and workorder._quality_confirm_on_native_finish():
+                    continue
+                workorder._quality_finish_physical_work(quantity)
+
+            remaining = remaining.filtered(lambda workorder: not (
+                workorder._quality_native_automatic() and workorder.state in ('done', 'cancel')
+                or workorder._quality_confirm_on_native_finish()))
+            if remaining:
                 remaining._check_quality_native_finish()
                 return getattr(super(QualityNativeWorkorder, remaining), method)()
-            for workorder in self:
-                if workorder._quality_native_automatic() and not native_operation_allows(workorder.production_id):
-                    workorder.production_id._check_quality_transfer_boundary()
-                    workorder.invalidate_recordset()
-                if workorder.state == 'done' and workorder.quality_native_identity_pending:
-                    if len(workorder.production_id._full_release_units()) == workorder.qty_produced:
-                        workorder.action_confirm_quality_native_units()
-                if workorder.state in ('done', 'cancel'):
-                    continue
-                if workorder._quality_native_automatic() and not native_operation_allows(workorder.production_id):
-                    workorder._check_quality_execution_access()
-                    quantity = workorder.qty_producing
-                    timers = workorder.time_ids.filtered(lambda timer: not timer.date_end)
-                    if (workorder.product_uom_id != self.env.ref('uom.product_uom_unit')
-                            or not math.isfinite(quantity) or quantity <= 0 or quantity != int(quantity)
-                            or quantity > workorder.qty_production):
-                        raise ValidationError(_('Задайте фактичну цілу кількість виготовлених виробів у межах плану.'))
-                    if (workorder.state != 'progress'
-                            or timers.filtered(lambda timer: timer.user_id != self.env.user)
-                            or not workorder.qty_produced and not timers):
-                        raise UserError(_('Завершити обробку має оператор, який почав штатну роботу.'))
-                if workorder._quality_confirm_on_native_finish():
-                    continue
-                if not workorder._quality_native_automatic() or native_operation_allows(workorder.production_id):
-                    getattr(super(QualityNativeWorkorder, workorder), method)()
-                    continue
-                quantity = workorder.qty_producing
-                production = workorder.production_id
-                before = (production.product_qty, production.qty_produced,
-                          set((production.move_raw_ids | production.move_finished_ids).filtered(
-                              lambda move: move.state == 'done').ids))
-                token = _PHYSICAL_FINISH.set((self.env.cr, workorder.id, quantity))
-                try:
-                    # Keep Enterprise button_finish and end_all in the MRO.
-                    # Only verify_quality_checks may defer this WO's own QC.
-                    super(QualityNativeWorkorder, workorder).button_finish()
-                    if (workorder.state != 'done' or workorder.qty_produced != quantity
-                            or workorder.qty_producing != quantity
-                            or workorder.time_ids.filtered(lambda timer: not timer.date_end)):
-                        raise ValidationError(_('Штатне завершення не підтвердило фактичну обробку та закриття робочих інтервалів.'))
-                    after = (production.product_qty, production.qty_produced,
-                             set((production.move_raw_ids | production.move_finished_ids).filtered(
-                                 lambda move: move.state == 'done').ids))
-                    if after != before or production.state == 'done':
-                        raise ValidationError(_('Завершення обробки не повинно змінювати план або проводити склад. Усі зміни скасовано.'))
-                finally:
-                    _PHYSICAL_FINISH.reset(token)
         return True
+
+    def _quality_finish_physical_work(self, quantity):
+        self.ensure_one()
+        production = self.production_id
+        moves = production.move_raw_ids | production.move_finished_ids
+        before = (production.product_qty, production.qty_produced,
+                  set(moves.filtered(lambda move: move.state == 'done').ids))
+        token = _PHYSICAL_FINISH.set((self.env.cr, self.id, quantity))
+        try:
+            # Keep the Enterprise verifier and native end_all in the MRO.
+            self._check_quality_native_finish()
+            super().button_finish()
+            if (self.state != 'done' or self.qty_produced != quantity or self.qty_producing != quantity
+                    or self.time_ids.filtered(lambda timer: not timer.date_end)):
+                raise ValidationError(_('Штатне завершення не підтвердило фактичну обробку та закриття робочих інтервалів.'))
+            moves = production.move_raw_ids | production.move_finished_ids
+            after = (production.product_qty, production.qty_produced,
+                     set(moves.filtered(lambda move: move.state == 'done').ids))
+            if after != before or production.state == 'done':
+                raise ValidationError(_('Завершення обробки не повинно змінювати план або проводити склад. Усі зміни скасовано.'))
+        finally:
+            _PHYSICAL_FINISH.reset(token)
 
     def verify_quality_checks(self):
         if not physical_finish_scope(self):
@@ -715,13 +751,20 @@ class QualityNativeWorkorder(models.Model):
         pending.check_access_rule('read')
         # Only this WO's Vataga inspection can be performed after physical
         # completion. Other Shop Floor steps must be completed there first.
+        automatic = self._quality_native_automatic()
         if pending.filtered(lambda check: not (
-                check.quality_shop_floor_deferred
+                check.quality_state == 'none'
+                and check.quality_shop_floor_deferred
+                and check.x_control_stage == 'in_process'
                 and check.workorder_id == self
                 and check._identity_production() == self.production_id
                 and check.product_id == self.product_id
                 and (not check.company_id or check.company_id == self.company_id)
-                and (not check.operation_run_id or check.operation_run_id.workorder_id == self))):
+                and (not check.operation_run_id or check.operation_run_id.workorder_id == self)
+                and (automatic or (
+                    check.test_type in ('passfail', 'measure')
+                    and not (check.component_id or check.picking_id or check.move_line_id
+                             or check.operation_run_id))))):
             raise UserError(_('Спочатку завершіть інші обов’язкові кроки цього робочого завдання у виробничому цеху.'))
 
     def button_finish(self):

@@ -249,6 +249,8 @@ class MatrixNativeCompletion(models.Model):
                 production.qty_producing or production.product_qty, unit, round=False)
             reported = production.product_uom_id._compute_quantity(production.qty_produced, unit, round=False)
             for check in checks:
+                if check.quality_state == 'none' and (workorders is None or check.unit_admission_role == 'required'):
+                    raise UserError(_('Завершіть обов’язкову міжопераційну перевірку якості %s.') % check.display_name)
                 if (check.quality_state == 'fail' or check._get_in_process_batch_error() or not check.sample_ids
                         or not math.isfinite(requested) or requested <= 0 or requested != int(requested)
                         or requested > check.x_passed_qty

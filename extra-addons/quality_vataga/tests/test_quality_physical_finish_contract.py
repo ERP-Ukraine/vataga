@@ -94,6 +94,8 @@ class NativeDouble:
     def button_finish(self):
         self.env.native_calls += 1
         for wo in self:
+            if wo.state in ('done', 'cancel'):
+                continue
             wo.end_all()
             wo.write({'qty_produced': wo.qty_produced or wo.qty_producing or wo.qty_production,
                       'state': 'done', 'date_finished': 'closed'})
@@ -141,6 +143,9 @@ class EnterpriseDouble(NativeDouble):
 
 class TestPhysicalFinishLifecycle(unittest.TestCase):
     def setUp(self):
+        self._setup_lifecycle()
+
+    def _setup_lifecycle(self, enterprise=EnterpriseDouble):
         partial, finish = ContextVar('test_partial', default=None), ContextVar('test_finish', default=None)
         self.partial, self.finish = partial, finish
         def partial_allows(wo):
@@ -152,16 +157,20 @@ class TestPhysicalFinishLifecycle(unittest.TestCase):
         cls = shipped_class('models/quality_native_workorder.py', 'QualityNativeWorkorder', {
             '_quality_native_automatic', '_check_quality_native_start', '_check_quality_native_finish',
             '_quality_confirm_on_native_finish', '_finish_quality_native_work',
+            '_quality_finish_physical_work', '_quality_uses_physical_finish',
             'verify_quality_checks', 'button_finish', 'button_done', 'action_mark_as_done', 'button_start', 'write',
             'do_finish', 'record_production', '_check_shop_floor_operator',
-            'action_confirm_quality_native_units', '_check_quality_native_selection', '_compute_quality_native_status'}, parent=EnterpriseDouble,
-            math=math, uuid=NS(uuid4=lambda: 'request'), _PARTIAL_EXECUTION=partial, _PHYSICAL_FINISH=finish,
+            'action_confirm_quality_native_units', '_check_quality_native_selection', '_compute_quality_native_status'}, parent=enterprise,
+            math=math, float_compare=lambda left, right, precision_rounding: (
+                (round(left / precision_rounding) > round(right / precision_rounding))
+                - (round(left / precision_rounding) < round(right / precision_rounding))),
+            uuid=NS(uuid4=lambda: 'request'), _PARTIAL_EXECUTION=partial, _PHYSICAL_FINISH=finish,
             partial_execution_allows=partial_allows, physical_finish_scope=finish_scope,
             native_operation_allows=lambda production: False, PARTIAL_WO_MESSAGE='upstream not processed', request=False)
         self.units = Rows(NS(id=i, display_name='QUNIT/%s' % i) for i in (101, 102))
         self.history = Rows()
         self.operator = NS(id=1, employee_id=NS(id=4))
-        uom = NS(id=1, _compute_quantity=lambda qty, unit, round=False: qty)
+        uom = NS(id=1, rounding=1, _compute_quantity=lambda qty, unit, round=False: qty)
         lock = RLock()
         self.production = NS(quality_unit_route_required=True, state='progress', product_qty=3,
             qty_produced=0, _check_quality_transfer_boundary=Mock(),
@@ -173,7 +182,7 @@ class TestPhysicalFinishLifecycle(unittest.TestCase):
             production_id=self.production, product_uom_id=uom,
             product_id=NS(id=20), company_id=NS(id=30), check_ids=Rows(), employee_ids=[self.operator],
             time_ids=Rows([NS(id=1, user_id=self.operator, employee_id=self.operator.employee_id, date_end=False)]),
-            all_employees_allowed=True,
+            all_employees_allowed=True, working_state='normal',
             _check_quality_execution_access=Mock(), _prepare_quality_native_checks=Mock(),
             _quality_native_is_final=lambda: True, _quality_native_predecessors=lambda: Rows(),
             _quality_native_units=lambda: self.units, _quality_native_history=lambda: self.history,
@@ -225,6 +234,7 @@ class TestPhysicalFinishLifecycle(unittest.TestCase):
         check = NS(id=len(self.row.check_ids) + 1, quality_state='none', test_type='measure',
                    x_control_stage='in_process', workorder_id=self.wo, operation_run_id=None,
                    product_id=self.row.product_id, company_id=self.row.company_id,
+                   component_id=False, picking_id=False, move_line_id=False,
                    _identity_production=lambda: self.production)
         check.__dict__.update(values)
         check.quality_shop_floor_deferred = check.test_type == 'measure' and check.x_control_stage == 'in_process'
@@ -251,13 +261,139 @@ class TestPhysicalFinishLifecycle(unittest.TestCase):
         self.assertIsNone(self.finish.get())
         self.row._quality_validate_native_checks.assert_not_called()
 
-    def test_ordinary_production_still_uses_enterprise_quality_gate(self):
+    def _ordinary_order(self, quantity=3):
         self.production.quality_unit_route_required = False
         self.units.clear()
+        self.row.qty_producing = quantity
+
+    def _assert_ordinary_physical_result(self, check, quantity=3):
+        self.assertEqual((self.row.state, self.row.qty_produced), ('done', quantity))
+        self.assertEqual(check.quality_state, 'none')
+        self.assertEqual((self.production.product_qty, self.production.qty_produced), (3, 0))
+        self.assertFalse(self.production.move_raw_ids | self.production.move_finished_ids)
+        self.assertFalse(self.units or self.history or self.row.quality_native_identity_pending)
+        self.assertTrue(self.row.time_ids[0].date_end)
+        self.assertEqual(self.row.time_ids[0].employee_id, self.operator.employee_id)
+        self.row._prepare_quality_native_checks.assert_not_called()
+
+    def test_ordinary_cab_05170_closes_last_operation_with_pending_own_qc(self):
+        self._ordinary_order()
+        first = NS(state='done', qty_produced=3, _quality_native_checks=lambda: Rows(),
+                   _quality_native_history=lambda: Rows())
+        self.row._quality_native_predecessors = lambda: Rows([first])
         check = self._pending_check()
-        with self.assertRaisesRegex(UserError, SHOP_FLOOR_GATE):
+        with patch.object(type(self.wo), 'verify_quality_checks', EnterpriseDouble.verify_quality_checks):
+            with self.assertRaisesRegex(UserError, SHOP_FLOOR_GATE):
+                self.wo.button_finish()
+        self.assertEqual((self.row.state, self.row.qty_produced, check.quality_state), ('progress', 0, 'none'))
+        self.assertFalse(self.row.time_ids[0].date_end)
+
+        self.wo.button_finish()
+        self._assert_ordinary_physical_result(check)
+        self.assertEqual(first.qty_produced, 3)
+
+    def test_ordinary_full_and_partial_completion_use_native_lifecycle_for_all_entry_points(self):
+        for method, quantity in (('button_finish', 3), ('button_done', 3), ('action_mark_as_done', 3),
+                                 ('do_finish', 2), ('record_production', 2)):
+            with self.subTest(method=method):
+                self.setUp()
+                self._ordinary_order(quantity)
+                check = self._pending_check()
+                getattr(self.wo, method)()
+                self._assert_ordinary_physical_result(check, quantity)
+                for retry in (self.wo.button_finish, self.wo.do_finish, self.wo.record_production):
+                    retry()
+                self.assertEqual((self.env.native_calls, len(self.row.time_ids)), (1, 1))
+
+    def test_ordinary_pass_or_no_qc_keeps_standard_native_finish(self):
+        for has_check in (True, False):
+            with self.subTest(has_check=has_check):
+                self.setUp()
+                self._ordinary_order()
+                check = self._pending_check(quality_state='pass') if has_check else None
+                self.assertFalse(self.wo._quality_uses_physical_finish())
+                self.wo.button_finish()
+                self.assertEqual((self.row.state, self.row.qty_produced, self.env.native_calls), ('done', 3, 1))
+                self.assertEqual(self.row.check_ids, [check] if has_check else [])
+                if check:
+                    self.assertEqual(check.quality_state, 'pass')
+
+    def test_ordinary_pending_other_steps_or_foreign_checks_cannot_be_deferred(self):
+        for changes in (
+            {'test_type': 'register_consumed_materials'},
+            {'test_type': 'instructions'},
+            {'test_type': 'unknown_step', 'quality_shop_floor_deferred': True},
+            {'workorder_id': NS(id=777)},
+            {'_identity_production': lambda: NS(id=999)},
+            {'company_id': NS(id=999)},
+            {'product_id': NS(id=999)},
+            {'component_id': NS(id=999)},
+        ):
+            with self.subTest(changes=changes):
+                self.setUp()
+                self._ordinary_order()
+                own = self._pending_check()
+                other = self._pending_check(**changes)
+                if changes.get('quality_shop_floor_deferred'):
+                    other.quality_shop_floor_deferred = True
+                for call in (self.wo.button_finish, self.wo.button_done, self.wo.do_finish):
+                    with self.assertRaisesRegex(UserError, 'інші обов’язкові кроки'):
+                        call()
+                self.assertEqual((own.quality_state, other.quality_state), ('none', 'none'))
+                self.assertEqual((self.row.state, self.row.qty_produced, self.env.native_calls), ('progress', 0, 0))
+                self.assertFalse(self.row.time_ids[0].date_end)
+
+    def test_ordinary_wrong_link_alone_cannot_finish_through_an_alias(self):
+        self._ordinary_order()
+        self._pending_check(product_id=NS(id=999))
+        for call in (self.wo.button_finish, self.wo.button_done, self.wo.action_mark_as_done, self.wo.do_finish):
+            with self.assertRaises(UserError):
+                call()
+        self.assertEqual((self.row.state, self.env.native_calls), ('progress', 0))
+
+    def test_ordinary_finish_checks_acl_operator_and_open_interval(self):
+        self._ordinary_order()
+        self._pending_check()
+        self.row._check_quality_execution_access.side_effect = AccessError('WO access denied')
+        with self.assertRaises(AccessError):
             self.wo.button_finish()
-        self.assertEqual((self.row.state, check.quality_state, self.env.native_calls), ('progress', 'none', 0))
+        self.row._check_quality_execution_access.side_effect = None
+        timer = self.row.time_ids[0]
+        timer.employee_id = NS(id=999)
+        for call in (self.wo.button_finish, self.wo.do_finish):
+            with self.assertRaises(UserError):
+                call()
+        timer.employee_id = self.operator.employee_id
+        timer.date_end = 'already paused'
+        with self.assertRaisesRegex(UserError, 'оператор'):
+            self.wo.button_finish()
+        self.assertEqual((self.row.state, self.row.qty_produced, self.env.native_calls), ('progress', 0, 0))
+
+    def test_ordinary_physical_finish_requires_a_valid_registered_quantity(self):
+        for quantity in (0, 0.01, -1, 4, float('nan'), float('inf')):
+            with self.subTest(quantity=quantity):
+                self.setUp()
+                self._ordinary_order(quantity)
+                self._pending_check()
+                with self.assertRaisesRegex(UserError, 'фактичну кількість'):
+                    self.wo.do_finish()
+                self.assertEqual((self.row.state, self.env.native_calls), ('progress', 0))
+                self.assertFalse(self.row.time_ids[0].date_end)
+
+    def test_ordinary_native_failure_rolls_back_and_concurrent_retry_finishes_once(self):
+        self._ordinary_order()
+        check = self._pending_check()
+        self.env.fail_native = True
+        with self.assertRaisesRegex(UserError, 'native finish failed'):
+            self.wo.do_finish()
+        self.assertEqual((self.row.state, self.row.qty_produced, check.quality_state), ('progress', 0, 'none'))
+        self.assertFalse(self.row.time_ids[0].date_end)
+        self.assertIsNone(self.finish.get())
+        self.env.fail_native = False
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            self.assertEqual(list(pool.map(lambda _: self.wo.do_finish(), range(2))), [True, True])
+        self._assert_ordinary_physical_result(check)
+        self.assertEqual((self.env.native_calls, len(self.row.time_ids)), (2, 1))
 
     def test_scope_defers_only_this_workorders_inspection(self):
         own = self._pending_check()
@@ -458,6 +594,46 @@ class TestPhysicalFinishLifecycle(unittest.TestCase):
         self.assertEqual((self.production.qty_produced, len(self.units), len(self.history)), (0, 2, 2))
         self.assertTrue(all(timer.date_end for timer in self.row.time_ids))
 
+    def test_reference_enterprise_gate_and_odoo_finish_on_ordinary_wo(self):
+        enterprise_file = os.environ.get('ODOO17_ENTERPRISE_WORKORDER')
+        odoo_source = os.environ.get('ODOO17_SOURCE')
+        if not (enterprise_file and odoo_source):
+            self.skipTest('Set both source paths to execute reference Enterprise and base Odoo bodies.')
+
+        def read_methods(path, class_name, names):
+            tree = ast.parse(path.read_text(encoding='utf-8'))
+            model = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == class_name)
+            return [node for node in model.body if isinstance(node, ast.FunctionDef) and node.name in names]
+
+        enterprise_file = Path(enterprise_file)
+        enterprise_methods = read_methods(enterprise_file, 'MrpProductionWorkcenterLine',
+                                          {'button_finish', 'verify_quality_checks', 'end_all'})
+        enterprise = ast.parse('class ReferenceEnterprise(NativeDouble): pass')
+        enterprise.body[0].body = enterprise_methods
+        clear_employees = object()
+        scope = {'NativeDouble': NativeDouble, 'UserError': UserError, '_': lambda message: message,
+                 'Command': NS(clear=lambda: clear_employees)}
+        exec(compile(enterprise, str(enterprise_file), 'exec'), scope)
+        reference = scope['ReferenceEnterprise']
+        self._setup_lifecycle(enterprise=reference)
+        self._ordinary_order()
+        check = self._pending_check()
+
+        native_file = Path(odoo_source) / 'addons/mrp/models/mrp_workorder.py'
+        base = ast.Module(body=read_methods(native_file, 'MrpWorkorder', {'button_finish'}), type_ignores=[])
+        exec(compile(base, str(native_file), 'exec'),
+             {'fields': NS(Datetime=NS(now=lambda: '2026-11-05T02:00:00'))}, scope)
+        self.row.date_start = '2026-11-05T01:00:00'
+        self.row.workcenter_id = NS(costs_hour=10)
+        with patch.object(NativeDouble, 'button_finish', scope['button_finish']):
+            with self.assertRaisesRegex(UserError, SHOP_FLOOR_GATE):
+                reference.button_finish(reference([self.row], self.env))
+            self.assertFalse(self.row.time_ids[0].date_end)
+            self.wo.button_finish()
+
+        self._assert_ordinary_physical_result(check)
+        self.assertEqual(self.row.employee_ids, [clear_employees])
+
     def test_local_enterprise_do_finish_splits_before_button_finish_without_adapter(self):
         source = os.environ.get('ODOO17_ENTERPRISE_WORKORDER')
         if not source:
@@ -506,6 +682,82 @@ class TestPhysicalFinishLifecycle(unittest.TestCase):
             self.assertEqual((self.production.product_qty, self.production.qty_produced), (3, 0))
             self.assertFalse(self.production.move_raw_ids)
 
+
+
+class TestOrdinaryStockGate(unittest.TestCase):
+    def test_pending_fail_and_alert_block_native_stock_until_inspector_passes(self):
+        class NativeStock:
+            def __iter__(self):
+                yield self
+
+            def sorted(self, field):
+                return self
+
+            def pre_button_mark_done(self):
+                return True
+
+            def button_mark_done(self):
+                self.pre_button_mark_done()
+                return self._post_inventory(cancel_backorder=True)
+
+            def _post_inventory(self, cancel_backorder=False):
+                self.qty_produced = self.qty_producing
+                self.moves[:] = ['raw done', 'finished done']
+                return True
+
+        transfer = shipped_class('models/quality_transfer_mrp.py', 'MrpProductionTransfer',
+                                 {'pre_button_mark_done', 'button_mark_done', '_post_inventory'},
+                                 parent=NativeStock)
+        matrix = shipped_class('models/quality_matrix_hold.py', 'MatrixNativeCompletion',
+                               {'_check_matrix_native_completion'}, parent=transfer,
+                               native_operation_allows=lambda production: False, math=math)
+        production = matrix()
+        check = NS(id=1, display_name='QC001', quality_state='none', unit_admission_role='required',
+                   sample_ids=Rows(NS(id=i, sample_result='pass') for i in range(1, 4)),
+                   x_passed_qty=3, _get_in_process_batch_error=lambda: False,
+                   _validate_measurement_can_pass=Mock(), _matrix_alert_hold_error=Mock(return_value=False))
+        uom = NS(category_id=1, _compute_quantity=lambda qty, unit, round: qty)
+        quality_check = NS(_fields={'workorder_id'}, flush_model=Mock(), browse=lambda ids: Rows([check]))
+        class Env:
+            ref = staticmethod(lambda xmlid: uom)
+            cr = NS(execute=Mock(), fetchall=lambda: [(1,)])
+            def __getitem__(self, name):
+                if name == 'quality.check':
+                    return quality_check
+                if name == 'quality.production.run':
+                    return NS(flush_model=Mock())
+                raise AssertionError(name)
+
+        production.env = Env()
+        production.id = 1
+        production.quality_transfer_controlled = False
+        production.quality_unit_route_required = False
+        production._check_required_unit_route_completion = Mock()
+        production._lock_quality_transfer_scope = Mock()
+        production._check_quality_transfer_boundary = Mock()
+        production.qty_producing, production.qty_produced, production.product_qty = 3, 0, 3
+        production.product_uom_id = uom
+        production.moves = []
+
+        predecessor = Rows([NS(id=10, production_id=production)])
+        with self.assertRaisesRegex(UserError, 'QC001'):
+            production._check_matrix_native_completion(workorders=predecessor)
+        check.unit_admission_role = 'optional'
+        production._check_matrix_native_completion(workorders=predecessor)
+        check.unit_admission_role = 'required'
+
+        for state in ('none', 'fail', 'pass'):
+            check.quality_state = state
+            check._matrix_alert_hold_error.return_value = 'Open Alert' if state == 'pass' else False
+            for call in (production.pre_button_mark_done, production.button_mark_done, production._post_inventory):
+                with self.subTest(state=state, method=call.__name__):
+                    with self.assertRaises(UserError):
+                        call()
+                    self.assertEqual((production.qty_produced, production.moves), (0, []))
+
+        check._matrix_alert_hold_error.return_value = False
+        self.assertTrue(production.button_mark_done())
+        self.assertEqual((production.qty_produced, production.moves), (3, ['raw done', 'finished done']))
 
 if __name__ == '__main__':
     unittest.main()
