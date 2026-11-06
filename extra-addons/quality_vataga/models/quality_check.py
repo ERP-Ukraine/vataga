@@ -3,6 +3,7 @@ from math import isclose
 
 from odoo import _, api, Command, fields, models
 from odoo.exceptions import AccessError, UserError, ValidationError
+from odoo.tools.float_utils import float_compare
 from odoo.tools.misc import formatLang, get_lang
 
 from .measurement_utils import (
@@ -613,10 +614,13 @@ class QualityCheck(models.Model):
             and {'qty_done', 'finished_product_sequence'} <= self._fields.keys()
             and (lot or production.product_tracking == 'none')
         ):
-            registration = self._find_in_process_registration(workorder, lot)
-            if registration:
+            registered_quantity = self._get_in_process_registration_quantity(
+                workorder, lot,
+                allow_shop_floor_quantity=not (quantity or production.qty_produced),
+            )
+            if registered_quantity:
                 quantity = production.product_uom_id._compute_quantity(
-                    registration.qty_done, unit, round=False,
+                    registered_quantity, unit, round=False,
                 )
 
         if quantity <= 0:
@@ -633,31 +637,63 @@ class QualityCheck(models.Model):
             )
         return count, False
 
-    def _find_in_process_registration(self, workorders, lot):
+    def _get_in_process_registration_quantity(
+        self, workorders, lot, *, allow_shop_floor_quantity,
+    ):
         production = self.production_id
         domain = [
             ('production_id', '=', production.id),
-            ('lot_id', '=', lot.id or False),
             ('finished_product_sequence', '=', self.finished_product_sequence),
             ('test_type_id.technical_name', '=', 'register_production'),
-            ('quality_state', '=', 'pass'),
-            ('qty_done', '>', 0),
+            '|', ('lot_id', '=', lot.id or False), ('lot_id', '=', False),
         ]
         # Odoo links the route (or explicit dependencies) with blocked_by.
         # Prefer this operation, then look at its nearest predecessors.
         visited = self.env['mrp.workorder']
+        has_registration_step = False
         while workorders:
-            registration = self.search(
+            steps = self.search(
                 domain + [('workorder_id', 'in', workorders.ids)],
-                order='id desc', limit=1,
+                order='id desc',
             )
+            registration = steps.filtered(
+                lambda step: step.quality_state == 'pass'
+                and step.lot_id == lot and step.qty_done > 0,
+            )[:1]
             if registration:
-                return registration
+                return registration.qty_done
+            has_registration_step = has_registration_step or bool(steps)
             visited |= workorders
             workorders = workorders.blocked_by_workorder_ids.filtered(
                 lambda wo: wo.production_id == production,
             ) - visited
-        return self.browse()
+        if allow_shop_floor_quantity and not has_registration_step:
+            return self._get_shop_floor_partial_quantity(visited, lot)
+        return 0.0
+
+    def _get_shop_floor_partial_quantity(self, workorders, lot):
+        production = self.production_id
+        quantity = production.qty_producing
+        rounding = production.product_uom_id.rounding
+        # The built-in Shop Floor dialog saves the MO quantity and lot without
+        # a registration record. Starting a WO can also prefill this field.
+        if (
+            production.state not in ('progress', 'to_close')
+            or production.product_tracking == 'serial'
+            or lot != production.lot_producing_id
+            or self.workorder_id.state == 'cancel'
+            or self.finished_product_sequence != self.workorder_id.qty_produced
+            or not workorders.filtered(lambda wo: wo.state in ('progress', 'done'))
+            or quantity <= 0
+            or float_compare(quantity, production.product_qty, precision_rounding=rounding) >= 0
+            or any(
+                float_compare(quantity, wo.qty_remaining, precision_rounding=rounding) == 0
+                for wo in workorders
+                if wo.state != 'cancel'
+            )
+        ):
+            return 0.0
+        return quantity
 
     def _prepare_automatic_measurement_samples(self):
         self.ensure_one()

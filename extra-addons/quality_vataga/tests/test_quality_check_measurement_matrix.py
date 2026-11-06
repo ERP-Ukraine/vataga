@@ -342,6 +342,29 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
         production.action_confirm()
         return production
 
+    def _create_lot_matrix_production(self):
+        product = self.env['product.product'].create({
+            'name': 'Виріб з партійним обліком',
+            'type': 'product',
+            'tracking': 'lot',
+        })
+        workcenter = self.env['mrp.workcenter'].create({
+            'name': 'Дільниця міжопераційного контролю',
+        })
+        bom = self.env['mrp.bom'].create({
+            'product_id': product.id,
+            'product_tmpl_id': product.product_tmpl_id.id,
+            'operation_ids': [
+                Command.create({
+                    'name': name,
+                    'sequence': sequence,
+                    'workcenter_id': workcenter.id,
+                })
+                for sequence, name in [(10, 'Виготовлення'), (20, 'Контроль')]
+            ],
+        })
+        return self._create_matrix_production(planned_quantity=5, bom=bom)
+
     def test_control_stage_is_copied_from_point_at_creation(self):
         point = self.quality_point
         incoming = self._create_check()
@@ -504,27 +527,8 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
             ('technical_name', '=', 'register_production'),
         ], limit=1)
         self.assertTrue(register_type)
-        product = self.env['product.product'].create({
-            'name': 'Виріб з партійним обліком',
-            'type': 'product',
-            'tracking': 'lot',
-        })
-        workcenter = self.env['mrp.workcenter'].create({
-            'name': 'Дільниця міжопераційного контролю',
-        })
-        bom = self.env['mrp.bom'].create({
-            'product_id': product.id,
-            'product_tmpl_id': product.product_tmpl_id.id,
-            'operation_ids': [
-                Command.create({
-                    'name': name,
-                    'sequence': sequence,
-                    'workcenter_id': workcenter.id,
-                })
-                for sequence, name in [(10, 'Виготовлення'), (20, 'Контроль')]
-            ],
-        })
-        production = self._create_matrix_production(planned_quantity=5, bom=bom)
+        production = self._create_lot_matrix_production()
+        product = production.product_id
         first, second = production.workorder_ids.sorted(
             lambda workorder: workorder.operation_id.sequence,
         )
@@ -555,7 +559,8 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
         registration = checks.create(dict(
             registration_vals, lot_id=lot.id, qty_done=3,
         ))
-        production.qty_producing = 5
+        first.button_start(bypass=True)
+        production.qty_producing = 3
         self.assertFalse(check.lot_id)
         self.assertEqual(production.lot_producing_id, lot)
         self.assertFalse(check.get_measurement_matrix_data()['samples'])
@@ -572,6 +577,61 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
         reopened = check.get_measurement_matrix_data()['samples']
         self.assertEqual([row['id'] for row in reopened], sample_ids)
         self.assertEqual(reopened[0]['visual_result'], 'yes')
+
+    def test_shop_floor_dialog_builds_next_operation_matrix_before_stock_posting(self):
+        checks = self.env['quality.check']
+        if 'finished_product_sequence' not in checks._fields:
+            self.skipTest('Shop Floor is not installed')
+        production = self._create_lot_matrix_production()
+        first, second = production.workorder_ids.sorted(
+            lambda workorder: workorder.operation_id.sequence,
+        )
+        lot = self.env['stock.lot'].create({
+            'name': 'Партія з діалогу Shop Floor',
+            'product_id': production.product_id.id,
+            'company_id': production.company_id.id,
+        })
+        point = self._create_visual_only_point('Контроль на наступній операції')
+        point.x_control_stage = 'in_process'
+        check = self._create_check_for_point(
+            point, production_id=production.id, workorder_id=second.id,
+        )
+        first.button_start(bypass=True)
+        self.assertEqual(first.state, 'progress')
+        self.assertEqual(second.state, 'pending')
+        self.assertEqual(production.qty_producing, 5)
+        production.lot_producing_id = lot
+        self.assertFalse(check.get_measurement_matrix_data()['samples'])
+
+        # The built-in dialog saves the MO and calls this RPC.
+        production.write({'qty_producing': 3, 'lot_producing_id': lot.id})
+        production.set_qty_producing()
+        self.assertFalse(check.lot_id)
+        self.assertEqual(production.product_qty, 5)
+        self.assertEqual(production.qty_produced, 0)
+        self.assertEqual(first.qty_producing, 3)
+        self.assertEqual(second.qty_producing, 3)
+        self.assertFalse(checks.search_count([
+            ('production_id', '=', production.id),
+            ('test_type_id.technical_name', '=', 'register_production'),
+        ]))
+        data = check.get_measurement_matrix_data()
+        self.assertEqual([row['sample_number'] for row in data['samples']], [1, 2, 3])
+        sample_ids = check.sample_ids.ids
+        for sample_id in sample_ids:
+            check.update_measurement_visual_result(sample_id, 'yes')
+        check.do_pass()
+        production.with_context(skip_backorder=True).button_mark_done()
+
+        self.assertEqual(production.state, 'done')
+        self.assertEqual(production.qty_produced, 3)
+        reopened = check.get_measurement_matrix_data()['samples']
+        self.assertEqual([row['id'] for row in reopened], sample_ids)
+        self.assertEqual([row['visual_result'] for row in reopened], ['yes'] * 3)
+        check_after = self._create_check_for_point(
+            point, production_id=production.id, workorder_id=second.id,
+        )
+        self.assertEqual(len(check_after.get_measurement_matrix_data()['samples']), 3)
 
     def test_point_without_matrix_configuration_stays_standard(self):
         point = self._create_visual_only_point(
