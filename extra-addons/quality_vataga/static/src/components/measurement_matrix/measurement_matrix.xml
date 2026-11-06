@@ -6,7 +6,7 @@
                 Завантаження матриці…
             </div>
             <div
-                t-if="!state.loading and checkId and state.data.editable"
+                t-if="!state.loading and checkId and state.data.editable and state.data.manual_samples"
                 class="o_quality_measurement_sample_controls"
             >
                 <label
@@ -77,7 +77,7 @@
                 перевірки недоступне.
             </div>
             <div
-                t-if="!state.loading and checkId and !state.data.is_complete and !state.data.has_failure"
+                t-if="!state.loading and checkId and !state.data.is_complete and !state.data.has_failure and !state.data.automatic_sample_message"
                 class="alert alert-warning"
                 role="alert"
             >
@@ -99,7 +99,12 @@
                 t-elif="!state.loading and !state.data.samples.length"
                 class="o_quality_measurement_empty text-muted py-3"
             >
-                Зразки ще не додані. Скористайтеся дією «Додати зразки».
+                <t t-if="state.data.automatic_sample_message"
+                   t-esc="state.data.automatic_sample_message"/>
+                <t t-elif="state.data.manual_samples">
+                    Зразки ще не додані. Скористайтеся дією «Додати зразки».
+                </t>
+                <t t-else="">Автоматичну вибірку не сформовано.</t>
             </div>
             <div
                 t-elif="!state.loading"

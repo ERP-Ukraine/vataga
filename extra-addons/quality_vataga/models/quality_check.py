@@ -1,7 +1,8 @@
 from decimal import Decimal
+from math import isclose
 
 from odoo import _, api, Command, fields, models
-from odoo.exceptions import UserError, ValidationError
+from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tools.misc import formatLang, get_lang
 
 from .measurement_utils import (
@@ -9,10 +10,18 @@ from .measurement_utils import (
     normalize_boolean_norm,
     parse_numeric_input,
 )
+from .quality_check_sample import AUTOMATIC_SAMPLE_INITIALIZATION
+from .quality_point import CONTROL_STAGES
 
 
 class QualityCheck(models.Model):
     _inherit = 'quality.check'
+
+    x_control_stage = fields.Selection(
+        CONTROL_STAGES, string='Етап контролю', default='incoming',
+        required=True, readonly=True, copy=False,
+    )
+    automatic_sample_count = fields.Integer(readonly=True, copy=False)
 
     equipment_selection_ids = fields.One2many(
         'quality.check.equipment.selection',
@@ -248,15 +257,35 @@ class QualityCheck(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         sanitized_vals_list = []
+        default_point_id = False
+        if any('point_id' not in vals for vals in vals_list):
+            default_point_id = self.default_get(['point_id']).get('point_id')
+        points = self.env['quality.point']
         for vals in vals_list:
             sanitized_vals = dict(vals)
             sanitized_vals.pop('measurement_matrix_required', None)
+            point = points.browse(vals.get('point_id', default_point_id))
+            sanitized_vals['x_control_stage'] = (
+                point.x_control_stage or 'incoming'
+            )
+            sanitized_vals['automatic_sample_count'] = 0
             sanitized_vals_list.append(sanitized_vals)
         checks = super().create(sanitized_vals_list)
         checks._initialize_measurement_snapshot()
+        checks.filtered(
+            lambda check: (
+                check.x_control_stage == 'in_process'
+                and check.quality_state == 'pass'
+            ),
+        )._validate_measurement_can_pass()
         return checks
 
     def write(self, vals):
+        if {'x_control_stage', 'automatic_sample_count'} & vals.keys():
+            raise UserError(_(
+                'Етап контролю та розмір автоматичної вибірки зберігаються '
+                'в перевірці та не редагуються вручну.',
+            ))
         if 'measurement_matrix_required' in vals:
             raise UserError(_(
                 'Ознака необхідності матриці є незмінним snapshot перевірки.',
@@ -280,6 +309,10 @@ class QualityCheck(models.Model):
                     'матриці показників.',
                 ))
 
+        if vals.get('quality_state') == 'pass':
+            self.filtered(
+                lambda check: check.x_control_stage == 'in_process',
+            )._validate_measurement_can_pass()
         result = super().write(vals)
         if 'point_id' in vals:
             self._initialize_measurement_snapshot()
@@ -314,6 +347,7 @@ class QualityCheck(models.Model):
             if (
                 not source_lines
                 and not check.point_id.visual_sample_control_required
+                and check.x_control_stage != 'in_process'
             ):
                 continue
             check._set_measurement_matrix_required()
@@ -533,9 +567,99 @@ class QualityCheck(models.Model):
                 'quality_check_id': persisted_check_id,
             }
 
+    def _get_in_process_sample_quantity(self):
+        self.ensure_one()
+        production = self.production_id
+        if not production or (
+            self.product_id and self.product_id != production.product_id
+        ):
+            return 0, _(
+                'Для автоматичної вибірки потрібне пов’язане виробниче '
+                'замовлення на виріб, що перевіряється.',
+            )
+
+        unit = self.env.ref('uom.product_uom_unit')
+        if production.product_uom_id.category_id != unit.category_id:
+            return 0, _(
+                'Автоматична вибірка потребує фактичної кількості у штуках.',
+            )
+
+        quantity = sum(
+            move.product_uom._compute_quantity(move.quantity, unit, round=False)
+            for move in production.move_finished_ids
+            if move.product_id == production.product_id
+            and move.state != 'cancel'
+            and (move.picked or move.state == 'done')
+        )
+        # An Enterprise Register Production step records the actual quantity
+        # for this work order and batch, even before the finished moves exist.
+        if (
+            production.state not in ('done', 'cancel')
+            and {'workorder_id', 'qty_done', 'finished_product_sequence'}
+            <= self._fields.keys()
+            and self.workorder_id
+        ):
+            registration = self.search([
+                ('production_id', '=', production.id),
+                ('workorder_id', '=', self.workorder_id.id),
+                ('finished_product_sequence', '=', self.finished_product_sequence),
+                ('test_type_id.technical_name', '=', 'register_production'),
+                ('quality_state', '=', 'pass'),
+                ('qty_done', '>', 0),
+            ], order='id desc', limit=1)
+            if registration:
+                quantity = production.product_uom_id._compute_quantity(
+                    registration.qty_done, unit, round=False,
+                )
+
+        if quantity <= 0:
+            return 0, _(
+                'Фактичну кількість виробів ще не зареєстровано. '
+                'Підтвердьте крок «Зареєструвати виробництво» для цієї '
+                'операції або відкрийте матрицю після проведення випуску.',
+            )
+        count = round(quantity)
+        if count < 1 or not isclose(quantity, count, rel_tol=0, abs_tol=1e-9):
+            return 0, _(
+                'Фактична кількість має бути цілим числом штук, '
+                'щоб створити зразок на кожен виріб.',
+            )
+        return count, False
+
+    def _prepare_automatic_measurement_samples(self):
+        self.ensure_one()
+        if (
+            self.x_control_stage != 'in_process'
+            or self.automatic_sample_count
+            or self.sample_ids
+            or self.quality_state != 'none'
+            or not self.measurement_matrix_required
+        ):
+            return False
+        count, message = self._get_in_process_sample_quantity()
+        if not count:
+            return message
+        try:
+            self._ensure_measurement_editable()
+        except AccessError:
+            return _('Зразки будуть створені під час відкриття інспектором.')
+
+        # Persist the count before creating rows. Concurrent loads update the
+        # same check, so Odoo can retry and reuse the committed sample.
+        super().write({'automatic_sample_count': count})
+        self._create_measurement_samples(1, count, AUTOMATIC_SAMPLE_INITIALIZATION)
+        return False
+
+    def _ensure_manual_measurement_samples(self):
+        if self.x_control_stage == 'in_process':
+            raise UserError(_(
+                'Зразки міжопераційного контролю формуються автоматично.',
+            ))
+
     def _add_measurement_samples(self, count):
         self.ensure_one()
         self._ensure_measurement_editable()
+        self._ensure_manual_measurement_samples()
         if not self.measurement_matrix_required:
             raise UserError(_(
                 'Для цієї перевірки матриця показників не потрібна.',
@@ -564,8 +688,11 @@ class QualityCheck(models.Model):
             limit=1,
         )
         first_number = (last_sample.sample_number or 0) + 1
+        self._create_measurement_samples(first_number, count, True)
+
+    def _create_measurement_samples(self, first_number, count, initialization):
         self.env['quality.check.sample'].sudo().with_context(
-            quality_vataga_sample_initialization=True,
+            quality_vataga_sample_initialization=initialization,
         ).create([
             {
                 'quality_check_id': self.id,
@@ -590,6 +717,7 @@ class QualityCheck(models.Model):
                 'Не можна видаляти зразки завершеної перевірки.',
             ),
         )
+        self._ensure_manual_measurement_samples()
         if (
             isinstance(count, bool)
             or not isinstance(count, (int, float))
@@ -680,6 +808,7 @@ class QualityCheck(models.Model):
         self.ensure_one()
         self.check_access_rights('read')
         self.check_access_rule('read')
+        automatic_sample_message = self._prepare_automatic_measurement_samples()
 
         values_by_key = {
             (value.sample_id.id, value.column_id.id): value
@@ -732,6 +861,8 @@ class QualityCheck(models.Model):
         return {
             'check_id': self.id,
             'editable': self.quality_state == 'none',
+            'manual_samples': self.x_control_stage != 'in_process',
+            'automatic_sample_message': automatic_sample_message,
             'columns': columns,
             'samples': samples,
             'can_pass': self.can_pass_measurement_check,
@@ -816,6 +947,12 @@ class QualityCheck(models.Model):
 
     def _validate_measurement_can_pass(self):
         for check in self.filtered('measurement_matrix_required'):
+            if check.x_control_stage == 'in_process' and not check.sample_ids:
+                _count, message = check._get_in_process_sample_quantity()
+                raise ValidationError(message or _(
+                    'Відкрийте вкладку «Показники» для автоматичного '
+                    'формування зразків.',
+                ))
             invalid_boolean_column = check.measurement_column_ids.filtered(
                 lambda column:
                     column.parameter_type == 'boolean'

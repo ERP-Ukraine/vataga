@@ -267,11 +267,12 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
         check.update_measurement_visual_result(sample.id, 'yes')
         self.assertFalse(check._get_technical_board_failure_description())
 
-    def _create_check_for_point(self, point):
+    def _create_check_for_point(self, point, **values):
         return self.env['quality.check'].create({
             'point_id': point.id,
             'team_id': point.team_id.id,
             'test_type_id': point.test_type_id.id,
+            **values,
         })
 
     def _add_sample(self, check):
@@ -322,6 +323,172 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
             new_check.measurement_matrix_data,
             {'quality_check_id': False},
         )
+
+    def _create_matrix_production(self, planned_quantity):
+        product = self.env['product.product'].create({
+            'name': 'Виріб для автоматичної вибірки',
+            'type': 'consu',
+        })
+        picking_type = self.env['stock.warehouse'].search([
+            ('company_id', '=', self.env.company.id),
+        ], limit=1).manu_type_id
+        production = self.env['mrp.production'].create({
+            'product_id': product.id,
+            'product_uom_id': product.uom_id.id,
+            'product_qty': planned_quantity,
+            'picking_type_id': picking_type.id,
+        })
+        production.action_confirm()
+        return production
+
+    def test_control_stage_is_copied_from_point_at_creation(self):
+        point = self.quality_point
+        incoming = self._create_check()
+        point.x_control_stage = 'in_process'
+        in_process = self._create_check_for_point(
+            point, x_control_stage='incoming',
+        )
+        point.x_control_stage = 'final'
+        final = self._create_check()
+
+        self.assertEqual(incoming.x_control_stage, 'incoming')
+        self.assertEqual(in_process.x_control_stage, 'in_process')
+        self.assertEqual(final.x_control_stage, 'final')
+        with self.assertRaises(UserError):
+            in_process.write({'x_control_stage': 'incoming'})
+        for check in incoming | final:
+            self.assertTrue(check.add_measurement_samples(2)['manual_samples'])
+            self.assertEqual(len(check.sample_ids), 2)
+            check.remove_measurement_samples(1)
+            self.assertEqual(len(check.sample_ids), 1)
+
+    def test_in_process_samples_use_actual_quantity_and_keep_results(self):
+        production = self._create_matrix_production(planned_quantity=5)
+        production.qty_producing = 5
+        finished_move = production.move_finished_ids
+        finished_move.write({'quantity': 5, 'picked': False})
+        self.quality_point.x_control_stage = 'in_process'
+        check = self._create_check_for_point(
+            self.quality_point, production_id=production.id,
+        )
+        data = check.get_measurement_matrix_data()
+        self.assertFalse(data['samples'])
+        self.assertFalse(data['manual_samples'])
+        self.assertIn('ще не зареєстровано', data['automatic_sample_message'])
+        with self.assertRaises(ValidationError):
+            check.do_pass()
+
+        production.qty_producing = 3
+        finished_move.write({'quantity': 3, 'picked': True})
+        self.assertEqual(production.product_qty, 5)
+        data = check.get_measurement_matrix_data()
+        self.assertEqual(
+            [sample['sample_number'] for sample in data['samples']], [1, 2, 3],
+        )
+        self.assertFalse(data['automatic_sample_message'])
+        with self.assertRaises(UserError):
+            check.add_measurement_samples(1)
+        with self.assertRaises(UserError):
+            check.remove_measurement_samples(1)
+        with self.assertRaises(UserError):
+            check.sample_ids[-1:].sudo().unlink()
+        with self.assertRaises(UserError):
+            self.env['quality.check.sample'].sudo().with_context(
+                quality_vataga_sample_initialization=True,
+            ).create({'quality_check_id': check.id, 'sample_number': 4})
+
+        samples = check.sample_ids
+        first_value = samples[0].measurement_value_ids.filtered(
+            lambda value: value.parameter_type == 'numeric',
+        )
+        check.update_measurement_value(first_value.id, {'numeric_input': '7'})
+        finished_move.quantity = 2
+        reopened = check.get_measurement_matrix_data()
+        self.assertEqual([sample['id'] for sample in reopened['samples']], samples.ids)
+        self.assertEqual(check.sample_ids, samples)
+        self.assertEqual(first_value.numeric_value, 7)
+
+        with self.assertRaisesRegex(ValidationError, 'Оберіть'):
+            check.do_pass()
+        check.equipment_selection_ids.with_context(
+            quality_vataga_equipment_selection=True,
+        ).write({'equipment_ids': [Command.set(self.equipment.ids)]})
+        with self.assertRaisesRegex(ValidationError, 'Заповніть'):
+            check.write({'quality_state': 'pass'})
+        values = {
+            'numeric': {'numeric_input': '7'},
+            'boolean': {'boolean_value': 'yes'},
+            'string': {'string_value': 'Справно', 'manual_result': 'pass'},
+        }
+        for sample in samples:
+            for value in sample.measurement_value_ids:
+                check.update_measurement_value(value.id, values[value.parameter_type])
+        with self.assertRaisesRegex(ValidationError, 'Заповніть візуальний'):
+            check.do_pass()
+        for sample in samples:
+            check.update_measurement_visual_result(sample.id, 'yes')
+        check.do_pass()
+        self.assertEqual(check.quality_state, 'pass')
+        self.assertEqual(check.sample_ids, samples)
+
+    def test_in_process_check_can_be_opened_after_production_completion(self):
+        production = self._create_matrix_production(planned_quantity=3)
+        point = self._create_visual_only_point('Автовибірка після випуску')
+        point.x_control_stage = 'in_process'
+        check = self._create_check_for_point(point, production_id=production.id)
+        production.qty_producing = 3
+        production.move_finished_ids.write({'quantity': 3, 'picked': True})
+        check.get_measurement_matrix_data()
+        for sample in check.sample_ids:
+            check.update_measurement_visual_result(sample.id, 'yes')
+        check.do_pass()
+        sample_ids = check.sample_ids.ids
+        production.with_context(skip_backorder=True).button_mark_done()
+
+        self.assertEqual(production.state, 'done')
+        reopened = check.get_measurement_matrix_data()
+        self.assertEqual([sample['id'] for sample in reopened['samples']], sample_ids)
+        self.assertFalse(reopened['editable'])
+        check_after = self._create_check_for_point(point, production_id=production.id)
+        self.assertEqual(len(check_after.get_measurement_matrix_data()['samples']), 3)
+
+    def test_in_process_reads_confirmed_enterprise_registration(self):
+        checks = self.env['quality.check']
+        if 'finished_product_sequence' not in checks._fields:
+            self.skipTest('Shop Floor is not installed')
+        register_type = self.env['quality.point.test_type'].search([
+            ('technical_name', '=', 'register_production'),
+        ], limit=1)
+        self.assertTrue(register_type)
+        production = self._create_matrix_production(planned_quantity=5)
+        workorder = self.env['mrp.workorder'].create({
+            'name': 'Контроль операції',
+            'production_id': production.id,
+            'workcenter_id': self.env['mrp.workcenter'].create({
+                'name': 'Дільниця автоматичної вибірки',
+            }).id,
+            'product_uom_id': production.product_uom_id.id,
+        })
+        point = self._create_visual_only_point('Міжопераційний контроль')
+        point.x_control_stage = 'in_process'
+        check = self._create_check_for_point(
+            point, production_id=production.id, workorder_id=workorder.id,
+        )
+        registration = checks.create({
+            'production_id': production.id,
+            'workorder_id': workorder.id,
+            'product_id': production.product_id.id,
+            'team_id': point.team_id.id,
+            'test_type_id': register_type.id,
+            'qty_done': 3,
+        })
+        self.assertFalse(check.get_measurement_matrix_data()['samples'])
+
+        registration.action_next()
+        self.assertEqual(registration.quality_state, 'pass')
+        self.assertEqual(production.product_qty, 5)
+        self.assertEqual(production.qty_produced, 0)
+        self.assertEqual(len(check.get_measurement_matrix_data()['samples']), 3)
 
     def test_point_without_matrix_configuration_stays_standard(self):
         point = self._create_visual_only_point(

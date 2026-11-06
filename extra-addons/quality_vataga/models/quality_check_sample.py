@@ -2,6 +2,10 @@ from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
 
+# An RPC context cannot provide this server-side token.
+AUTOMATIC_SAMPLE_INITIALIZATION = object()
+
+
 class QualityCheckSample(models.Model):
     _name = 'quality.check.sample'
     _description = 'Зразок матриці показників'
@@ -120,20 +124,29 @@ class QualityCheckSample(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
-        if not self.env.context.get(
+        initialization = self.env.context.get(
             'quality_vataga_sample_initialization',
-        ):
+        )
+        if not initialization:
             raise UserError(_(
                 'Зразки матриці створюються лише дією «Додати зразки».',
             ))
+        default_check_id = False
+        if any('quality_check_id' not in vals for vals in vals_list):
+            default_check_id = self.default_get(['quality_check_id']).get(
+                'quality_check_id',
+            )
         check_ids = {
-            vals.get('quality_check_id')
+            vals.get('quality_check_id', default_check_id)
             for vals in vals_list
-            if vals.get('quality_check_id')
         }
+        checks = self.env['quality.check'].browse(check_ids - {False, None})
+        if initialization is not AUTOMATIC_SAMPLE_INITIALIZATION:
+            for check in checks:
+                check._ensure_manual_measurement_samples()
         if any(
             check.quality_state != 'none'
-            for check in self.env['quality.check'].browse(check_ids)
+            for check in checks
         ):
             raise UserError(_(
                 'Не можна додавати зразки до завершеної перевірки.',
@@ -183,6 +196,8 @@ class QualityCheckSample(models.Model):
         )
 
     def unlink(self):
+        for check in self.quality_check_id:
+            check._ensure_manual_measurement_samples()
         if len(self) != 1:
             raise UserError(_(
                 'Можна видалити лише один останній порожній зразок.',

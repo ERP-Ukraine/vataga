@@ -25,6 +25,7 @@
             </xpath>
 
             <xpath expr="//field[@name='measure_on']" position="after">
+                <field name="x_control_stage"/>
                 <field
                     name="has_operation_product_quantity"
                     invisible="1"
