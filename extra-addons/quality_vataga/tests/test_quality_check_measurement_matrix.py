@@ -324,8 +324,8 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
             {'quality_check_id': False},
         )
 
-    def _create_matrix_production(self, planned_quantity):
-        product = self.env['product.product'].create({
+    def _create_matrix_production(self, planned_quantity, bom=None):
+        product = bom.product_id if bom else self.env['product.product'].create({
             'name': 'Виріб для автоматичної вибірки',
             'type': 'consu',
         })
@@ -337,6 +337,7 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
             'product_uom_id': product.uom_id.id,
             'product_qty': planned_quantity,
             'picking_type_id': picking_type.id,
+            'bom_id': bom.id if bom else False,
         })
         production.action_confirm()
         return production
@@ -494,6 +495,83 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
         self.assertEqual(production.product_qty, 5)
         self.assertEqual(production.qty_produced, 0)
         self.assertEqual(len(check.get_measurement_matrix_data()['samples']), 3)
+
+    def test_in_process_reads_previous_workorder_registration_for_same_lot(self):
+        checks = self.env['quality.check']
+        if 'finished_product_sequence' not in checks._fields:
+            self.skipTest('Shop Floor is not installed')
+        register_type = self.env['quality.point.test_type'].search([
+            ('technical_name', '=', 'register_production'),
+        ], limit=1)
+        self.assertTrue(register_type)
+        product = self.env['product.product'].create({
+            'name': 'Виріб з партійним обліком',
+            'type': 'product',
+            'tracking': 'lot',
+        })
+        workcenter = self.env['mrp.workcenter'].create({
+            'name': 'Дільниця міжопераційного контролю',
+        })
+        bom = self.env['mrp.bom'].create({
+            'product_id': product.id,
+            'product_tmpl_id': product.product_tmpl_id.id,
+            'operation_ids': [
+                Command.create({
+                    'name': name,
+                    'sequence': sequence,
+                    'workcenter_id': workcenter.id,
+                })
+                for sequence, name in [(10, 'Виготовлення'), (20, 'Контроль')]
+            ],
+        })
+        production = self._create_matrix_production(planned_quantity=5, bom=bom)
+        first, second = production.workorder_ids.sorted(
+            lambda workorder: workorder.operation_id.sequence,
+        )
+        self.assertEqual(second.blocked_by_workorder_ids, first)
+        lot, other_lot = self.env['stock.lot'].create([
+            {'name': name, 'product_id': product.id, 'company_id': production.company_id.id}
+            for name in ['Партія контролю', 'Інша партія']
+        ])
+        point = self._create_visual_only_point('Контроль після виготовлення')
+        point.x_control_stage = 'in_process'
+        check = self._create_check_for_point(
+            point, production_id=production.id, workorder_id=second.id,
+        )
+        registration_vals = {
+            'production_id': production.id,
+            'workorder_id': first.id,
+            'product_id': product.id,
+            'team_id': point.team_id.id,
+            'test_type_id': register_type.id,
+        }
+        checks.create(dict(
+            registration_vals, lot_id=other_lot.id, qty_done=4,
+        )).action_next()
+        checks.create(dict(
+            registration_vals, lot_id=lot.id, qty_done=2,
+            finished_product_sequence=1,
+        )).action_next()
+        registration = checks.create(dict(
+            registration_vals, lot_id=lot.id, qty_done=3,
+        ))
+        production.qty_producing = 5
+        self.assertFalse(check.lot_id)
+        self.assertEqual(production.lot_producing_id, lot)
+        self.assertFalse(check.get_measurement_matrix_data()['samples'])
+
+        registration.action_next()
+        self.assertEqual(registration.quality_state, 'pass')
+        self.assertEqual(production.product_qty, 5)
+        self.assertEqual(production.qty_producing, 3)
+        self.assertEqual(production.qty_produced, 0)
+        data = check.get_measurement_matrix_data()
+        self.assertEqual([row['sample_number'] for row in data['samples']], [1, 2, 3])
+        sample_ids = check.sample_ids.ids
+        check.update_measurement_visual_result(sample_ids[0], 'yes')
+        reopened = check.get_measurement_matrix_data()['samples']
+        self.assertEqual([row['id'] for row in reopened], sample_ids)
+        self.assertEqual(reopened[0]['visual_result'], 'yes')
 
     def test_point_without_matrix_configuration_stays_standard(self):
         point = self._create_visual_only_point(

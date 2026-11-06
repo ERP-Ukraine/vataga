@@ -584,33 +584,36 @@ class QualityCheck(models.Model):
                 'Автоматична вибірка потребує фактичної кількості у штуках.',
             )
 
-        quantity = sum(
-            move.product_uom._compute_quantity(
-                move.quantity if move.state == 'done' else move._get_picked_quantity(),
-                unit,
-                round=False,
-            )
-            for move in production.move_finished_ids
-            if move.product_id == production.product_id
+        workorder = self.workorder_id if 'workorder_id' in self._fields else False
+        lot = self.lot_id or production.lot_producing_id
+        finished_moves = production.move_finished_ids.filtered(
+            lambda move: move.product_id == production.product_id
             and move.state != 'cancel'
-            and (move.picked or move.state == 'done')
+            and (move.picked or move.state == 'done'),
         )
-        # An Enterprise Register Production step records the actual quantity
-        # for this work order and batch, even before the finished moves exist.
+        if workorder and production.product_tracking != 'none':
+            quantity = sum(
+                line.product_uom_id._compute_quantity(line.quantity, unit, round=False)
+                for move in finished_moves
+                for line in move.move_line_ids
+                if lot and line.lot_id == lot and (line.picked or move.state == 'done')
+            )
+        else:
+            quantity = sum(
+                move.product_uom._compute_quantity(
+                    move.quantity if move.state == 'done' else move._get_picked_quantity(),
+                    unit,
+                    round=False,
+                )
+                for move in finished_moves
+            )
         if (
             production.state not in ('done', 'cancel')
-            and {'workorder_id', 'qty_done', 'finished_product_sequence'}
-            <= self._fields.keys()
-            and self.workorder_id
+            and workorder and workorder.production_id == production
+            and {'qty_done', 'finished_product_sequence'} <= self._fields.keys()
+            and (lot or production.product_tracking == 'none')
         ):
-            registration = self.search([
-                ('production_id', '=', production.id),
-                ('workorder_id', '=', self.workorder_id.id),
-                ('finished_product_sequence', '=', self.finished_product_sequence),
-                ('test_type_id.technical_name', '=', 'register_production'),
-                ('quality_state', '=', 'pass'),
-                ('qty_done', '>', 0),
-            ], order='id desc', limit=1)
+            registration = self._find_in_process_registration(workorder, lot)
             if registration:
                 quantity = production.product_uom_id._compute_quantity(
                     registration.qty_done, unit, round=False,
@@ -620,7 +623,7 @@ class QualityCheck(models.Model):
             return 0, _(
                 'Фактичну кількість виробів ще не зареєстровано. '
                 'Підтвердьте крок «Зареєструвати виробництво» для цієї '
-                'операції або відкрийте матрицю після проведення випуску.',
+                'партії або відкрийте матрицю після проведення випуску.',
             )
         count = round(quantity)
         if count < 1 or not isclose(quantity, count, rel_tol=0, abs_tol=1e-9):
@@ -629,6 +632,32 @@ class QualityCheck(models.Model):
                 'щоб створити зразок на кожен виріб.',
             )
         return count, False
+
+    def _find_in_process_registration(self, workorders, lot):
+        production = self.production_id
+        domain = [
+            ('production_id', '=', production.id),
+            ('lot_id', '=', lot.id or False),
+            ('finished_product_sequence', '=', self.finished_product_sequence),
+            ('test_type_id.technical_name', '=', 'register_production'),
+            ('quality_state', '=', 'pass'),
+            ('qty_done', '>', 0),
+        ]
+        # Odoo links the route (or explicit dependencies) with blocked_by.
+        # Prefer this operation, then look at its nearest predecessors.
+        visited = self.env['mrp.workorder']
+        while workorders:
+            registration = self.search(
+                domain + [('workorder_id', 'in', workorders.ids)],
+                order='id desc', limit=1,
+            )
+            if registration:
+                return registration
+            visited |= workorders
+            workorders = workorders.blocked_by_workorder_ids.filtered(
+                lambda wo: wo.production_id == production,
+            ) - visited
+        return self.browse()
 
     def _prepare_automatic_measurement_samples(self):
         self.ensure_one()
