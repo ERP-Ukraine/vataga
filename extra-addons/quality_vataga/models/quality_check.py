@@ -259,7 +259,7 @@ class QualityCheck(models.Model):
     def write(self, vals):
         if 'measurement_matrix_required' in vals:
             raise UserError(_(
-                'Ознака необхідності матриці є незмінним знімком перевірки.',
+                'Ознака необхідності матриці є незмінним snapshot перевірки.',
             ))
         if 'point_id' in vals:
             new_point_id = vals.get('point_id') or False
@@ -552,13 +552,6 @@ class QualityCheck(models.Model):
             ))
         count = int(count)
 
-        self._create_measurement_samples(count)
-
-    def _create_measurement_samples(self, count):
-        """Shared row/cell creation for manual and automatic sampling."""
-        self.ensure_one()
-        self._ensure_measurement_editable()
-
         # The row lock keeps sample numbering stable when two inspectors add
         # samples to the same check at the same time.
         self.env.cr.execute(
@@ -733,7 +726,6 @@ class QualityCheck(models.Model):
                 'display_name': sample.display_name,
                 'visual_result': sample.visual_result or '',
                 'sample_result': sample.sample_result,
-                'x_was_reworked': sample.x_was_reworked,
                 'cells': cells,
             })
 
@@ -800,7 +792,7 @@ class QualityCheck(models.Model):
             manual_result = payload.get('manual_result') or False
             if manual_result not in ('pass', 'fail', False):
                 raise ValidationError(_(
-                    'Оберіть результат «Придатний» або «Непридатний».',
+                    'Ручний результат повинен бути PASS або FAIL.',
                 ))
             values = {
                 'has_numeric_value': False,
@@ -831,7 +823,9 @@ class QualityCheck(models.Model):
             )[:1]
             if invalid_boolean_column:
                 raise ValidationError(_(
-                    'Текстова норма параметра «%(parameter)s» не означає однозначно «Так» або «Ні». Виправте точку контролю якості; вже створена перевірка зберігає початковий знімок.',
+                    'Текстова норма параметра «%(parameter)s» не означає '
+                    'однозначно «Так» або «Ні». Виправте QCP; вже створена '
+                    'перевірка зберігає початковий snapshot.',
                     parameter=invalid_boolean_column.parameter_name,
                 ))
             required_categories = (

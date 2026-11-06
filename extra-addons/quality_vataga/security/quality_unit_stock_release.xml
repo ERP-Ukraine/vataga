@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<odoo>
-    <record id="quality_stock_release_plan_company_rule" model="ir.rule">
-        <field name="name">Плани складського випуску: дозволені компанії</field>
-        <field name="model_id" ref="model_quality_unit_stock_release_plan"/>
-        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
-    </record>
-</odoo>

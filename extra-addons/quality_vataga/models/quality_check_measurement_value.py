@@ -244,8 +244,6 @@ class QualityCheckMeasurementValue(models.Model):
                 'У комірці можна змінювати лише фактичне значення та '
                 'ручний результат.',
             ))
-        samples = self.sample_id
-        previous_results = samples._prepare_rework_tracking()
         if (
             input_fields & set(vals)
             and any(
@@ -256,9 +254,7 @@ class QualityCheckMeasurementValue(models.Model):
             raise UserError(_(
                 'Не можна змінювати показники завершеної перевірки.',
             ))
-        result = super().write(vals)
-        samples._record_rework_transitions(previous_results)
-        return result
+        return super().write(vals)
 
     def unlink(self):
         raise UserError(_(

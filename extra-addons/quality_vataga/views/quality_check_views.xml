@@ -6,22 +6,7 @@
         <field name="inherit_id" ref="quality_control.quality_check_view_form"/>
         <field name="priority" eval="99"/>
         <field name="arch" type="xml">
-            <xpath expr="(//header/button[@name='do_alert'])[1]" position="attributes">
-                <attribute name="invisible" add="x_control_stage == 'in_process'" separator=" or "/>
-            </xpath>
-            <xpath expr="(//header/button[@name='do_alert'])[2]" position="attributes">
-                <attribute name="invisible" add="x_control_stage == 'in_process'" separator=" or "/>
-            </xpath>
             <xpath expr="//header" position="inside">
-                <widget name="quality_unit_admission_buttons" groups="quality.group_quality_user"
-                        invisible="x_control_stage != 'in_process' or not operation_run_id"/>
-                <button
-                    name="action_open_matrix_quality_alert"
-                    type="object"
-                    string="Створити сповіщення"
-                    class="btn-secondary"
-                    invisible="not can_create_matrix_quality_alert"
-                />
                 <button
                     name="action_initialize_measurement_matrix"
                     type="object"
@@ -32,7 +17,6 @@
             </xpath>
 
             <xpath expr="//sheet" position="inside">
-                <field name="can_create_matrix_quality_alert" invisible="1"/>
                 <field
                     name="can_initialize_measurement_matrix"
                     invisible="1"
@@ -41,7 +25,6 @@
             </xpath>
 
             <xpath expr="//field[@name='measure_on']" position="after">
-                <field name="x_control_stage" readonly="1"/>
                 <field
                     name="has_operation_product_quantity"
                     invisible="1"
@@ -64,63 +47,7 @@
                 />
             </xpath>
 
-            <xpath expr="//sheet/notebook" position="before">
-                <group name="quality_vataga_control_results" string="Результати контролю"
-                       invisible="x_control_stage != 'in_process'">
-                    <field name="quality_transfer_controlled" invisible="1"/>
-                    <div class="alert alert-warning" colspan="2" invisible="not quality_transfer_controlled">
-                        Активний захищений поштучний маршрут. Стандартне завершення робочих завдань і складський випуск заблоковані.
-                        Приймання не є запуском обробки; для виконання оберіть конкретні вироби у робочому завданні.
-                    </div>
-                    <group>
-                        <field name="in_process_sample_quantity" readonly="1"/>
-                        <field name="operation_run_id" invisible="1"/>
-                        <field name="unit_admission_role" groups="quality.group_quality_manager"/>
-                        <field name="in_process_result_quantities_valid" invisible="1"/>
-                        <div colspan="2" class="text-muted">
-                            Завершення перевірки якості фіксує результати та допуски придатних виробів.
-                            Незавершені обов’язкові перевірки й відкриті сповіщення про якість утримують відповідні вироби.
-                        </div>
-                        <div colspan="2" class="alert alert-warning mb-0"
-                             invisible="in_process_result_quantities_valid">
-                            Матрицю партії не сформовано або кількість зразків
-                            не відповідає зафіксованій партії.
-                        </div>
-                    </group>
-                    <group>
-                        <field name="x_passed_qty" readonly="1"/>
-                        <field name="x_failed_qty" readonly="1"/>
-                        <field name="x_pending_qty" readonly="1"/>
-                        <field name="x_admitted_qty" readonly="1"/>
-                        <field name="x_held_qty" readonly="1"/>
-                        <field name="x_transferred_qty" readonly="1"/>
-                        <field name="x_received_qty" readonly="1"/>
-                        <field name="x_awaiting_transfer_qty" readonly="1"/>
-                    </group>
-                </group>
-            </xpath>
-
             <xpath expr="//sheet/notebook" position="inside">
-                <page name="quality_unit_transfers" string="Передачі виробів" invisible="not operation_run_id">
-                    <field name="unit_transfer_ids" readonly="1">
-                        <tree create="0" edit="0" delete="0">
-                            <field name="controlled_unit_id"/>
-                            <field name="destination_workorder_id"/>
-                            <field name="state"/>
-                            <field name="sent_by_id"/>
-                            <field name="sent_at"/>
-                            <field name="received_by_id"/>
-                            <field name="received_at"/>
-                            <field name="return_reason"/>
-                        </tree>
-                    </field>
-                </page>
-            </xpath>
-
-            <xpath expr="//sheet/notebook" position="inside">
-                <page name="quality_unit_admission_history" string="Історія допусків" invisible="x_control_stage != 'in_process'" groups="quality.group_quality_user">
-                    <field name="unit_admission_ids" readonly="1" nolabel="1"/>
-                </page>
                 <page
                     string="Показники"
                     name="quality_vataga_measurements"

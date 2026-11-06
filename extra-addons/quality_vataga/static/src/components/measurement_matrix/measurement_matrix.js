@@ -2,33 +2,25 @@
 
 import {
     Component,
-    onWillDestroy,
-    toRaw,
+    onWillStart,
+    onWillUpdateProps,
     useState,
 } from "@odoo/owl";
 import { registry } from "@web/core/registry";
-import { useBus, useService } from "@web/core/utils/hooks";
-import { useRecordObserver } from "@web/model/relational_model/utils";
+import { useService } from "@web/core/utils/hooks";
 import { standardFieldProps } from "@web/views/fields/standard_field_props";
-import { QUALITY_CHECK_MATRIX_REFRESH, refreshQualityCheckRecord } from "./admission_buttons";
 
 export class QualityMeasurementMatrix extends Component {
     setup() {
         this.orm = useService("orm");
         this.notification = useService("notification");
-        this.ui = useService("ui");
-        this.loadVersion = 0;
-        this.initializationAttempted = new Set();
-        this.identityInitializationAttempted = new Set();
         this.state = useState({
             loading: true,
             saving: false,
-            unitChoices: {},
             sampleCount: 1,
             addingSamples: false,
             removingSamples: false,
             data: {
-                control_stage: "incoming",
                 columns: [],
                 samples: [],
                 editable: false,
@@ -37,28 +29,11 @@ export class QualityMeasurementMatrix extends Component {
                 equipment_complete: false,
             },
         });
-        useRecordObserver((record, props) => {
-            // The JSON marker is replaced by a server read even if its check
-            // ID/content stays equal. Local edits retain that marker object.
-            const marker = toRaw(record.data[props.name]);
-            const dirty = record.dirty;
-            if (record === this.observedRecord && marker === this.observedMarker) {
-                if (!dirty && (this.parentRefreshPending || this.initializationDeferred)) {
-                    return this.load(record);
-                }
-                return;
+        onWillStart(() => this.load());
+        onWillUpdateProps((nextProps) => {
+            if (nextProps.record.resId !== this.props.record.resId) {
+                return this.load(nextProps.record.resId);
             }
-            this.observedRecord = record;
-            this.observedMarker = marker;
-            return this.load(record);
-        });
-        useBus(this.env.bus, QUALITY_CHECK_MATRIX_REFRESH, ({ detail }) => {
-            if (detail.checkId === this.checkId) {
-                this.load(this.props.record, { initialize: false, syncForm: false });
-            }
-        });
-        onWillDestroy(() => {
-            this.loadVersion++;
         });
     }
 
@@ -66,84 +41,20 @@ export class QualityMeasurementMatrix extends Component {
         return Number(this.props.record.resId) || false;
     }
 
-    async load(record = this.props.record, { initialize = true, syncForm = true } = {}) {
-        const checkId = Number(record.resId) || false;
-        const version = ++this.loadVersion;
+    async load(checkId = this.checkId) {
         if (!checkId) {
             this.state.loading = false;
             return;
         }
         this.state.loading = true;
         try {
-            let data = await this.orm.call(
+            this.state.data = await this.orm.call(
                 "quality.check",
                 "get_measurement_matrix_data",
                 [[checkId]]
             );
-            if (version !== this.loadVersion) {
-                return;
-            }
-            let generated = false;
-            const missingBatch = data.control_stage === "in_process" &&
-                data.editable && !data.batch_quantity && !data.samples.length;
-            if (initialize) {
-                this.initializationDeferred = false;
-            }
-            if (
-                initialize && missingBatch &&
-                !this.initializationAttempted.has(checkId)
-            ) {
-                const dirty = await record.isDirty();
-                if (version !== this.loadVersion) {
-                    return;
-                }
-                if (dirty) {
-                    this.initializationDeferred = true;
-                } else {
-                    this.initializationAttempted.add(checkId);
-                    data = await this.orm.call(
-                        "quality.check",
-                        "initialize_in_process_measurement_matrix",
-                        [[checkId]]
-                    );
-                    generated = data.batch_quantity > 0 && data.samples.length > 0;
-                }
-            }
-            if (version !== this.loadVersion) {
-                return;
-            }
-            if (initialize && data.can_initialize_identity && data.batch_quantity > 0 &&
-                !this.identityInitializationAttempted.has(checkId)) {
-                const dirty = await record.isDirty();
-                if (version !== this.loadVersion) {
-                    return;
-                }
-                if (dirty) {
-                    this.initializationDeferred = true;
-                } else {
-                    this.identityInitializationAttempted.add(checkId);
-                    data = await this.orm.call('quality.check', 'initialize_qc_unit_identity', [[checkId]]);
-                }
-            }
-            if (version !== this.loadVersion) {
-                return;
-            }
-            this.state.data = data;
-            if (syncForm && data.control_stage === "in_process") {
-                const quantityStale = "in_process_sample_quantity" in record.data &&
-                    record.data.in_process_sample_quantity !== data.batch_quantity;
-                const identityStale = "operation_run_id" in record.data &&
-                    "operation_run_id" in data &&
-                    (record.data.operation_run_id?.[0] || false) !== data.operation_run_id;
-                this.parentRefreshPending = generated || quantityStale || identityStale;
-                if (this.parentRefreshPending) {
-                    this.parentRefreshPending = !(await refreshQualityCheckRecord(record, this.ui));
-                }
-            }
         } finally {
-            if (version === this.loadVersion) {
-                this.state.loading = false;
-            }
+            this.state.loading = false;
         }
     }
 
@@ -151,46 +62,9 @@ export class QualityMeasurementMatrix extends Component {
         this.state.sampleCount = ev.target.value;
     }
 
-    async bindUnits() {
-        if (this.state.saving || !this.checkId) {
-            return;
-        }
-        const record = this.props.record;
-        const checkId = this.checkId;
-        this.state.saving = true;
-        try {
-            if ((await record.isDirty()) && (await record.save()) === false) {
-                return;
-            }
-            if (this.checkId !== checkId) {
-                return;
-            }
-            const mapping = this.state.data.samples.map((sample) => ({
-                sample_id: sample.id,
-                unit_id: Number(this.state.unitChoices[sample.id]) || 0,
-            }));
-            const data = await this.orm.call('quality.check', 'bind_measurement_units', [[checkId], mapping]);
-            if (this.checkId === checkId) {
-                this.state.data = data;
-                await refreshQualityCheckRecord(record, this.ui);
-            }
-        } finally {
-            this.state.saving = false;
-        }
-    }
-
-    async refreshInProcessMatrix() {
-        const record = this.props.record;
-        this.initializationAttempted.delete(this.checkId);
-        this.identityInitializationAttempted.delete(this.checkId);
-        await this.load(record, { syncForm: false });
-        await refreshQualityCheckRecord(record, this.ui);
-    }
-
     async addSamples() {
         if (
             !this.checkId ||
-            this.state.data.control_stage === "in_process" ||
             this.state.addingSamples ||
             this.state.removingSamples ||
             this.state.saving
@@ -223,7 +97,6 @@ export class QualityMeasurementMatrix extends Component {
     async removeSamples() {
         if (
             !this.checkId ||
-            this.state.data.control_stage === "in_process" ||
             this.state.addingSamples ||
             this.state.removingSamples ||
             this.state.saving
@@ -336,12 +209,12 @@ export class QualityMeasurementMatrix extends Component {
 
     resultLabel(result) {
         if (result === "pass") {
-            return "Придатний";
+            return "PASS";
         }
         if (result === "fail") {
-            return "Непридатний";
+            return "FAIL";
         }
-        return "Не заповнено";
+        return "НЕ ЗАПОВНЕНО";
     }
 }
 

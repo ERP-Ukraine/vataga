@@ -6,7 +6,7 @@ from .measurement_utils import format_number
 
 class QualityCheckMeasurementColumn(models.Model):
     _name = 'quality.check.measurement.column'
-    _description = 'Знімок колонки матриці показників'
+    _description = 'Snapshot колонки матриці показників'
     _order = 'sequence, id'
 
     quality_check_id = fields.Many2one(
@@ -53,12 +53,12 @@ class QualityCheckMeasurementColumn(models.Model):
         relation='quality_check_measurement_column_category_rel',
         column1='measurement_column_id',
         column2='equipment_category_id',
-        string='Допустимі категорії ЗВТ (на момент перевірки)',
+        string='Допустимі категорії ЗВТ (snapshot)',
         readonly=True,
         copy=False,
     )
     equipment_category_names_snapshot = fields.Char(
-        string='Допустимі категорії ЗВТ (на момент перевірки)',
+        string='Допустимі категорії ЗВТ (snapshot)',
         readonly=True,
         copy=False,
     )
@@ -126,7 +126,7 @@ class QualityCheckMeasurementColumn(models.Model):
         (
             'quality_check_source_line_uniq',
             'unique(quality_check_id, source_line_id)',
-            'Одне налаштування точки контролю якості не може створити дві колонки перевірки.',
+            'Одне налаштування QCP не може створити дві колонки перевірки.',
         ),
     ]
 
@@ -136,7 +136,7 @@ class QualityCheckMeasurementColumn(models.Model):
             'quality_vataga_snapshot_initialization',
         ):
             raise UserError(_(
-                'Колонки матриці створюються системою з налаштувань точки контролю якості.',
+                'Колонки матриці створюються системою з налаштувань QCP.',
             ))
         prepared_vals_list = [
             self._prepare_snapshot_create_values(vals)
@@ -180,7 +180,7 @@ class QualityCheckMeasurementColumn(models.Model):
         ].browse(category_ids).exists().sorted('id')
         if not categories:
             raise ValidationError(_(
-                'Для зафіксованої колонки потрібна хоча б одна категорія ЗВТ.',
+                'Для snapshot-колонки потрібна хоча б одна категорія ЗВТ.',
             ))
 
         prepared_vals.update({
@@ -242,17 +242,17 @@ class QualityCheckMeasurementColumn(models.Model):
                 ).strip()
             ):
                 raise ValidationError(_(
-                    'Набір категорій ЗВТ зафіксованої колонки пошкоджено.',
+                    'Набір категорій ЗВТ snapshot-колонки пошкоджено.',
                 ))
 
     def write(self, vals):
         raise UserError(_(
-            'Зафіксовані колонки перевірки не можна змінювати.',
+            'Snapshot-колонки перевірки не можна змінювати.',
         ))
 
     def unlink(self):
         raise UserError(_(
-            'Зафіксовані колонки перевірки не можна видаляти.',
+            'Snapshot-колонки перевірки не можна видаляти.',
         ))
 
     def _get_tolerance_label(self):
