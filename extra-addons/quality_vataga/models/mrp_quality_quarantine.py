@@ -11,6 +11,13 @@ from .stock_quarantine import QUARANTINE_CONTEXT, QUARANTINE_OPERATION, quaranti
 class MrpProduction(models.Model):
     _inherit = 'mrp.production'
 
+    quality_registered_quantity = fields.Float(
+        digits='Product Unit of Measure', readonly=True, copy=False,
+    )
+    quality_registered_lot_id = fields.Many2one(
+        'stock.lot', check_company=True, readonly=True, copy=False,
+    )
+
     quality_quarantine_check_ids = fields.One2many('quality.check', 'production_id')
     quality_quarantine_point_ids = fields.Many2many(
         'quality.point', 'mrp_production_quarantine_point_rel',
@@ -26,16 +33,49 @@ class MrpProduction(models.Model):
     def create(self, vals_list):
         for vals in vals_list:
             vals['quality_quarantine_point_ids'] = []
+            vals['quality_registered_quantity'] = 0.0
+            vals['quality_registered_lot_id'] = False
         return super().create(vals_list)
 
     def write(self, vals):
+        if {'quality_registered_quantity', 'quality_registered_lot_id'} & vals.keys():
+            raise UserError(_(
+                'Кількість і партію підтверджують через «Зареєструвати виробництво».',
+            ))
         if self.env.context.get(QUARANTINE_CONTEXT) is not QUARANTINE_OPERATION:
             if 'quality_quarantine_point_ids' in vals or (
                 {'product_id', 'company_id', 'picking_type_id'} & vals.keys()
                 and self.filtered('quality_quarantine_point_ids')
             ):
                 raise quarantine_error()
-        return super().write(vals)
+        result = super().write(vals)
+        if {'qty_producing', 'lot_producing_id'} & vals.keys():
+            stale = self.filtered(
+                lambda production: production.quality_registered_quantity and (
+                    production.qty_producing != production.quality_registered_quantity
+                    or production.lot_producing_id != production.quality_registered_lot_id
+                ),
+            )
+            if stale:
+                super(MrpProduction, stale).write({
+                    'quality_registered_quantity': 0.0,
+                    'quality_registered_lot_id': False,
+                })
+        return result
+
+    def set_qty_producing(self):
+        result = super().set_qty_producing()
+        # The Shop Floor confirmation calls this public method after saving
+        # the quantity and lot. A work order start only uses the private method.
+        for production in self.filtered(
+            lambda mo: mo.qty_producing > 0 and mo.state not in ('done', 'cancel')
+            and mo.product_tracking != 'serial' and mo.sudo()._quality_matrix_checks(),
+        ):
+            super(MrpProduction, production).write({
+                'quality_registered_quantity': production.qty_producing,
+                'quality_registered_lot_id': production.lot_producing_id.id,
+            })
+        return result
 
     def _quality_matrix_checks(self):
         self.ensure_one()

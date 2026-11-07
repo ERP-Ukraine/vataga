@@ -745,15 +745,13 @@ class QualityCheck(models.Model):
                 lambda wo: wo.production_id == production,
             ) - visited
         if allow_shop_floor_quantity and not has_registration_step:
-            return self._get_shop_floor_partial_quantity(visited, lot)
+            return self._get_shop_floor_quantity(visited, lot)
         return 0.0
 
-    def _get_shop_floor_partial_quantity(self, workorders, lot):
+    def _get_shop_floor_quantity(self, workorders, lot):
         production = self.production_id
         quantity = production.qty_producing
         rounding = production.product_uom_id.rounding
-        # The built-in Shop Floor dialog saves the MO quantity and lot without
-        # a registration record. Starting a WO can also prefill this field.
         if (
             production.state not in ('progress', 'to_close')
             or production.product_tracking == 'serial'
@@ -762,7 +760,14 @@ class QualityCheck(models.Model):
             or self.finished_product_sequence != self.workorder_id.qty_produced
             or not workorders.filtered(lambda wo: wo.state in ('progress', 'done'))
             or quantity <= 0
-            or float_compare(quantity, production.product_qty, precision_rounding=rounding) >= 0
+        ):
+            return 0.0
+        if quantity == production.quality_registered_quantity and lot == production.quality_registered_lot_id:
+            return quantity
+        # Preserve the existing fallback for partial quantities entered
+        # before the Shop Floor confirmation was recorded on the MO.
+        if (
+            float_compare(quantity, production.product_qty, precision_rounding=rounding) >= 0
             or any(
                 float_compare(quantity, wo.qty_remaining, precision_rounding=rounding) == 0
                 for wo in workorders
