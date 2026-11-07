@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="mrp_production_form_quality_quarantine" model="ir.ui.view">
+        <field name="name">mrp.production.form.quality.quarantine</field>
+        <field name="model">mrp.production</field>
+        <field name="inherit_id" ref="mrp.mrp_production_form_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//div[@name='button_box']" position="inside">
+                <button name="action_open_quarantine_checks" type="object" class="oe_stat_button"
+                        icon="fa-check-square-o" string="Перевірки якості"
+                        groups="quality.group_quality_user" invisible="not quality_quarantine_status"/>
+            </xpath>
+            <field name="picking_type_id" position="after">
+                <field name="quality_quarantine_status" widget="badge" invisible="not quality_quarantine_status"
+                       decoration-warning="quality_quarantine_status == 'pending'"
+                       decoration-success="quality_quarantine_status == 'pass'"
+                       decoration-danger="quality_quarantine_status == 'fail'"/>
+            </field>
+        </field>
+    </record>
+</odoo>

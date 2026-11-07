@@ -23,6 +23,12 @@ class QualityCheck(models.Model):
         required=True, readonly=True, copy=False,
     )
     automatic_sample_count = fields.Integer(readonly=True, copy=False)
+    automatic_sample_lot_id = fields.Many2one(
+        'stock.lot', readonly=True, copy=False, check_company=True, ondelete='restrict',
+    )
+    quality_quarantine_deferred = fields.Boolean(
+        compute='_compute_quality_quarantine_deferred', compute_sudo=True,
+    )
 
     equipment_selection_ids = fields.One2many(
         'quality.check.equipment.selection',
@@ -270,6 +276,7 @@ class QualityCheck(models.Model):
                 point.x_control_stage or 'incoming'
             )
             sanitized_vals['automatic_sample_count'] = 0
+            sanitized_vals['automatic_sample_lot_id'] = False
             sanitized_vals_list.append(sanitized_vals)
         checks = super().create(sanitized_vals_list)
         checks._initialize_measurement_snapshot()
@@ -282,7 +289,7 @@ class QualityCheck(models.Model):
         return checks
 
     def write(self, vals):
-        if {'x_control_stage', 'automatic_sample_count'} & vals.keys():
+        if {'x_control_stage', 'automatic_sample_count', 'automatic_sample_lot_id'} & vals.keys():
             raise UserError(_(
                 'Етап контролю та розмір автоматичної вибірки зберігаються '
                 'в перевірці та не редагуються вручну.',
@@ -310,14 +317,84 @@ class QualityCheck(models.Model):
                     'матриці показників.',
                 ))
 
+        protected = self.filtered(lambda check: check.x_control_stage == 'in_process')
+        binding_fields = {'production_id', 'workorder_id', 'product_id', 'company_id', 'lot_id'}
+        if binding_fields & vals.keys():
+            destination = self.env['mrp.production'].browse(vals.get('production_id'))
+            for check in protected.sudo():
+                production = check.production_id
+                if not (
+                    (production.picking_type_id.quality_quarantine_location_id
+                     and (production.state != 'done' or production.quality_quarantine_point_ids))
+                    or destination.sudo().picking_type_id.quality_quarantine_location_id
+                ):
+                    continue
+                if (
+                    (check.sample_ids or production.quality_quarantine_point_ids
+                     or destination.sudo().quality_quarantine_point_ids)
+                    and any(check[field].id != (vals[field] or False) for field in binding_fields & vals.keys())
+                ):
+                    raise UserError(_('Не можна змінювати партію або замовлення контрольованої перевірки.'))
         if vals.get('quality_state') == 'pass':
-            self.filtered(
-                lambda check: check.x_control_stage == 'in_process',
-            )._validate_measurement_can_pass()
+            protected._validate_measurement_can_pass()
+        productions = self.env['mrp.production']
+        if 'quality_state' in vals and protected:
+            protected.check_access_rights('write')
+            protected.check_access_rule('write')
+            for check in protected.sudo():
+                production = check.production_id
+                if (
+                    not production.picking_type_id.quality_quarantine_location_id
+                    or (production.state == 'done' and not production.quality_quarantine_point_ids)
+                ):
+                    continue
+                if vals['quality_state'] != check.quality_state and production.move_finished_ids.quality_release_move_ids.filtered(
+                    lambda move: move.state == 'done',
+                ):
+                    raise UserError(_('Результат контролю вже використано для випуску партії.'))
+                productions |= production
+            # Serialize QC decisions with the production posting and each other.
+            for production in productions.sudo().sorted('id'):
+                production.write({'write_date': fields.Datetime.now()})
         result = super().write(vals)
         if 'point_id' in vals:
             self._initialize_measurement_snapshot()
+        productions.sudo()._quality_release_if_passed()
         return result
+
+    @api.ondelete(at_uninstall=False)
+    def _unlink_except_quarantine_checks(self):
+        if self.sudo().filtered(
+            lambda check: check.x_control_stage == 'in_process'
+            and (
+                check.production_id.quality_quarantine_point_ids
+                or (check.quality_state != 'none'
+                    and check.production_id.state != 'done'
+                    and check.production_id.picking_type_id.quality_quarantine_location_id)
+            ),
+        ):
+            raise UserError(_('Не можна видаляти перевірку контрольованої партії.'))
+
+    @api.depends(
+        'x_control_stage', 'measurement_matrix_required', 'test_type_id', 'quality_state',
+        'production_id.picking_type_id.quality_quarantine_location_id', 'workorder_id',
+    )
+    def _compute_quality_quarantine_deferred(self):
+        for check in self:
+            production = check.production_id
+            check.quality_quarantine_deferred = bool(
+                check.quality_state == 'none'
+                and production.state not in ('done', 'cancel')
+                and check.x_control_stage == 'in_process' and check.measurement_matrix_required
+                and check.test_type in ('passfail', 'measure')
+                and check.workorder_id and check.workorder_id.production_id == production
+                and not (check.picking_id or check.component_id or check.move_line_id)
+                and (not check.product_id or check.product_id == production.product_id)
+                and check.company_id == production.company_id
+                and production.product_id.type == 'product'
+                and production.product_uom_id.category_id == self.env.ref('uom.product_uom_unit').category_id
+                and production._quality_quarantine_location()
+            )
 
     def _set_measurement_matrix_required(self):
         checks_to_update = self.filtered(
@@ -715,7 +792,10 @@ class QualityCheck(models.Model):
 
         # Persist the count before creating rows. Concurrent loads update the
         # same check, so Odoo can retry and reuse the committed sample.
-        super().write({'automatic_sample_count': count})
+        super().write({
+            'automatic_sample_count': count,
+            'automatic_sample_lot_id': (self.lot_id or self.production_id.lot_producing_id).id,
+        })
         self._create_measurement_samples(1, count, AUTOMATIC_SAMPLE_INITIALIZATION)
         return False
 

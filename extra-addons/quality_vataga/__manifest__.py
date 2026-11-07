@@ -1,7 +1,7 @@
 {
     'name': 'Параметри якості обладнання Vataga',
     'summary': 'Параметри обладнання та налаштування контролю якості',
-    'version': '17.0.2.27',
+    'version': '17.0.2.28',
     'category': 'Manufacturing/Quality',
     'author': 'Vataga',
     'license': 'LGPL-3',
@@ -12,6 +12,7 @@
         'maintenance',
         'quality_control',
         'quality_mrp',
+        'mrp_workorder',
     ],
     'data': [
         'security/technical_board.xml',
@@ -24,12 +25,15 @@
         'views/quality_point_views.xml',
         'views/quality_check_views.xml',
         'views/quality_alert_views.xml',
+        'views/mrp_production_views.xml',
     ],
     'assets': {
         'web.assets_backend': [
             'quality_vataga/static/src/components/measurement_matrix/measurement_matrix.js',
             'quality_vataga/static/src/components/measurement_matrix/measurement_matrix.xml',
             'quality_vataga/static/src/components/measurement_matrix/measurement_matrix.scss',
+            'quality_vataga/static/src/quality_quarantine_shop_floor.js',
         ],
     },
+    'post_init_hook': 'post_init_hook',
 }

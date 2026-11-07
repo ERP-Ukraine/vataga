@@ -8,6 +8,8 @@ from odoo.exceptions import UserError, ValidationError
 from odoo.modules.module import get_module_path
 from odoo.tests import TransactionCase, tagged
 
+from ..models.stock_quarantine import QUARANTINE_CONTEXT, QUARANTINE_OPERATION
+
 
 @tagged('post_install', '-at_install')
 class TestQualityCheckMeasurementMatrix(TransactionCase):
@@ -331,6 +333,7 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
         })
         picking_type = self.env['stock.warehouse'].search([
             ('company_id', '=', self.env.company.id),
+            ('manu_type_id.quality_quarantine_location_id', '=', False),
         ], limit=1).manu_type_id
         production = self.env['mrp.production'].create({
             'product_id': product.id,
@@ -710,6 +713,184 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
         self.assertTrue(check.can_pass_measurement_check)
         check.do_pass()
         self.assertEqual(check.quality_state, 'pass')
+
+    def _create_quarantine_order(self, *, with_check=True, controlled=True):
+        warehouse_count = self.env['stock.warehouse'].search_count([
+            ('code', '=like', 'Q13%'),
+        ])
+        warehouse = self.env['stock.warehouse'].create({
+            'name': f'Склад перевірки карантину {warehouse_count}',
+            'code': f'Q13{warehouse_count:02d}',
+        })
+        quarantine = self.env['stock.location'].with_context(
+            **{QUARANTINE_CONTEXT: QUARANTINE_OPERATION},
+        ).create({
+            'name': 'Очікує перевірку якості', 'usage': 'internal',
+            'location_id': warehouse.view_location_id.id,
+            'company_id': warehouse.company_id.id, 'quality_quarantine': True,
+        })
+        picking_type = warehouse.manu_type_id
+        picking_type.with_context(**{QUARANTINE_CONTEXT: QUARANTINE_OPERATION}).write({
+            'quality_quarantine_location_id': quarantine.id,
+        })
+        product = self.env['product.product'].create({
+            'name': 'Партія для перевірки карантину', 'type': 'product', 'tracking': 'lot',
+        })
+        workcenter = self.env['mrp.workcenter'].create({'name': 'Контроль партії'})
+        bom = self.env['mrp.bom'].create({
+            'product_id': product.id,
+            'product_tmpl_id': product.product_tmpl_id.id,
+            'operation_ids': [Command.create({'name': 'Контроль', 'workcenter_id': workcenter.id})],
+        })
+        point = self.env['quality.point']
+        if controlled:
+            point = point.create({
+                'title': 'Обов’язковий міжопераційний контроль',
+                'team_id': self.quality_team.id,
+                'test_type_id': self.env['quality.point.test_type'].search([
+                    ('technical_name', '=', 'passfail'),
+                ], limit=1).id,
+                'picking_type_ids': [Command.set(picking_type.ids)],
+                'operation_id': bom.operation_ids.id,
+                'product_ids': [Command.set(product.ids)],
+                'x_control_stage': 'in_process',
+                'visual_sample_control_required': True,
+            })
+        production = self.env['mrp.production'].create({
+            'product_id': product.id, 'product_qty': 5, 'product_uom_id': product.uom_id.id,
+            'picking_type_id': picking_type.id, 'bom_id': bom.id,
+        })
+        production.action_confirm()
+        check = production.quality_quarantine_check_ids.filtered(lambda rec: rec.point_id == point)
+        if with_check and controlled and not check:
+            check = self._create_check_for_point(
+                point, production_id=production.id, workorder_id=production.workorder_ids.id,
+                product_id=product.id, company_id=production.company_id.id,
+            )
+        if not with_check:
+            check.unlink()
+            check = self.env['quality.check']
+        lot = self.env['stock.lot'].create({
+            'name': 'Тестова партія', 'product_id': product.id, 'company_id': production.company_id.id,
+        })
+        production.write({'lot_producing_id': lot.id, 'qty_producing': 5})
+        return production, check, quarantine, warehouse.lot_stock_id
+
+    def _pass_quarantine_check(self, check):
+        data = check.get_measurement_matrix_data()
+        self.assertTrue(data['samples'])
+        for sample in data['samples']:
+            check.update_measurement_visual_result(sample['id'], 'yes')
+        check.do_pass()
+
+    def test_quarantine_pending_and_pass_preserves_batch_and_releases_once(self):
+        production, check, quarantine, stock = self._create_quarantine_order()
+        product = production.product_id
+        lot = production.lot_producing_id
+        quant = self.env['stock.quant']
+        source_move = production.move_finished_ids
+        downstream = self.env['stock.move'].create({
+            'name': 'Подальший рух', 'product_id': product.id, 'product_uom': product.uom_id.id,
+            'product_uom_qty': 5, 'location_id': stock.id,
+            'location_dest_id': self.env.ref('stock.stock_location_customers').id,
+            'company_id': production.company_id.id,
+            'move_orig_ids': [Command.link(source_move.id)],
+        })
+        downstream._action_confirm(merge=False)
+        production.button_mark_done()
+        receipt = production.move_finished_ids
+        self.assertEqual(production.state, 'done')
+        self.assertEqual(check.quality_state, 'none')
+        self.assertEqual(production.quality_quarantine_status, 'pending')
+        self.assertEqual(receipt.location_dest_id, quarantine)
+        self.assertEqual(receipt.move_line_ids.lot_id, lot)
+        self.assertEqual(receipt.quantity, 5)
+        release = receipt.quality_release_move_ids
+        self.assertEqual(downstream.move_orig_ids, release)
+        downstream._action_assign()
+        self.assertFalse(downstream.move_line_ids)
+        self.assertFalse(quant._get_reserve_quantity(product, quarantine, 5, lot_id=lot))
+        self.assertFalse(quant._get_reserve_quantity(product, quarantine.location_id, 5, lot_id=lot))
+        self.assertEqual(quant._get_available_quantity(product, quarantine, lot_id=lot), 5)
+        with self.assertRaises(UserError), self.cr.savepoint():
+            release._action_done()
+        with self.assertRaises(UserError), self.cr.savepoint():
+            receipt.move_line_ids.write({'quantity': 1})
+        with self.assertRaises(UserError), self.cr.savepoint():
+            quant.search([('location_id', '=', quarantine.id)]).write({'inventory_quantity': 1})
+        self.assertEqual(production.action_open_quarantine_checks()['res_model'], 'quality.check')
+
+        self._pass_quarantine_check(check)
+        self.assertEqual(production.quality_quarantine_status, 'pass')
+        self.assertEqual(release.state, 'done')
+        self.assertEqual(release.company_id, production.company_id)
+        self.assertEqual(release.move_line_ids.lot_id, lot)
+        self.assertEqual(release.location_dest_id, stock)
+        self.assertEqual(release.quantity, 5)
+        self.assertFalse(quant._get_available_quantity(product, quarantine, lot_id=lot))
+        if 'stock_valuation_layer_ids' in release._fields:
+            self.assertFalse(release.stock_valuation_layer_ids)
+        check.do_pass()
+        self.assertEqual(receipt.quality_release_move_ids, release)
+
+    def test_quarantine_fail_and_missing_required_check_hold_output(self):
+        production, check, quarantine, _stock = self._create_quarantine_order()
+        production.button_mark_done()
+        check.do_fail()
+        self.assertEqual(check.quality_state, 'fail')
+        self.assertEqual(production.quality_quarantine_status, 'fail')
+        self.assertEqual(production.move_finished_ids.location_dest_id, quarantine)
+        self.assertEqual(production.move_finished_ids.quality_release_move_ids.state, 'draft')
+        alert = self.env['quality.alert'].create({'check_id': check.id, 'team_id': check.team_id.id})
+        self.assertEqual(alert.check_id, check)
+
+        # Keep the mandatory point but remove the QC before any product is posted.
+        production, _check, quarantine, _stock = self._create_quarantine_order(with_check=False)
+        production.button_mark_done()
+        self.assertEqual(production.quality_quarantine_status, 'pending')
+        self.assertEqual(production.move_finished_ids.location_dest_id, quarantine)
+
+    def test_three_passed_samples_cannot_release_five_produced_pieces(self):
+        production, check, quarantine, _stock = self._create_quarantine_order()
+        production.workorder_ids.state = 'progress'
+        production.qty_producing = 3
+        self._pass_quarantine_check(check)
+        self.assertEqual(len(check.sample_ids), 3)
+        production.qty_producing = 5
+        production.button_mark_done()
+        self.assertEqual(production.state, 'done')
+        self.assertEqual(check.quality_state, 'pass')
+        self.assertEqual(production.quality_quarantine_status, 'pending')
+        self.assertEqual(production.move_finished_ids.location_dest_id, quarantine)
+        self.assertEqual(production.move_finished_ids.quantity, 5)
+        self.assertEqual(production.move_finished_ids.quality_release_move_ids.state, 'draft')
+
+    def test_uncontrolled_production_keeps_its_original_destination(self):
+        production, _check, _quarantine, stock = self._create_quarantine_order(controlled=False)
+        production.button_mark_done()
+        self.assertEqual(production.state, 'done')
+        self.assertFalse(production.quality_quarantine_status)
+        self.assertEqual(production.move_finished_ids.location_dest_id, stock)
+        self.assertFalse(production.move_finished_ids.quality_release_move_ids)
+
+    def test_quarantine_cannot_defer_required_production_registration(self):
+        production, check, _quarantine, _stock = self._create_quarantine_order()
+        registration_type = self.env['quality.point.test_type'].search([
+            ('technical_name', '=', 'register_production'),
+        ], limit=1)
+        registration = self.env['quality.check'].create({
+            'production_id': production.id, 'workorder_id': check.workorder_id.id,
+            'test_type_id': registration_type.id, 'team_id': check.team_id.id,
+            'product_id': production.product_id.id,
+        })
+        self.assertTrue(check.quality_quarantine_deferred)
+        self.assertFalse(registration.quality_quarantine_deferred)
+        with self.assertRaises(UserError), self.cr.savepoint():
+            check.workorder_id.pre_record_production()
+        with self.assertRaises(UserError), self.cr.savepoint():
+            production.button_mark_done()
+        self.assertEqual(registration.quality_state, 'none')
+        self.assertFalse(production.move_finished_ids.quality_release_move_ids)
 
     def test_visual_only_no_result_blocks_pass_but_allows_fail(self):
         point = self._create_visual_only_point(

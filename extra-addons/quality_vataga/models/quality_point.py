@@ -1,4 +1,5 @@
-from odoo import fields, models
+from odoo import _, api, fields, models
+from odoo.exceptions import UserError
 
 
 CONTROL_STAGES = [
@@ -24,3 +25,10 @@ class QualityPoint(models.Model):
         'quality_point_id',
         string='Налаштування контролю',
     )
+
+    @api.ondelete(at_uninstall=False)
+    def _unlink_except_quarantine_points(self):
+        if self.env['mrp.production'].sudo().search_count([
+            ('quality_quarantine_point_ids', 'in', self.ids),
+        ], limit=1):
+            raise UserError(_('Не можна видаляти пункт контролю контрольованої партії.'))
