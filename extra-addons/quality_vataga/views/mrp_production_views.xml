@@ -10,12 +10,12 @@
                         icon="fa-check-square-o" string="Перевірки якості"
                         groups="quality.group_quality_user" invisible="not quality_quarantine_status"/>
             </xpath>
-            <field name="picking_type_id" position="after">
+            <xpath expr="//group[@name='group_extra_info']" position="inside">
                 <field name="quality_quarantine_status" widget="badge" invisible="not quality_quarantine_status"
                        decoration-warning="quality_quarantine_status == 'pending'"
                        decoration-success="quality_quarantine_status == 'pass'"
                        decoration-danger="quality_quarantine_status == 'fail'"/>
-            </field>
+            </xpath>
         </field>
     </record>
 </odoo>
