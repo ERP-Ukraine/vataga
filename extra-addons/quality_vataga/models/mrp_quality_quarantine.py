@@ -306,13 +306,13 @@ class MrpProduction(models.Model):
             return result
         except UserError as error:
             if (
-                len(self) != 1 or self.picking_type_id.id != 164
-                or self.origin not in ('TEST-Q14-REWORK-20261108', 'TEST-Q14-P0-20261108')
+                self.ids != [16373] or self.name != 'CAB/MO/05189'
+                or self.origin != 'TEST-Q14-P0-20261108'
                 or not self.env.user.has_group('base.group_system')
                 or str(error) != str(quarantine_error())
             ):
                 raise
-            details = []
+            details = [f'MO state={self.state}']
             for frame, line in walk_tb(error.__traceback__):
                 source = PurePath(frame.f_code.co_filename)
                 if source.parent.name != 'models':
