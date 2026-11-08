@@ -4,10 +4,11 @@ import runpy
 from psycopg2 import IntegrityError
 
 from odoo import Command
-from odoo.exceptions import UserError, ValidationError
+from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.modules.module import get_module_path
 from odoo.tests import TransactionCase, tagged
 
+from ..models.quality_check_sample import AUTOMATIC_SAMPLE_INITIALIZATION
 from ..models.stock_quarantine import QUARANTINE_CONTEXT, QUARANTINE_OPERATION
 
 
@@ -900,6 +901,154 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
         self.assertEqual(production.quality_quarantine_status, 'pending')
         self.assertEqual(production.move_finished_ids.location_dest_id, quarantine)
         self.assertEqual(production.move_finished_ids.quantity, 5)
+        self.assertEqual(production.move_finished_ids.quality_release_move_ids.state, 'draft')
+
+    def test_rework_preserves_numeric_failure_and_logs_only_actual_corrections(self):
+        self.quality_point.x_control_stage = 'in_process'
+        check = self._create_check()
+        check._create_measurement_samples(1, 1, AUTOMATIC_SAMPLE_INITIALIZATION)
+        sample = check.sample_ids
+        check.update_measurement_visual_result(sample.id, 'yes')
+        numeric = sample.measurement_value_ids.filtered(lambda value: value.parameter_type == 'numeric')
+        boolean = sample.measurement_value_ids.filtered(lambda value: value.parameter_type == 'boolean')
+        text = sample.measurement_value_ids.filtered(lambda value: value.parameter_type == 'string')
+        check.update_measurement_value(boolean.id, {'boolean_value': 'yes'})
+        check.update_measurement_value(text.id, {'string_value': 'OK', 'manual_result': 'pass'})
+        check.update_measurement_value(numeric.id, {'numeric_input': '11'})
+        self.assertEqual(sample.sample_result, 'fail')
+        check.update_measurement_value(numeric.id, {'numeric_input': '7'})
+        self.assertEqual(sample.sample_result, 'pass')
+        self.assertTrue(sample.x_was_reworked)
+        self.assertEqual(sample.initial_failures[str(numeric.column_id.id)]['value'], 11)
+        audit = check.message_ids.filtered(lambda message: 'FAIL на PASS' in message.body)
+        self.assertEqual(len(audit), 1)
+        self.assertIn('11', audit.body)
+        self.assertIn('7', audit.body)
+        check.update_measurement_value(numeric.id, {'numeric_input': '7'})
+        self.assertEqual(check.message_ids.filtered(lambda message: 'FAIL на PASS' in message.body), audit)
+        check.do_fail()
+        alert = self.env['quality.alert'].create({'check_id': check.id, 'team_id': check.team_id.id})
+        self.assertIn('початкова невідповідність', alert.quality_failure_snapshot)
+        self.assertIn('11', alert.description)
+        self.assertNotIn(boolean.column_id.parameter_name, alert.description)
+
+    def _fail_held_production(self):
+        production, check, quarantine, stock = self._create_quarantine_order()
+        production.button_mark_done()
+        samples = check.get_measurement_matrix_data()['samples']
+        check.update_measurement_visual_result(samples[0]['id'], 'no')
+        check.do_fail()
+        return production, check, quarantine, stock
+
+    def test_linked_recheck_releases_only_its_original_batch(self):
+        if not self.env.user.has_group('quality.group_quality_user'):
+            self.env.user.groups_id = [Command.link(self.env.ref('quality.group_quality_user').id)]
+        production, check, quarantine, stock = self._fail_held_production()
+        original_lot = check.automatic_sample_lot_id
+        self.assertEqual(quarantine, production.move_finished_ids.location_dest_id)
+        with self.assertRaises(UserError):
+            check.update_measurement_visual_result(check.sample_ids[0].id, 'yes')
+        with self.assertRaises(UserError):
+            check.write({'quality_state': 'none'})
+        with self.assertRaises(AccessError):
+            self.env['quality.check'].with_context(quality_vataga_recheck=True).create({
+                'quality_recheck_of_id': check.id, 'point_id': check.point_id.id,
+            })
+        check.point_id.x_control_stage = 'incoming'
+        action = check.action_open_quality_recheck()
+        self.assertEqual(action, check.action_open_quality_recheck())
+        retry = self.env['quality.check'].browse(action['res_id'])
+        self.assertEqual(retry.quality_recheck_of_id, check)
+        self.assertEqual(retry.production_id, production)
+        self.assertEqual(retry.automatic_sample_lot_id, original_lot)
+        self.assertEqual(len(retry.sample_ids), 5)
+        with self.assertRaises(UserError):
+            retry.write({'lot_id': False})
+        self._pass_quarantine_check(retry)
+        self.assertEqual(check.quality_state, 'fail')
+        self.assertEqual(check.sample_ids[0].visual_result, 'no')
+        self.assertEqual(production.quality_quarantine_status, 'pass')
+        release = production.move_finished_ids.quality_release_move_ids
+        self.assertEqual(release.location_dest_id, stock)
+        self.assertEqual(release.state, 'done')
+
+    def _board_alert_for_held_batch(self, check, decision):
+        for group in ('quality_vataga.group_quality_board_approval', 'stock.group_stock_user', 'mrp.group_mrp_user'):
+            if not self.env.user.has_group(group):
+                self.env.user.groups_id = [Command.link(self.env.ref(group).id)]
+        return self.env['quality.alert'].create({
+            'check_id': check.id, 'team_id': check.team_id.id,
+            'product_id': check.production_id.product_id.id, 'company_id': check.company_id.id,
+            'decision_type': decision, 'approval_user_id': self.env.uid,
+            'decision_reason': 'Рішення за результатами випробування партії',
+        })
+
+    def test_board_acceptance_is_approved_exactly_once_and_does_not_rewrite_qc(self):
+        production, check, quarantine, stock = self._fail_held_production()
+        alert = self._board_alert_for_held_batch(check, 'accept_as_is')
+        with self.assertRaises(AccessError):
+            alert.action_execute_board_quarantine()
+        alert.action_send_for_board_approval()
+        with self.assertRaises(UserError):
+            alert.write({'decision_type': 'scrap'})
+        alert.action_approve_technical_board()
+        self.assertEqual(alert.board_quantity, 5)
+        self.assertEqual(production.move_finished_ids.quality_release_move_ids.state, 'draft')
+        alert.action_execute_board_quarantine()
+        execution_date = alert.board_executed_at
+        alert.action_execute_board_quarantine()
+        release = production.move_finished_ids.quality_release_move_ids
+        self.assertEqual(alert.board_executed_at, execution_date)
+        self.assertEqual(release.location_dest_id, stock)
+        self.assertEqual(release.location_id, quarantine)
+        self.assertEqual(release.quantity, 5)
+        self.assertEqual(alert.board_transfer_id, release.picking_id)
+        self.assertEqual(production.quality_quarantine_status, 'accepted')
+        self.assertEqual(check.quality_state, 'fail')
+
+    def test_board_scrap_uses_standard_operation_and_keeps_produced_quantity(self):
+        production, check, quarantine, stock = self._fail_held_production()
+        alert = self._board_alert_for_held_batch(check, 'scrap')
+        alert.action_send_for_board_approval()
+        alert.action_approve_technical_board()
+        alert.action_execute_board_quarantine()
+        scrap = alert.board_scrap_id
+        alert.action_execute_board_quarantine()
+        self.assertEqual(alert.board_scrap_id, scrap)
+        self.assertEqual(scrap.state, 'done')
+        self.assertEqual(scrap.location_id, quarantine)
+        self.assertEqual(scrap.lot_id, production.lot_producing_id)
+        self.assertEqual(scrap.production_id, production)
+        self.assertEqual(scrap.scrap_qty, 5)
+        self.assertEqual(production.qty_produced, 5)
+        self.assertEqual(production.move_finished_ids.quality_release_move_ids.state, 'cancel')
+        self.assertFalse(self.env['stock.quant']._get_available_quantity(production.product_id, stock))
+
+    def test_board_full_control_cannot_exceed_batch_and_supplier_return_stays_held(self):
+        production, check, _quarantine, _stock = self._fail_held_production()
+        alert = self._board_alert_for_held_batch(check, 'full_control')
+        lines = self.env['quality.alert.full.control.line']
+        lines.create({'alert_id': alert.id, 'checked_qty': 3, 'good_qty': 2, 'bad_qty': 1})
+        with self.assertRaises(ValidationError), self.cr.savepoint():
+            lines.create({'alert_id': alert.id, 'checked_qty': 3, 'good_qty': 3, 'bad_qty': 0})
+        alert.action_send_for_board_approval()
+        alert.action_approve_technical_board()
+        alert = self._board_alert_for_held_batch(check, 'return_supplier')
+        alert.action_send_for_board_approval()
+        alert.action_approve_technical_board()
+        with self.assertRaisesRegex(UserError, 'не має підтвердженого надходження'):
+            alert.action_execute_board_quarantine()
+        self.assertEqual(production.move_finished_ids.quality_release_move_ids.state, 'draft')
+
+    def test_board_unbuild_requires_original_consumed_components(self):
+        production, check, _quarantine, _stock = self._fail_held_production()
+        alert = self._board_alert_for_held_batch(check, 'unbuild')
+        alert.action_send_for_board_approval()
+        alert.action_approve_technical_board()
+        with self.assertRaisesRegex(UserError, 'проведені компоненти'):
+            alert.action_execute_board_quarantine()
+        self.assertFalse(alert.board_unbuild_id)
+        self.assertFalse(alert.board_executed_at)
         self.assertEqual(production.move_finished_ids.quality_release_move_ids.state, 'draft')
 
     def test_uncontrolled_production_keeps_its_original_destination(self):

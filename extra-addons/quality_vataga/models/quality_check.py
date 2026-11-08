@@ -15,6 +15,9 @@ from .quality_check_sample import AUTOMATIC_SAMPLE_INITIALIZATION
 from .quality_point import CONTROL_STAGES
 
 
+RECHECK_INITIALIZATION = object()
+
+
 class QualityCheck(models.Model):
     _inherit = 'quality.check'
 
@@ -29,6 +32,18 @@ class QualityCheck(models.Model):
     quality_quarantine_deferred = fields.Boolean(
         compute='_compute_quality_quarantine_deferred', compute_sudo=True,
     )
+    quality_recheck_of_id = fields.Many2one(
+        'quality.check', string='Початкова перевірка', readonly=True, copy=False,
+        check_company=True, ondelete='restrict',
+    )
+    quality_recheck_ids = fields.One2many(
+        'quality.check', 'quality_recheck_of_id', readonly=True, copy=False,
+    )
+
+    _sql_constraints = [
+        ('quality_single_recheck', 'unique(quality_recheck_of_id)',
+         'Для перевірки вже створено повторний контроль.'),
+    ]
 
     equipment_selection_ids = fields.One2many(
         'quality.check.equipment.selection',
@@ -263,6 +278,7 @@ class QualityCheck(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        recheck = self.env.context.get('quality_vataga_recheck') is RECHECK_INITIALIZATION
         sanitized_vals_list = []
         default_point_id = False
         if any('point_id' not in vals for vals in vals_list):
@@ -270,16 +286,18 @@ class QualityCheck(models.Model):
         points = self.env['quality.point']
         for vals in vals_list:
             sanitized_vals = dict(vals)
+            if 'quality_recheck_ids' in vals or ('quality_recheck_of_id' in vals and not recheck):
+                raise AccessError(_('Повторний контроль створюється лише відповідною дією.'))
+            sanitized_vals.setdefault('quality_recheck_of_id', False)
             sanitized_vals.pop('measurement_matrix_required', None)
             point = points.browse(vals.get('point_id', default_point_id))
-            sanitized_vals['x_control_stage'] = (
-                point.x_control_stage or 'incoming'
-            )
+            sanitized_vals['x_control_stage'] = 'in_process' if recheck else (point.x_control_stage or 'incoming')
             sanitized_vals['automatic_sample_count'] = 0
             sanitized_vals['automatic_sample_lot_id'] = False
             sanitized_vals_list.append(sanitized_vals)
         checks = super().create(sanitized_vals_list)
-        checks._initialize_measurement_snapshot()
+        if not recheck:
+            checks._initialize_measurement_snapshot()
         checks.filtered(
             lambda check: (
                 check.x_control_stage == 'in_process'
@@ -289,6 +307,8 @@ class QualityCheck(models.Model):
         return checks
 
     def write(self, vals):
+        if {'quality_recheck_of_id', 'quality_recheck_ids'} & vals.keys():
+            raise AccessError(_('Зв’язок повторного контролю не можна змінювати вручну.'))
         if {'x_control_stage', 'automatic_sample_count', 'automatic_sample_lot_id'} & vals.keys():
             raise UserError(_(
                 'Етап контролю та розмір автоматичної вибірки зберігаються '
@@ -319,6 +339,22 @@ class QualityCheck(models.Model):
 
         protected = self.filtered(lambda check: check.x_control_stage == 'in_process')
         binding_fields = {'production_id', 'workorder_id', 'product_id', 'company_id', 'lot_id'}
+        control_fields = {'test_type_id', 'measure_on', 'finished_product_sequence'}
+        if protected and ({'quality_state'} | binding_fields | control_fields) & vals.keys():
+            protected._lock_measurement_checks()
+            for check in protected:
+                if check.quality_state == 'fail' or check.quality_recheck_of_id:
+                    if control_fields & vals.keys() or any(
+                        check[field].id != (vals[field] or False)
+                        for field in binding_fields & vals.keys()
+                    ):
+                        raise UserError(_('Не можна змінювати обсяг або призначення завершеної чи повторної перевірки.'))
+                if (
+                    'quality_state' in vals and vals['quality_state'] != check.quality_state
+                    and (check.quality_state == 'fail'
+                         or (check.quality_recheck_of_id and check.quality_state != 'none'))
+                ):
+                    raise UserError(_('Результат завершеного контролю зберігається в історії.'))
         if binding_fields & vals.keys():
             destination = self.env['mrp.production'].browse(vals.get('production_id'))
             for check in protected.sudo():
@@ -367,13 +403,95 @@ class QualityCheck(models.Model):
         if self.sudo().filtered(
             lambda check: check.x_control_stage == 'in_process'
             and (
-                check.production_id.quality_quarantine_point_ids
+                check.quality_recheck_of_id
+                or check.production_id.quality_quarantine_point_ids
                 or (check.quality_state != 'none'
                     and check.production_id.state != 'done'
                     and check.production_id.picking_type_id.quality_quarantine_location_id)
             ),
         ):
             raise UserError(_('Не можна видаляти перевірку контрольованої партії.'))
+
+    def _lock_measurement_checks(self):
+        self.check_access_rights('write')
+        self.check_access_rule('write')
+        self.flush_recordset(['quality_state'])
+        self.env.cr.execute(
+            'SELECT id FROM quality_check WHERE id IN %s ORDER BY id FOR UPDATE',
+            [tuple(self.ids)],
+        )
+        self.invalidate_recordset()
+
+    def action_open_quality_recheck(self):
+        self.ensure_one()
+        if not self.env.user.has_group('quality.group_quality_user'):
+            raise AccessError(_('Повторний контроль може створити інспектор якості.'))
+        self._lock_measurement_checks()
+        if (
+            self.x_control_stage != 'in_process' or self.quality_state != 'fail'
+            or not self.measurement_matrix_required or self.quality_recheck_of_id
+        ):
+            raise UserError(_('Повторний контроль доступний лише для початкової перевірки зі статусом FAIL.'))
+        retry = self.sudo().quality_recheck_ids.sudo(False)
+        if not retry:
+            retry = self._create_quality_recheck()
+        retry.check_access_rights('read')
+        retry.check_access_rule('read')
+        return {
+            'type': 'ir.actions.act_window', 'name': _('Повторний контроль'),
+            'res_model': 'quality.check', 'view_mode': 'form', 'res_id': retry.id,
+        }
+
+    def _create_quality_recheck(self):
+        production = self.production_id
+        lot = self.automatic_sample_lot_id or self.lot_id
+        if (
+            not production or not self.point_id or self.company_id != production.company_id
+            or (self.product_id and self.product_id != production.product_id)
+            or (production.product_tracking != 'none' and not lot)
+            or not self.automatic_sample_count or len(self.sample_ids) != self.automatic_sample_count
+        ):
+            raise UserError(_('Початкова перевірка не містить однозначної партії та кількості зразків.'))
+        self._validate_measurement_sample_structure()
+        binding = {
+            name: self[name].id
+            for name in ('company_id', 'production_id', 'point_id', 'team_id', 'workorder_id')
+        }
+        retry = self.with_context({
+            'allowed_company_ids': self.env.companies.ids,
+            'quality_vataga_recheck': RECHECK_INITIALIZATION,
+        }).create(dict(
+            binding, quality_recheck_of_id=self.id, product_id=production.product_id.id,
+            lot_id=lot.id, measure_on=self.measure_on, quality_state='none',
+            test_type_id=self.test_type_id.id,
+        ))
+        super(QualityCheck, retry).write({
+            'measurement_matrix_required': True,
+            'automatic_sample_count': self.automatic_sample_count,
+            'automatic_sample_lot_id': lot.id,
+        })
+        retry._copy_recheck_measurement_snapshot(self)
+        retry._create_measurement_samples(1, self.automatic_sample_count, AUTOMATIC_SAMPLE_INITIALIZATION)
+        retry.message_post(body=_('Повторний контроль після перевірки %(check)s.', check=self.display_name))
+        return retry
+
+    def _copy_recheck_measurement_snapshot(self, original):
+        context = {'quality_vataga_snapshot_initialization': True}
+        columns = self.env['quality.check.measurement.column'].sudo().with_context(**context)
+        selections = self.env['quality.check.equipment.selection'].sudo().with_context(**context)
+        columns.create([
+            column.copy_data({
+                'quality_check_id': self.id,
+                'equipment_category_ids': [Command.set((column.equipment_category_ids or column.equipment_category_id).ids)],
+            })[0] for column in original.measurement_column_ids
+        ])
+        selections.create([
+            selection.copy_data({
+                'quality_check_id': self.id, 'equipment_id': False,
+                'equipment_ids': [Command.clear()],
+                'preserve_completed_equipment_selection': True,
+            })[0] for selection in original.equipment_selection_ids.filtered('requires_equipment_selection')
+        ])
 
     @api.depends(
         'x_control_stage', 'measurement_matrix_required', 'test_type_id', 'quality_state',
@@ -619,6 +737,8 @@ class QualityCheck(models.Model):
 
     def _get_required_measurement_equipment_categories(self):
         self.ensure_one()
+        if self.quality_recheck_of_id:
+            return self.equipment_selection_ids.required_equipment_category_ids
         categories = self.env['maintenance.equipment.category']
         for column in self.measurement_column_ids:
             categories |= (
@@ -1009,6 +1129,7 @@ class QualityCheck(models.Model):
                 'display_name': sample.display_name,
                 'visual_result': sample.visual_result or '',
                 'sample_result': sample.sample_result,
+                'x_was_reworked': sample.x_was_reworked,
                 'cells': cells,
             })
 

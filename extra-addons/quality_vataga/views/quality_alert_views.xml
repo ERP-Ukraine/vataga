@@ -16,6 +16,7 @@
                 <group name="technical_board_action">
                     <field name="is_board_analysis_stage" invisible="1"/>
                     <field name="is_board_approval_stage" invisible="1"/>
+                    <field name="board_is_quarantine_case" invisible="1"/>
                     <button name="action_send_for_board_approval" type="object"
                             string="Передати на затвердження" class="oe_highlight"
                             invisible="is_approved or not is_board_analysis_stage"/>
@@ -23,17 +24,42 @@
                             string="Затвердити рішення" class="oe_highlight"
                             groups="quality_vataga.group_quality_board_approval"
                             invisible="is_approved or not is_board_approval_stage or approval_user_id != uid"/>
+                    <button name="action_execute_board_quarantine" type="object"
+                            string="Виконати складське рішення" class="oe_highlight"
+                            groups="quality_vataga.group_quality_board_approval"
+                            invisible="not board_is_quarantine_case or not is_approved or board_executed_at
+                                       or approval_user_id != uid or decision_type not in ('accept_as_is', 'scrap', 'unbuild', 'return_supplier')"/>
                 </group>
                 <group string="Рішення Технічної ради">
                     <group>
-                        <field name="decision_type" readonly="is_approved"/>
-                        <field name="approval_user_id" readonly="is_approved" options="{'no_create': True}"/>
+                        <field name="decision_type" readonly="is_approved or (board_is_quarantine_case and is_board_approval_stage)"/>
+                        <field name="approval_user_id" readonly="is_approved or (board_is_quarantine_case and is_board_approval_stage)" options="{'no_create': True}"/>
+                        <field name="decision_reason" readonly="is_approved or is_board_approval_stage"
+                               invisible="not board_is_quarantine_case"/>
                     </group>
                     <group>
                         <field name="is_approved" readonly="1"/>
                         <field name="approved_by_id" readonly="1" invisible="not is_approved"/>
                         <field name="approved_at" readonly="1" invisible="not is_approved"/>
                     </group>
+                </group>
+                <group string="Вся утримана партія" invisible="not board_is_quarantine_case">
+                    <group invisible="is_approved and board_receipt_id">
+                        <field name="board_preview_lot_id" string="Партія" readonly="1"/>
+                        <field name="board_preview_quantity" string="Фактична кількість" readonly="1"/>
+                    </group>
+                    <group invisible="not board_receipt_id">
+                        <field name="board_receipt_id" string="Проведений випуск"/>
+                        <field name="board_lot_id" string="Затверджена партія"/>
+                        <field name="board_quantity" string="Затверджена кількість"/>
+                        <field name="board_executed_at" invisible="not board_executed_at"/>
+                        <field name="board_transfer_id" invisible="not board_transfer_id"/>
+                        <field name="board_scrap_id" invisible="not board_scrap_id"/>
+                        <field name="board_unbuild_id" invisible="not board_unbuild_id"/>
+                    </group>
+                </group>
+                <group invisible="not quality_failure_snapshot">
+                    <field name="quality_failure_snapshot" readonly="1"/>
                 </group>
                 <notebook name="technical_board_notebook" invisible="decision_type != 'full_control'">
                     <page string="Суцільний контроль" name="technical_board_full_control">

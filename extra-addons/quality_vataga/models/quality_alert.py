@@ -6,6 +6,10 @@ from odoo.exceptions import AccessError, UserError
 
 APPROVAL_GROUP = 'quality_vataga.group_quality_board_approval'
 AUDIT_FIELDS = frozenset({'is_approved', 'approved_by_id', 'approved_at'})
+QUARANTINE_AUDIT_FIELDS = frozenset({
+    'quality_failure_snapshot', 'board_receipt_id', 'board_lot_id', 'board_quantity',
+    'board_executed_at', 'board_transfer_id', 'board_scrap_id', 'board_unbuild_id',
+})
 BOARD_STAGE_XMLIDS = (
     'quality_vataga.quality_alert_stage_board_analysis',
     'quality_vataga.quality_alert_stage_board_approval',
@@ -52,6 +56,8 @@ class QualityAlert(models.Model):
         ('accept_as_is', 'Прийняти як є'),
         ('full_control', 'Суцільний контроль'),
         ('return_supplier', 'Повернути постачальнику'),
+        ('scrap', 'Брак'),
+        ('unbuild', 'Розбирання'),
     ], string='Рішення Технічної ради', tracking=True, copy=False)
     approval_user_id = fields.Many2one(
         'res.users', string='Затверджуючий', tracking=True, copy=False,
@@ -106,9 +112,10 @@ class QualityAlert(models.Model):
                    if any(name not in vals for vals in vals_list)]
         defaults = self.default_get(missing) if missing else {}
         for vals in vals_list:
-            if any(vals.get(name) for name in AUDIT_FIELDS):
+            if any(vals.get(name) for name in AUDIT_FIELDS | QUARANTINE_AUDIT_FIELDS):
                 raise AccessError(_('Затвердження можливе лише кнопкою «Затвердити рішення».'))
             values = dict(vals, is_approved=False, approved_by_id=False, approved_at=False)
+            values.update(dict.fromkeys(QUARANTINE_AUDIT_FIELDS, False))
             stage_id = values.get('stage_id', defaults.get('stage_id'))
             if stage_id and stage_id in (execution.id if execution else False,
                                          approval.id if approval else False):
@@ -118,6 +125,7 @@ class QualityAlert(models.Model):
                 check = self.env['quality.check'].browse(check_id)
                 if check.quality_state == 'fail':
                     failures = check._get_technical_board_failure_description()
+                    values['quality_failure_snapshot'] = failures or False
                     description = values.get('description', defaults.get('description')) or ''
                     if failures and str(failures) not in description:
                         # Prepare before creation: create permission must not
@@ -138,9 +146,10 @@ class QualityAlert(models.Model):
             self.invalidate_recordset()
 
     def write(self, vals):
-        if AUDIT_FIELDS.intersection(vals):
+        if (AUDIT_FIELDS | QUARANTINE_AUDIT_FIELDS).intersection(vals):
             raise AccessError(_('Поля затвердження не можна змінювати вручну.'))
-        if {'decision_type', 'approval_user_id', 'stage_id'}.intersection(vals):
+        scope_fields = {'check_id', 'product_id', 'company_id', 'decision_reason'}
+        if ({'decision_type', 'approval_user_id', 'stage_id'} | scope_fields).intersection(vals):
             self._lock_board_records()
             if 'stage_id' in vals and any(
                 alert.stage_id.id != vals['stage_id'] for alert in self
@@ -150,12 +159,24 @@ class QualityAlert(models.Model):
                     'та «Затвердити рішення».',
                 ))
             for alert in self:
+                if (
+                    alert.is_board_approval_stage and alert._is_quarantine_board_case()
+                    and (scope_fields | {'decision_type', 'approval_user_id'}) & vals.keys()
+                ):
+                    raise UserError(_('Передане на затвердження карантинне рішення вже не можна змінювати.'))
+                if alert.quality_failure_snapshot and 'check_id' in vals and vals['check_id'] != alert.check_id.id:
+                    raise UserError(_('Сповіщення з невідповідностями зберігає посилання на початкову перевірку.'))
+                if alert.is_approved and scope_fields & vals.keys():
+                    raise UserError(_('Обсяг та підставу затвердженого рішення не можна змінювати.'))
                 if alert.is_approved and (
                     ('decision_type' in vals and vals['decision_type'] != alert.decision_type)
                     or ('approval_user_id' in vals and vals['approval_user_id'] != alert.approval_user_id.id)
                 ):
                     raise UserError(_('Затверджене рішення та затверджуючого не можна змінювати.'))
-        return super().write(vals)
+        result = super().write(vals)
+        if {'check_id', 'decision_type', 'full_control_line_ids'} & vals.keys():
+            self._validate_quarantine_full_control()
+        return result
 
     def action_send_for_board_approval(self):
         self.ensure_one()
@@ -166,6 +187,10 @@ class QualityAlert(models.Model):
             raise UserError(_('Оберіть рішення Технічної ради.'))
         if not self.approval_user_id:
             raise UserError(_('Оберіть користувача, який має затвердити рішення.'))
+        if self._is_quarantine_board_case():
+            if not self.approval_user_id.has_group(APPROVAL_GROUP):
+                raise AccessError(_('Призначений користувач не має прав затверджувати рішення.'))
+            self._prepare_board_quarantine_approval()
         # Bypass our public stage guard only; the ORM still enforces access.
         super(QualityAlert, self).write({
             'stage_id': self.env.ref(BOARD_STAGE_XMLIDS[1]).id,
@@ -188,15 +213,21 @@ class QualityAlert(models.Model):
         if self.stage_id != self.env.ref('quality_vataga.quality_alert_stage_board_approval'):
             raise UserError(_('Рішення можна затвердити лише на стадії «На затвердженні».'))
         execution = self.env.ref('quality_vataga.quality_alert_stage_board_execution')
+        scope = self._prepare_board_quarantine_approval()
         # Bypass only our public write guard, never ACLs or record rules.
         super(QualityAlert, self).write({
             'is_approved': True,
             'approved_by_id': self.env.uid,
             'approved_at': fields.Datetime.now(),
             'stage_id': execution.id,
+            **scope,
         })
         self.message_post(body=_(
             'Рішення Технічної ради затверджено користувачем %(user)s.',
             user=self.env.user.display_name,
         ))
         return True
+
+    def _record_board_quarantine_execution(self, values):
+        self.ensure_one()
+        return super(QualityAlert, self).write(dict(values, board_executed_at=fields.Datetime.now()))

@@ -1,6 +1,7 @@
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
+from .measurement_utils import format_number
 
 # An RPC context cannot provide this server-side token.
 AUTOMATIC_SAMPLE_INITIALIZATION = object()
@@ -20,6 +21,9 @@ class QualityCheckSample(models.Model):
     )
     sequence = fields.Integer(string='Послідовність', default=10)
     sample_number = fields.Integer(string='Номер зразка', required=True)
+    x_was_reworked = fields.Boolean(string='Доопрацьовано', readonly=True, copy=False)
+    initial_failures = fields.Json(readonly=True, copy=False)
+    rework_pending = fields.Boolean(readonly=True, copy=False)
     visual_result = fields.Selection(
         selection=[
             ('yes', 'Так'),
@@ -151,7 +155,10 @@ class QualityCheckSample(models.Model):
             raise UserError(_(
                 'Не можна додавати зразки до завершеної перевірки.',
             ))
-        samples = super().create(vals_list)
+        samples = super().create([
+            dict(vals, x_was_reworked=False, initial_failures=False, rework_pending=False)
+            for vals in vals_list
+        ])
         values_to_create = []
         for sample in samples:
             values_to_create.extend({
@@ -173,6 +180,7 @@ class QualityCheckSample(models.Model):
                 'У зразку можна змінювати лише результат візуального '
                 'контролю.',
             ))
+        previous = self._before_measurement_change()
         if any(
             sample.quality_check_id.quality_state != 'none'
             for sample in self
@@ -180,7 +188,90 @@ class QualityCheckSample(models.Model):
             raise UserError(_(
                 'Не можна змінювати зразки завершеної перевірки.',
             ))
-        return super().write(vals)
+        result = super().write(vals)
+        self._after_measurement_change(previous)
+        return result
+
+    def _measurement_snapshot(self):
+        self.ensure_one()
+        snapshot = {
+            'visual': {
+                'name': _('візуальний контроль'), 'value': self.visual_result or '',
+                'display': {'yes': _('Так'), 'no': _('Ні')}.get(self.visual_result, ''),
+                'reason': _('Візуальний контроль не пройдено.') if self.visual_result == 'no' else '',
+            },
+        }
+        for cell in self.measurement_value_ids:
+            if cell.parameter_type == 'numeric':
+                value = cell.numeric_value if cell.has_numeric_value else None
+                display = (
+                    f'{format_number(value)} {cell.column_id.parameter_unit or ""}'.strip()
+                    if value is not None else ''
+                )
+            elif cell.parameter_type == 'boolean':
+                value = cell.boolean_value or ''
+                display = {'yes': _('Так'), 'no': _('Ні')}.get(value, '')
+            else:
+                value = [cell.string_value or '', cell.manual_result or '']
+                display = ' / '.join(part for part in value if part)
+            snapshot[str(cell.column_id.id)] = {
+                'name': cell.column_id.parameter_name, 'value': value, 'display': display,
+                'reason': (cell.failure_reason or _('Параметр не відповідає нормі.'))
+                if cell.result == 'fail' else '',
+            }
+        return snapshot
+
+    def _before_measurement_change(self):
+        samples = self.filtered(lambda sample: sample.quality_check_id.x_control_stage == 'in_process')
+        if not samples:
+            return {}
+        samples.quality_check_id.sudo(False)._lock_measurement_checks()
+        samples.invalidate_recordset()
+        samples.measurement_value_ids.invalidate_recordset()
+        return {
+            sample.id: (sample.sample_result, sample._measurement_snapshot())
+            for sample in samples if sample.quality_check_id.quality_state == 'none'
+        }
+
+    def _after_measurement_change(self, previous):
+        for sample in self.filtered(lambda row: row.id in previous):
+            old_result, old = previous[sample.id]
+            current = sample._measurement_snapshot()
+            changed = [key for key in old if old[key]['value'] != current[key]['value']]
+            if not changed:
+                continue
+            failures = dict(sample.initial_failures or {})
+            for snapshot in (old, current):
+                for key, detail in snapshot.items():
+                    if detail['reason']:
+                        failures.setdefault(key, detail)
+            rework = sample.rework_pending or 'fail' in (old_result, sample.sample_result)
+            repaired = rework and sample.sample_result == 'pass'
+            pending = rework and not repaired
+            if (
+                failures != (sample.initial_failures or {}) or pending != sample.rework_pending
+                or (repaired and not sample.x_was_reworked)
+            ):
+                super(QualityCheckSample, sample).write({
+                    'initial_failures': failures,
+                    'x_was_reworked': sample.x_was_reworked or repaired,
+                    'rework_pending': pending,
+                })
+            if old_result == 'fail' or repaired:
+                heading = (
+                    _('Статус зразка №%(number)s змінено з FAIL на PASS після доопрацювання.',
+                      number=sample.sample_number)
+                    if repaired else _('Виправлення показників зразка №%(number)s.', number=sample.sample_number)
+                )
+                edits = [
+                    _('%(name)s: «%(before)s» → «%(after)s». %(reason)s',
+                      name=old[key]['name'], before=old[key]['display'], after=current[key]['display'],
+                      reason=old[key]['reason'])
+                    for key in changed
+                ]
+                sample.quality_check_id.sudo(False).message_post(
+                    body='\n'.join([heading, *edits]), subtype_xmlid='mail.mt_note',
+                )
 
     def _has_entered_results(self):
         self.ensure_one()

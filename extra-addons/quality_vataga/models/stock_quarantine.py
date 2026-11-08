@@ -207,6 +207,7 @@ class StockMove(models.Model):
         'stock.move', readonly=True, copy=False, check_company=True, ondelete='restrict',
     )
     quality_release_move_ids = fields.One2many('stock.move', 'quality_held_move_id')
+    quality_board_accepted = fields.Boolean(readonly=True, copy=False)
 
     _sql_constraints = [
         ('quality_single_release', 'unique(quality_held_move_id)',
@@ -215,11 +216,15 @@ class StockMove(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        if self.env.context.get(QUARANTINE_CONTEXT) is not QUARANTINE_OPERATION:
+            vals_list = [dict(vals, quality_board_accepted=False) for vals in vals_list]
         moves = super().create(vals_list)
         moves._check_quality_quarantine()
         return moves
 
     def write(self, vals):
+        if 'quality_board_accepted' in vals and self.env.context.get(QUARANTINE_CONTEXT) is not QUARANTINE_OPERATION:
+            raise quarantine_error()
         if {
             'location_id', 'location_dest_id', 'state', 'quantity', 'product_uom_qty',
             'product_id', 'product_uom', 'company_id', 'picked', 'production_id',

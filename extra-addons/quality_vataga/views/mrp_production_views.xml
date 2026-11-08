@@ -12,7 +12,7 @@
             </xpath>
             <xpath expr="//group[@name='group_extra_info']" position="inside">
                 <field name="quality_quarantine_status" widget="badge" invisible="not quality_quarantine_status"
-                       decoration-warning="quality_quarantine_status == 'pending'"
+                       decoration-warning="quality_quarantine_status in ('pending', 'accepted')"
                        decoration-success="quality_quarantine_status == 'pass'"
                        decoration-danger="quality_quarantine_status == 'fail'"/>
             </xpath>

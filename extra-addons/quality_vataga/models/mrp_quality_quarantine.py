@@ -27,6 +27,7 @@ class MrpProduction(models.Model):
         ('pending', 'Очікує перевірку якості'),
         ('pass', 'Контроль якості пройдено'),
         ('fail', 'Контроль якості не пройдено'),
+        ('accepted', 'Прийнято рішенням Технічної ради'),
     ], compute='_compute_quality_quarantine_status', compute_sudo=True)
 
     @api.model_create_multi
@@ -128,7 +129,24 @@ class MrpProduction(models.Model):
                 )
         return quantities
 
+    def _quality_effective_checks(self, checks):
+        retries = checks.filtered('quality_recheck_of_id')
+        originals = checks - retries
+        validated = retries.filtered(lambda retry: (
+            retry.quality_state == 'pass' and retry.can_pass_measurement_check
+            and retry.quality_recheck_of_id in originals
+            and retry.quality_recheck_of_id.quality_state == 'fail'
+            and retry.company_id == retry.quality_recheck_of_id.company_id
+            and retry.point_id == retry.quality_recheck_of_id.point_id
+            and retry.workorder_id == retry.quality_recheck_of_id.workorder_id
+            and retry.automatic_sample_count == retry.quality_recheck_of_id.automatic_sample_count
+            and retry.automatic_sample_lot_id
+                == (retry.quality_recheck_of_id.automatic_sample_lot_id or retry.quality_recheck_of_id.lot_id)
+        ))
+        return (originals - validated.quality_recheck_of_id) | validated
+
     def _quality_covered(self, checks, points, quantities):
+        checks = self._quality_effective_checks(checks)
         if not quantities or not points or checks.point_id != points:
             return False
         if self.product_tracking != 'none' and False in quantities:
@@ -152,6 +170,7 @@ class MrpProduction(models.Model):
         'quality_quarantine_check_ids.quality_state',
         'quality_quarantine_check_ids.sample_ids',
         'move_finished_ids.state', 'move_finished_ids.quality_release_move_ids.state',
+        'move_finished_ids.quality_release_move_ids.quality_board_accepted',
     )
     def _compute_quality_quarantine_status(self):
         for production in self:
@@ -162,10 +181,15 @@ class MrpProduction(models.Model):
             points = production._quality_required_points(checks)
             if not points:
                 continue
-            if 'fail' in checks.mapped('quality_state'):
+            releases = production.move_finished_ids.quality_release_move_ids
+            if (
+                production.state == 'done' and releases.filtered('quality_board_accepted')
+                and all(move.state == 'done' for move in releases)
+            ):
+                production.quality_quarantine_status = 'accepted'
+            elif 'fail' in production._quality_effective_checks(checks).mapped('quality_state'):
                 production.quality_quarantine_status = 'fail'
             elif production.state == 'done':
-                releases = production.move_finished_ids.quality_release_move_ids
                 production.quality_quarantine_status = (
                     'pass' if releases and all(move.state == 'done' for move in releases)
                     else 'pending'
@@ -291,42 +315,47 @@ class MrpProduction(models.Model):
                 continue
             if any(move.state not in ('draft', 'done') for move in releases):
                 raise UserError(_('Знайдено незавершений рух випуску з карантину.'))
-            pending = pending.with_company(production.company_id).with_context(
-                **{QUARANTINE_CONTEXT: QUARANTINE_OPERATION},
-            )
-            pending._action_confirm(merge=False)
-            for move in pending:
-                lines = move.quality_held_move_id.move_line_ids.filtered(lambda line: line.quantity > 0)
-                quantities = defaultdict(float)
-                for line in lines:
-                    quantities[line.lot_id, line.result_package_id, line.owner_id] += line.quantity_product_uom
-                for (lot, package, owner), quantity in quantities.items():
-                    quants = self.env['stock.quant'].sudo().search([
-                        ('location_id', '=', move.location_id.id),
-                        ('product_id', '=', move.product_id.id),
-                        ('lot_id', '=', lot.id),
-                        ('package_id', '=', package.id),
-                        ('owner_id', '=', owner.id),
-                    ])
-                    available = sum(quant.quantity - quant.reserved_quantity for quant in quants)
-                    if float_compare(available, quantity, precision_rounding=move.product_id.uom_id.rounding) < 0:
-                        raise UserError(_('У карантині бракує фактично виготовленої партії.'))
-                move.write({
-                    'move_line_ids': [Command.create({
-                        'product_id': line.product_id.id,
-                        'product_uom_id': line.product_uom_id.id,
-                        'location_id': move.location_id.id,
-                        'location_dest_id': move.location_dest_id.id,
-                        'lot_id': line.lot_id.id,
-                        'owner_id': line.owner_id.id,
-                        'package_id': line.result_package_id.id,
-                        'result_package_id': line.result_package_id.id,
-                        'quantity': line.quantity,
-                        'picked': True,
-                    }) for line in lines],
+            production._quality_complete_release(pending)
+
+    def _quality_complete_release(self, pending, *, board_accepted=False):
+        self.ensure_one()
+        pending = pending.with_company(self.company_id).with_context(
+            **{QUARANTINE_CONTEXT: QUARANTINE_OPERATION},
+        )
+        pending._action_confirm(merge=False)
+        for move in pending:
+            lines = move.quality_held_move_id.move_line_ids.filtered(lambda line: line.quantity > 0)
+            quantities = defaultdict(float)
+            for line in lines:
+                quantities[line.lot_id, line.result_package_id, line.owner_id] += line.quantity_product_uom
+            for (lot, package, owner), quantity in quantities.items():
+                quants = self.env['stock.quant'].sudo().search([
+                    ('location_id', '=', move.location_id.id),
+                    ('product_id', '=', move.product_id.id),
+                    ('lot_id', '=', lot.id),
+                    ('package_id', '=', package.id),
+                    ('owner_id', '=', owner.id),
+                ])
+                available = sum(quant.quantity - quant.reserved_quantity for quant in quants)
+                if float_compare(available, quantity, precision_rounding=move.product_id.uom_id.rounding) < 0:
+                    raise UserError(_('У карантині бракує фактично виготовленої партії.'))
+            move.write({
+                'move_line_ids': [Command.create({
+                    'product_id': line.product_id.id,
+                    'product_uom_id': line.product_uom_id.id,
+                    'location_id': move.location_id.id,
+                    'location_dest_id': move.location_dest_id.id,
+                    'lot_id': line.lot_id.id,
+                    'owner_id': line.owner_id.id,
+                    'package_id': line.result_package_id.id,
+                    'result_package_id': line.result_package_id.id,
+                    'quantity': line.quantity,
                     'picked': True,
-                })
-            pending._action_done(cancel_backorder=True)
+                }) for line in lines],
+                'picked': True,
+                'quality_board_accepted': board_accepted,
+            })
+        pending._action_done(cancel_backorder=True)
 
 
 class MrpWorkorder(models.Model):

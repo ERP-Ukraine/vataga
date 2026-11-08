@@ -183,9 +183,12 @@ class QualityCheckEquipmentSelection(models.Model):
             ]
         categories = self.env[
             'maintenance.equipment.category'
-        ].browse(category_ids).exists().filtered(
-            'requires_equipment_selection',
-        ).sorted('id')
+        ].browse(category_ids).exists().sorted('id')
+        if not (
+            self.env['quality.check'].browse(prepared_vals.get('quality_check_id')).quality_recheck_of_id
+            and prepared_vals.get('preserve_completed_equipment_selection')
+        ):
+            categories = categories.filtered('requires_equipment_selection')
         if not categories:
             raise ValidationError(_(
                 'Для рядка вибору ЗВТ потрібна хоча б одна допустима '
@@ -242,6 +245,7 @@ class QualityCheckEquipmentSelection(models.Model):
 
     @api.depends(
         'quality_check_id.quality_state',
+        'quality_check_id.quality_recheck_of_id',
         'preserve_completed_equipment_selection',
         'allowed_equipment_category_ids',
         'allowed_equipment_category_ids.requires_equipment_selection',
@@ -254,7 +258,7 @@ class QualityCheckEquipmentSelection(models.Model):
         for selection in self:
             categories = selection._get_allowed_equipment_categories()
             if (
-                selection.quality_check_id.quality_state != 'none'
+                (selection.quality_check_id.quality_state != 'none' or selection.quality_check_id.quality_recheck_of_id)
                 and selection.preserve_completed_equipment_selection
             ):
                 required_categories = categories
@@ -291,7 +295,7 @@ class QualityCheckEquipmentSelection(models.Model):
     def _get_required_equipment_categories(self):
         self.ensure_one()
         if (
-            self.quality_check_id.quality_state != 'none'
+            (self.quality_check_id.quality_state != 'none' or self.quality_check_id.quality_recheck_of_id)
             and self.preserve_completed_equipment_selection
         ):
             return self._get_allowed_equipment_categories()

@@ -163,6 +163,7 @@
                         >
                             <th scope="row">
                                 <t t-esc="sample.display_name"/>
+                                <span t-if="sample.x_was_reworked" class="badge text-bg-info ms-1">Доопрацьовано</span>
                             </th>
                             <td
                                 t-att-class="resultClass(

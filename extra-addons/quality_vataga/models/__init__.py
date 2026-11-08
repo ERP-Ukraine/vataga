@@ -13,3 +13,4 @@ from . import quality_alert_full_control_line
 from . import quality_check_alert_description
 from . import stock_quarantine
 from . import mrp_quality_quarantine
+from . import quality_alert_quarantine

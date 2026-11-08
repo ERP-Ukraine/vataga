@@ -68,9 +68,22 @@ class QualityAlertFullControlLine(models.Model):
             if vals.get('alert_id', default_alert)
         }))
         self._check_alert_access(alerts, 'write')
-        return super().create(vals_list)
+        controlled = alerts.filtered(lambda alert: alert._is_quarantine_board_case())
+        if controlled:
+            controlled._lock_board_records()
+        lines = super().create(vals_list)
+        controlled._validate_quarantine_full_control()
+        return lines
 
     def write(self, vals):
+        alerts = self.alert_id
         if vals.get('alert_id'):
-            self._check_alert_access(self.env['quality.alert'].browse(vals['alert_id']), 'write')
-        return super().write(vals)
+            destination = self.env['quality.alert'].browse(vals['alert_id'])
+            self._check_alert_access(destination, 'write')
+            alerts |= destination
+        controlled = alerts.filtered(lambda alert: alert._is_quarantine_board_case())
+        if controlled:
+            controlled._lock_board_records()
+        result = super().write(vals)
+        controlled._validate_quarantine_full_control()
+        return result
