@@ -1,5 +1,7 @@
 from collections import defaultdict
 from math import isclose
+from pathlib import PurePath
+from traceback import walk_tb
 
 from odoo import _, api, Command, fields, models
 from odoo.exceptions import UserError
@@ -298,9 +300,30 @@ class MrpProduction(models.Model):
         })
 
     def button_mark_done(self):
-        result = super().button_mark_done()
-        self.sudo()._quality_release_if_passed()
-        return result
+        try:
+            result = super().button_mark_done()
+            self.sudo()._quality_release_if_passed()
+            return result
+        except UserError as error:
+            if (
+                len(self) != 1 or self.name != 'CAB/MO/05187'
+                or self.origin != 'TEST-Q14-REWORK-20261108'
+                or not self.env.user.has_group('base.group_system')
+                or str(error) != str(quarantine_error())
+            ):
+                raise
+            details = []
+            for frame, line in walk_tb(error.__traceback__):
+                source = PurePath(frame.f_code.co_filename)
+                if source.parent.name != 'models':
+                    continue
+                details.append(f'{source.parent.parent.name}/{source.name}:{line} {frame.f_code.co_name}')
+                if source.name == 'stock_quarantine.py':
+                    record = frame.f_locals.get('self')
+                    trusted = record.env.context.get(QUARANTINE_CONTEXT) is QUARANTINE_OPERATION
+                    values = frame.f_locals.get('vals', {})
+                    details.append(f'{record._name} {record.ids} trusted={trusted} fields={sorted(values)}')
+            raise UserError(f'{error}\n' + '\n'.join(details)) from error
 
     def _quality_release_if_passed(self):
         for production in self.filtered(
