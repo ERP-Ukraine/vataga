@@ -871,6 +871,28 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
         check.do_pass()
         self.assertEqual(receipt.quality_release_move_ids, release)
 
+    def test_pass_before_posting_releases_once_even_when_mo_close_is_retried(self):
+        production, check, quarantine, stock = self._create_quarantine_order()
+        production.workorder_ids.button_start(bypass=True)
+        production.set_qty_producing()
+        self._pass_quarantine_check(check)
+        self.assertNotEqual(production.state, 'done')
+        production.button_mark_done()
+
+        receipt = production.move_finished_ids
+        release = receipt.quality_release_move_ids
+        self.assertEqual(production.state, 'done')
+        self.assertEqual(receipt.location_dest_id, quarantine)
+        self.assertEqual(release.location_dest_id, stock)
+        self.assertEqual(release.state, 'done')
+        self.assertEqual(release.move_line_ids.lot_id, production.lot_producing_id)
+        self.assertEqual(release.quantity, 5)
+
+        consumption_links = receipt.move_line_ids.consume_line_ids
+        self.assertTrue(production.button_mark_done())
+        self.assertEqual(receipt.quality_release_move_ids, release)
+        self.assertEqual(receipt.move_line_ids.consume_line_ids, consumption_links)
+
     def test_quarantine_fail_and_missing_required_check_hold_output(self):
         production, check, quarantine, _stock = self._create_quarantine_order()
         production.button_mark_done()

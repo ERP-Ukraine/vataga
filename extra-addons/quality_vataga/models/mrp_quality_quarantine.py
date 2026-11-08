@@ -1,7 +1,5 @@
 from collections import defaultdict
 from math import isclose
-from pathlib import PurePath
-from traceback import walk_tb
 
 from odoo import _, api, Command, fields, models
 from odoo.exceptions import UserError
@@ -300,30 +298,18 @@ class MrpProduction(models.Model):
         })
 
     def button_mark_done(self):
-        try:
-            result = super().button_mark_done()
-            self.sudo()._quality_release_if_passed()
-            return result
-        except UserError as error:
-            if (
-                self.ids != [16373] or self.name != 'CAB/MO/05189'
-                or self.origin != 'TEST-Q14-P0-20261108'
-                or not self.env.user.has_group('base.group_system')
-                or str(error) != str(quarantine_error())
-            ):
-                raise
-            details = [f'MO state={self.state}']
-            for frame, line in walk_tb(error.__traceback__):
-                source = PurePath(frame.f_code.co_filename)
-                if source.parent.name != 'models':
-                    continue
-                details.append(f'{source.parent.parent.name}/{source.name}:{line} {frame.f_code.co_name}')
-                if source.name == 'stock_quarantine.py':
-                    record = frame.f_locals.get('self')
-                    trusted = record.env.context.get(QUARANTINE_CONTEXT) is QUARANTINE_OPERATION
-                    values = frame.f_locals.get('vals', {})
-                    details.append(f'{record._name} {record.ids} trusted={trusted} fields={sorted(values)}')
-            raise UserError(f'{error}\n' + '\n'.join(details)) from error
+        # A stale client can retry after posting. Standard MRP would write
+        # consumption links again on the already protected receipt lines.
+        posted = self.filtered(lambda mo: mo.state == 'done' and mo.quality_quarantine_point_ids)
+        if posted:
+            posted.check_access_rights('write')
+            posted.check_access_rule('write')
+            self -= posted
+        if not self:
+            return True
+        result = super().button_mark_done()
+        self.sudo()._quality_release_if_passed()
+        return result
 
     def _quality_release_if_passed(self):
         for production in self.filtered(
