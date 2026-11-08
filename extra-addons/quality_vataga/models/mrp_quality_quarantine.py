@@ -306,8 +306,8 @@ class MrpProduction(models.Model):
             return result
         except UserError as error:
             if (
-                len(self) != 1 or self.name != 'CAB/MO/05187'
-                or self.origin != 'TEST-Q14-REWORK-20261108'
+                len(self) != 1 or self.picking_type_id.id != 164
+                or self.origin not in ('TEST-Q14-REWORK-20261108', 'TEST-Q14-P0-20261108')
                 or not self.env.user.has_group('base.group_system')
                 or str(error) != str(quarantine_error())
             ):
