@@ -6,3 +6,4 @@ from . import res_partner
 from . import res_users
 from . import res_groups
 from . import account_invoice_autolog
+from . import account_vendor_storno
