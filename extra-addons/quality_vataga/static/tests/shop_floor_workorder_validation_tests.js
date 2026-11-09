@@ -50,16 +50,16 @@ QUnit.module("quality_vataga Shop Floor work order validation", () => {
         let resolveFinish;
         const pending = new Promise((resolve) => { resolveFinish = resolve; });
         const { card, calls } = makeCard(() => pending);
-        assert.true(card.cssClass.includes("o_fadeout_animation"));
+        assert.strictEqual(card.cssClass.includes("o_fadeout_animation"), true);
         card.onAnimationEnd({ animationName: "fadeout" });
         const refresh = card.realValidation();
         card.onClickValidateButton();
         await card.onClickCloseProduction();
         assert.deepEqual(calls, [["mrp.workorder", "do_finish", [17]]]);
-        assert.false(card.state.validated);
+        assert.strictEqual(card.state.validated, false);
         resolveFinish();
         await refresh;
-        assert.true(card.cssClass.includes("d-none"));
+        assert.strictEqual(card.cssClass.includes("d-none"), true);
         assert.deepEqual(calls, [
             ["mrp.workorder", "do_finish", [17]], ["remove", 17, true], ["reload", 31],
         ]);
@@ -73,13 +73,13 @@ QUnit.module("quality_vataga Shop Floor work order validation", () => {
             }
         });
         await assert.rejects(card.realValidation(), /Finish rejected by server/);
-        assert.false(card.cssClass.includes("o_fadeout_animation"));
-        assert.false(card.cssClass.includes("d-none"));
+        assert.strictEqual(card.cssClass.includes("o_fadeout_animation"), false);
+        assert.strictEqual(card.cssClass.includes("d-none"), false);
         assert.deepEqual(calls, [["mrp.workorder", "do_finish", [17]], ["remove", 17, false]]);
 
         fail = false;
         card.state.underValidation = true;
         await card.realValidation();
-        assert.true(card.state.validated);
+        assert.strictEqual(card.state.validated, true);
     });
 });
