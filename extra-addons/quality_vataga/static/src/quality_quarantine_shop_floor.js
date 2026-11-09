@@ -2,19 +2,65 @@
 
 import { MrpDisplayAction } from "@mrp_workorder/mrp_display/mrp_display_action";
 import { MrpDisplayRecord } from "@mrp_workorder/mrp_display/mrp_display_record";
+import { MrpRegisterProductionDialog } from "@mrp_workorder/mrp_display/dialog/mrp_register_production_dialog";
+import { _t } from "@web/core/l10n/translation";
 import { patch } from "@web/core/utils/patch";
+
+class QualityOutputRegistrationDialog extends MrpRegisterProductionDialog {
+    static props = { ...MrpRegisterProductionDialog.props, onRegistered: Function };
+
+    async doActionAndClose(action, saveModel = true, reloadChecks = false) {
+        const { onRegistered } = this.props;
+        await super.doActionAndClose(action, saveModel, reloadChecks);
+        if (saveModel) {
+            await onRegistered();
+        }
+    }
+}
 
 patch(MrpDisplayAction.prototype, {
     get fieldsStructure() {
         const fields = super.fieldsStructure;
         return {
             ...fields,
+            "mrp.production": [...fields["mrp.production"], "quality_shop_floor_registration_required"],
             "quality.check": [...fields["quality.check"], "quality_quarantine_deferred"],
         };
     },
 });
 
 patch(MrpDisplayRecord.prototype, {
+    generateSerialNumber() {
+        if (this.props.production.data.quality_shop_floor_registration_required) {
+            return this.registerProduction();
+        }
+        return super.generateSerialNumber();
+    },
+
+    async validate() {
+        const production = this.props.production;
+        if (this.resModel === "mrp.workorder" && this.record.is_last_unfinished_wo
+            && production.data.quality_shop_floor_registration_required) {
+            if (!this.qualityRegistrationDialogOpen) {
+                this.qualityRegistrationDialogOpen = true;
+                this.dialog.add(QualityOutputRegistrationDialog, {
+                    body: "",
+                    record: production,
+                    reload: this.env.reload.bind(this),
+                    title: _t("Register Production: %s", production.data.product_id[1]),
+                    qtyToProduce: this.record.qty_remaining,
+                    onRegistered: async () => {
+                        if (!production.data.quality_shop_floor_registration_required) {
+                            await super.validate();
+                        }
+                    },
+                }, { onClose: () => { this.qualityRegistrationDialogOpen = false; } });
+            }
+            return;
+        }
+        return super.validate();
+    },
+
     get cssClass() {
         const cssClass = super.cssClass;
         if (this.resModel === "mrp.workorder" && this.record.is_last_unfinished_wo

@@ -707,6 +707,47 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
         self.assertEqual(check.automatic_sample_lot_id, lot)
         self.assertEqual(check.get_measurement_matrix_data()['samples'], samples)
 
+    def test_shop_floor_registers_partial_batch_before_last_operation(self):
+        production = self._create_lot_matrix_production(planned_quantity=5)
+        first, last = production.workorder_ids.sorted('sequence')
+        lot, other_lot = self.env['stock.lot'].create([
+            {
+                'name': name,
+                'product_id': production.product_id.id,
+                'company_id': production.company_id.id,
+            }
+            for name in ('Партія часткового випуску', 'Змінена партія')
+        ])
+        point = self._create_visual_only_point('Контроль часткового випуску на рівні MO')
+        point.x_control_stage = 'in_process'
+        check = self._create_check_for_point(point, production_id=production.id)
+        production.write({'qty_producing': 3, 'lot_producing_id': lot.id})
+        first.with_context(no_start_next=True, mrp_display=True).do_finish()
+        self.assertEqual(first.state, 'done')
+        self.assertTrue(production.quality_shop_floor_registration_required)
+        self.assertFalse(check.get_measurement_matrix_data()['samples'])
+
+        production.set_qty_producing()
+        self.assertFalse(production.quality_shop_floor_registration_required)
+        production.qty_producing = 2
+        self.assertTrue(production.quality_shop_floor_registration_required)
+        production.qty_producing = 3
+        production.set_qty_producing()
+        production.lot_producing_id = other_lot
+        self.assertTrue(production.quality_shop_floor_registration_required)
+        self.assertFalse(check.get_measurement_matrix_data()['samples'])
+
+        production.lot_producing_id = lot
+        production.set_qty_producing()
+        last.with_context(no_start_next=True, mrp_display=True).do_finish()
+        self.assertEqual(last.state, 'done')
+        self.assertEqual(production.qty_produced, 0)
+        self.assertFalse(production.quality_shop_floor_registration_required)
+        samples = check.get_measurement_matrix_data()['samples']
+        self.assertEqual([row['sample_number'] for row in samples], [1, 2, 3])
+        self.assertEqual(check.automatic_sample_lot_id, lot)
+        self.assertEqual(check.get_measurement_matrix_data()['samples'], samples)
+
     def test_shop_floor_confirms_full_batch_without_workorders(self):
         production = self._create_matrix_production(planned_quantity=4)
         point = self._create_visual_only_point('Міжопераційний контроль без операцій')

@@ -82,4 +82,41 @@ QUnit.module("quality_vataga Shop Floor work order validation", () => {
         await card.realValidation();
         assert.strictEqual(card.state.validated, true);
     });
+
+    QUnit.test("a last operation waits for explicit production registration", async (assert) => {
+        const { card, calls } = makeCard(async () => {});
+        const { production, record } = card.props;
+        production.data.product_id = [8, "Product"];
+        production.data.quality_shop_floor_registration_required = true;
+        record.data.employee_ids = { records: [] };
+        record.save = async () => {};
+        card.props.sessionOwner = { id: 4 };
+        card.props.addToValidationStack = () => calls.push(["queue"]);
+        card.state.underValidation = false;
+        const dialogs = [];
+        card.dialog = { add: (_Dialog, props, options) => dialogs.push({ props, options }) };
+
+        await card.validate();
+        await card.validate();
+        assert.strictEqual(dialogs.length, 1);
+        assert.deepEqual(calls, []);
+        dialogs[0].options.onClose();
+        assert.deepEqual(calls, [], "cancelling does not queue the operation");
+
+        await card.validate();
+        await dialogs[1].props.onRegistered();
+        assert.deepEqual(calls, [], "an unconfirmed quantity does not queue the operation");
+        production.data.quality_shop_floor_registration_required = false;
+        await dialogs[1].props.onRegistered();
+        assert.deepEqual(calls, [["mrp.workorder", "pre_record_production", [17]], ["queue"]]);
+        assert.strictEqual(card.state.underValidation, true);
+    });
+
+    QUnit.test("creating a lot opens the registration dialog for a controlled order", (assert) => {
+        const { card, calls } = makeCard(async () => {});
+        card.props.production.data.quality_shop_floor_registration_required = true;
+        card.registerProduction = () => calls.push(["registration dialog"]);
+        card.generateSerialNumber();
+        assert.deepEqual(calls, [["registration dialog"]]);
+    });
 });

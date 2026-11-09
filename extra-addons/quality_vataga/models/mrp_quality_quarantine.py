@@ -17,6 +17,9 @@ class MrpProduction(models.Model):
     quality_registered_lot_id = fields.Many2one(
         'stock.lot', check_company=True, readonly=True, copy=False,
     )
+    quality_shop_floor_registration_required = fields.Boolean(
+        compute='_compute_quality_shop_floor_registration_required', compute_sudo=True,
+    )
 
     quality_quarantine_check_ids = fields.One2many('quality.check', 'production_id')
     quality_quarantine_point_ids = fields.Many2many(
@@ -86,6 +89,31 @@ class MrpProduction(models.Model):
             and check.company_id == self.company_id
             and (not check.product_id or check.product_id == self.product_id),
         )
+
+    @api.depends(
+        'state', 'product_id', 'company_id', 'product_tracking', 'qty_producing', 'lot_producing_id',
+        'quality_registered_quantity', 'quality_registered_lot_id',
+        'quality_quarantine_check_ids.workorder_id', 'quality_quarantine_check_ids.quality_state',
+        'quality_quarantine_check_ids.x_control_stage', 'quality_quarantine_check_ids.measurement_matrix_required',
+        'quality_quarantine_check_ids.point_id', 'quality_quarantine_check_ids.product_id',
+        'quality_quarantine_check_ids.company_id',
+    )
+    def _compute_quality_shop_floor_registration_required(self):
+        for production in self:
+            production.quality_shop_floor_registration_required = (
+                production.state not in ('done', 'cancel')
+                and production.product_tracking != 'serial'
+                and (
+                    not production.quality_registered_quantity
+                    or production.quality_registered_quantity != production.qty_producing
+                    or production.quality_registered_lot_id != production.lot_producing_id
+                    or (production.product_tracking == 'lot' and not production.lot_producing_id)
+                )
+                and any(
+                    not check.workorder_id and check.quality_state == 'none'
+                    for check in production._quality_matrix_checks()
+                )
+            )
 
     def _quality_required_points(self, checks):
         self.ensure_one()
