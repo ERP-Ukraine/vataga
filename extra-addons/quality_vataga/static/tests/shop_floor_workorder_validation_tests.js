@@ -88,6 +88,9 @@ QUnit.module("quality_vataga Shop Floor work order validation", () => {
         const { production, record } = card.props;
         production.data.product_id = [8, "Product"];
         production.data.quality_shop_floor_registration_required = true;
+        production.data.workorder_ids = { records: [record] };
+        record.component = card;
+        card.env.model = { root: { records: [production] } };
         record.data.employee_ids = { records: [] };
         record.save = async () => {};
         card.props.sessionOwner = { id: 4 };
@@ -106,7 +109,12 @@ QUnit.module("quality_vataga Shop Floor work order validation", () => {
         await card.validate();
         await dialogs[1].props.onRegistered();
         assert.deepEqual(calls, [], "an unconfirmed quantity does not queue the operation");
-        production.data.quality_shop_floor_registration_required = false;
+        const refreshedProduction = {
+            ...production,
+            data: { ...production.data, quality_shop_floor_registration_required: false },
+        };
+        card.env.model.root.records = [refreshedProduction];
+        card.props.production = refreshedProduction;
         await dialogs[1].props.onRegistered();
         assert.deepEqual(calls, [["mrp.workorder", "pre_record_production", [17]], ["queue"]]);
         assert.strictEqual(card.state.underValidation, true);

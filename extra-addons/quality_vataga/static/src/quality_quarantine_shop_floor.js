@@ -3,6 +3,7 @@
 import { MrpDisplayAction } from "@mrp_workorder/mrp_display/mrp_display_action";
 import { MrpDisplayRecord } from "@mrp_workorder/mrp_display/mrp_display_record";
 import { MrpRegisterProductionDialog } from "@mrp_workorder/mrp_display/dialog/mrp_register_production_dialog";
+import { browser } from "@web/core/browser/browser";
 import { _t } from "@web/core/l10n/translation";
 import { patch } from "@web/core/utils/patch";
 
@@ -50,8 +51,16 @@ patch(MrpDisplayRecord.prototype, {
                     title: _t("Register Production: %s", production.data.product_id[1]),
                     qtyToProduce: this.record.qty_remaining,
                     onRegistered: async () => {
-                        if (!production.data.quality_shop_floor_registration_required) {
-                            await super.validate();
+                        // Reload can replace the records backing the rendered card.
+                        await new Promise((resolve) => browser.requestAnimationFrame(resolve));
+                        const currentProduction = this.env.model.root.records.find(
+                            (record) => record.resId === production.resId
+                        );
+                        if (currentProduction && !currentProduction.data.quality_shop_floor_registration_required) {
+                            const currentWorkorder = currentProduction.data.workorder_ids.records.find(
+                                (record) => record.resId === this.props.record.resId
+                            );
+                            await currentWorkorder?.component?.validate();
                         }
                     },
                 }, { onClose: () => { this.qualityRegistrationDialogOpen = false; } });
