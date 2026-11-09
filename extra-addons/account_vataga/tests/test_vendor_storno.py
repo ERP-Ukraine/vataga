@@ -247,3 +247,41 @@ class TestVendorStorno(AccountTestInvoicingCommon):
         one_bill_queries = read_statuses(bills.browse(bills.ids[:1]))
         # Let ORM fetch larger prefetch sets while keeping the number of queries bounded.
         self.assertLessEqual(read_statuses(bills), one_bill_queries + 4)
+
+    def test_purchase_line_edits_cannot_leave_an_invalid_storno_link(self):
+        shared = self._purchase_line()
+        unrelated = self._purchase_line()
+        bill = self._vendor_move(purchase_line=shared)
+        refund = self._vendor_move('in_refund', purchase_line=shared, vataga_storno_bill_id=bill.id)
+        for line in (bill.invoice_line_ids | refund.invoice_line_ids):
+            with self.subTest(line=line.id):
+                with self.assertRaises(ValidationError), self.cr.savepoint():
+                    line.purchase_line_id = unrelated
+                self.assertEqual(line.purchase_line_id, shared)
+        with self.assertRaises(ValidationError), self.cr.savepoint():
+            bill.invoice_line_ids.unlink()
+        # A compound update can replace the shared line without losing the valid link.
+        vals = bill.invoice_line_ids.copy_data()[0]
+        vals.update({'purchase_line_id': shared.id, 'tax_ids': [Command.clear()]})
+        bill.write({'invoice_line_ids': [Command.delete(bill.invoice_line_ids.id), Command.create(vals)]})
+        self.assertEqual(refund.vataga_storno_bill_id, bill)
+
+    def test_bill_partner_change_and_cancellation_with_linked_refund(self):
+        bill = self._vendor_move()
+        refund = self._vendor_move('in_refund', vataga_storno_bill_id=bill.id)
+        with self.assertRaises(ValidationError), self.cr.savepoint():
+            bill.partner_id = self.partner_b
+        self.assertEqual(bill.partner_id, self.partner_a)
+        (bill | refund).action_post()
+        self._bank_match(self._payable_lines(bill), -100)
+        self._bank_match(self._payable_lines(refund), 100)
+        self._assert_states(bill, 'paid', 'storno')
+        bill.button_draft()
+        bill.button_cancel()
+        self.assertEqual(bill.state, 'cancel')
+        self.assertEqual(refund.vataga_storno_bill_id, bill)
+        self._assert_states(bill, 'not_paid')
+        self._assert_states(refund, 'paid')
+        other_refund = self._vendor_move('in_refund')
+        with self.assertRaises(ValidationError), self.cr.savepoint():
+            other_refund.vataga_storno_bill_id = bill
