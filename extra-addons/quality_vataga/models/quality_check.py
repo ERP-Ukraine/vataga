@@ -789,7 +789,7 @@ class QualityCheck(models.Model):
             and move.state != 'cancel'
             and (move.picked or move.state == 'done'),
         )
-        if workorder and production.product_tracking != 'none':
+        if production.product_tracking == 'lot' or (workorder and production.product_tracking == 'serial'):
             quantity = sum(
                 line.product_uom_id._compute_quantity(line.quantity, unit, round=False)
                 for move in finished_moves
@@ -820,7 +820,7 @@ class QualityCheck(models.Model):
                     registered_quantity, unit, round=False,
                 )
         elif (
-            not workorder and not production.workorder_ids
+            not workorder
             and not quantity and not production.qty_produced
             and production.state in ('progress', 'to_close')
             and production.product_tracking != 'serial'
@@ -828,7 +828,7 @@ class QualityCheck(models.Model):
             and lot == production.lot_producing_id == production.quality_registered_lot_id
             and production.quality_registered_quantity == production.qty_producing
         ):
-            # Shop Floor also confirms production directly on MOs without operations.
+            # A check without an operation uses the confirmation saved on the MO.
             quantity = production.product_uom_id._compute_quantity(
                 production.quality_registered_quantity, unit, round=False,
             )

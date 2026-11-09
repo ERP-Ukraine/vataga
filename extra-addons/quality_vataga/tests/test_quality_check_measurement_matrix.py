@@ -674,6 +674,39 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
         self.assertEqual([row['sample_number'] for row in samples], [1, 2])
         self.assertEqual(check.get_measurement_matrix_data()['samples'], samples)
 
+    def test_shop_floor_confirms_full_batch_for_check_without_operation(self):
+        production = self._create_lot_matrix_production(planned_quantity=4)
+        first = production.workorder_ids.sorted('sequence')[:1]
+        self.assertTrue(first)
+        first.button_start(bypass=True)
+        lot, other_lot = self.env['stock.lot'].create([
+            {
+                'name': name,
+                'product_id': production.product_id.id,
+                'company_id': production.company_id.id,
+            }
+            for name in ('Підтверджена партія MO', 'Інша партія MO')
+        ])
+        production.write({'qty_producing': 4, 'lot_producing_id': lot.id})
+        point = self._create_visual_only_point('Міжопераційний контроль на рівні MO')
+        point.x_control_stage = 'in_process'
+        check = self._create_check_for_point(point, production_id=production.id)
+        wrong_lot_check = self._create_check_for_point(
+            point, production_id=production.id, lot_id=other_lot.id,
+        )
+        self.assertFalse(check.workorder_id)
+        self.assertFalse(check.get_measurement_matrix_data()['samples'])
+
+        production.set_qty_producing()
+        self.assertEqual(production.quality_registered_quantity, 4)
+        self.assertEqual(production.quality_registered_lot_id, lot)
+        self.assertEqual(production.qty_produced, 0)
+        self.assertFalse(wrong_lot_check.get_measurement_matrix_data()['samples'])
+        samples = check.get_measurement_matrix_data()['samples']
+        self.assertEqual([row['sample_number'] for row in samples], [1, 2, 3, 4])
+        self.assertEqual(check.automatic_sample_lot_id, lot)
+        self.assertEqual(check.get_measurement_matrix_data()['samples'], samples)
+
     def test_shop_floor_confirms_full_batch_without_workorders(self):
         production = self._create_matrix_production(planned_quantity=4)
         point = self._create_visual_only_point('Міжопераційний контроль без операцій')
