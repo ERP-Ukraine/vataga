@@ -250,3 +250,26 @@ msgstr "З ПДВ"
 #: model_terms:ir.ui.view,arch_db:account_vataga.view_move_form_account
 msgid "Journal Items"
 msgstr "Елементи журналу"
+
+#. module: account_vataga
+#: model:ir.model.fields,field_description:account_vataga.field_account_move__vataga_storno_bill_id
+msgid "Bill to reverse"
+msgstr "Рахунок для сторнування"
+
+#. module: account_vataga
+#. odoo-python
+#: code:addons/account_vataga/models/account_vendor_storno.py:0
+#: model_terms:ir.ui.view,arch_db:account_vataga.view_move_form_vendor_storno
+msgid "Storno completed"
+msgstr "Сторновано"
+
+#. module: account_vataga
+#: model_terms:ir.ui.view,arch_db:account_vataga.view_in_invoice_bill_tree_vendor_storno
+msgid "Payment"
+msgstr "Оплата"
+
+#. module: account_vataga
+#. odoo-python
+#: code:addons/account_vataga/models/account_vendor_storno.py:0
+msgid "Select a non-cancelled vendor bill from the same company and vendor and, when the credit note has purchase orders, from one of those orders."
+msgstr "Виберіть нескасований рахунок тієї самої компанії та постачальника. Якщо сторно пов’язане із замовленнями на купівлю, виберіть рахунок одного з цих замовлень."

@@ -26,6 +26,7 @@ EMPTY = 'Порожньо'
 # Approval server actions already post human-readable history via message_post().
 # Exclude only these move flags from custom autolog, not from native tracking.
 MOVE_CUSTOM_AUTOLOG_EXCLUDED_FIELDS = frozenset({
+    'vataga_storno_bill_id',  # Tracked by mail.thread.
     'x_studio_boolean_field_507_1ikhk7qd9',
     'x_studio_boolean_field_8c0_1il153r8h',
     'x_studio_taras_ok',

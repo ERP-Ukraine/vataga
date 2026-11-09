@@ -4,3 +4,4 @@ from . import test_payment_unreconcile
 from . import test_invoice_header_analytics
 from . import test_invoice_autolog
 from . import test_payment_purpose
+from . import test_vendor_storno
