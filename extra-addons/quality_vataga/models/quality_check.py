@@ -819,6 +819,19 @@ class QualityCheck(models.Model):
                 quantity = production.product_uom_id._compute_quantity(
                     registered_quantity, unit, round=False,
                 )
+        elif (
+            not workorder and not production.workorder_ids
+            and not quantity and not production.qty_produced
+            and production.state in ('progress', 'to_close')
+            and production.product_tracking != 'serial'
+            and (lot or production.product_tracking == 'none')
+            and lot == production.lot_producing_id == production.quality_registered_lot_id
+            and production.quality_registered_quantity == production.qty_producing
+        ):
+            # Shop Floor also confirms production directly on MOs without operations.
+            quantity = production.product_uom_id._compute_quantity(
+                production.quality_registered_quantity, unit, round=False,
+            )
 
         if quantity <= 0:
             return 0, _(

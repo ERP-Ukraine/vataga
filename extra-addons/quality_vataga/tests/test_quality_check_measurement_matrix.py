@@ -674,6 +674,22 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
         self.assertEqual([row['sample_number'] for row in samples], [1, 2])
         self.assertEqual(check.get_measurement_matrix_data()['samples'], samples)
 
+    def test_shop_floor_confirms_full_batch_without_workorders(self):
+        production = self._create_matrix_production(planned_quantity=4)
+        point = self._create_visual_only_point('Міжопераційний контроль без операцій')
+        point.x_control_stage = 'in_process'
+        check = self._create_check_for_point(point, production_id=production.id)
+        production.qty_producing = 4
+        self.assertFalse(production.workorder_ids)
+        self.assertFalse(check.get_measurement_matrix_data()['samples'])
+
+        production.set_qty_producing()
+        self.assertEqual(production.quality_registered_quantity, 4)
+        self.assertEqual(production.qty_produced, 0)
+        samples = check.get_measurement_matrix_data()['samples']
+        self.assertEqual([row['sample_number'] for row in samples], [1, 2, 3, 4])
+        self.assertEqual(check.get_measurement_matrix_data()['samples'], samples)
+
     def test_point_without_matrix_configuration_stays_standard(self):
         point = self._create_visual_only_point(
             'Стандартна перевірка без custom matrix',

@@ -210,12 +210,15 @@ class MrpProduction(models.Model):
         self.ensure_one()
         self.check_access_rights('read')
         self.check_access_rule('read')
+        if not self.quality_quarantine_status:
+            return self.env['ir.actions.actions']._for_xml_id('quality_mrp.quality_check_action_mo')
+        # The standard action's default filter excludes operation-bound checks.
         return {
             'type': 'ir.actions.act_window',
             'name': _('Перевірки якості'),
             'res_model': 'quality.check',
             'view_mode': 'tree,form',
-            'domain': [('production_id', '=', self.id), ('x_control_stage', '=', 'in_process')],
+            'domain': [('production_id', '=', self.id)],
         }
 
     def _post_inventory(self, cancel_backorder=False):
