@@ -1,7 +1,7 @@
 {
     'name': 'Параметри якості обладнання Vataga',
     'summary': 'Параметри обладнання та налаштування контролю якості',
-    'version': '17.0.2.33',
+    'version': '17.0.2.34',
     'category': 'Manufacturing/Quality',
     'author': 'Vataga',
     'license': 'LGPL-3',
@@ -33,6 +33,9 @@
             'quality_vataga/static/src/components/measurement_matrix/measurement_matrix.xml',
             'quality_vataga/static/src/components/measurement_matrix/measurement_matrix.scss',
             'quality_vataga/static/src/quality_quarantine_shop_floor.js',
+        ],
+        'web.qunit_suite_tests': [
+            'quality_vataga/static/tests/shop_floor_workorder_validation_tests.js',
         ],
     },
     'post_init_hook': 'post_init_hook',

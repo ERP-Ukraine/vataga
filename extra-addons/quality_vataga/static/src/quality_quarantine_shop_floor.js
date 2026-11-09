@@ -15,6 +15,49 @@ patch(MrpDisplayAction.prototype, {
 });
 
 patch(MrpDisplayRecord.prototype, {
+    get cssClass() {
+        const cssClass = super.cssClass;
+        if (this.resModel === "mrp.workorder" && this.record.is_last_unfinished_wo
+            && this.state.underValidation && !this.state.validated) {
+            // The native animation-end handler also validates the last work order.
+            return `${cssClass} o_fadeout_animation`;
+        }
+        return cssClass;
+    },
+
+    onClickValidateButton() {
+        if (!this.qualityWorkorderValidation) {
+            return super.onClickValidateButton();
+        }
+    },
+
+    onClickCloseProduction() {
+        if (!this.qualityWorkorderValidation) {
+            return super.onClickCloseProduction();
+        }
+    },
+
+    async workorderValidation(skipRemoveFromStack = false) {
+        if (this.qualityWorkorderValidation) {
+            return this.qualityWorkorderValidation;
+        }
+        const validation = super.workorderValidation(skipRemoveFromStack);
+        this.qualityWorkorderValidation = validation;
+        try {
+            return await validation;
+        } catch (error) {
+            if (this.state.underValidation) {
+                this.state.underValidation = false;
+                if (!skipRemoveFromStack) {
+                    await this.props.removeFromValidationStack(this.props.record, false);
+                }
+            }
+            throw error;
+        } finally {
+            this.qualityWorkorderValidation = null;
+        }
+    },
+
     _workorderDisplayDoneButton() {
         const checks = this.record.check_ids.records;
         if (!checks.some(({ data }) => data.quality_quarantine_deferred)) {
