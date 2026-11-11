@@ -1,8 +1,8 @@
 from collections import defaultdict
-from math import isclose
+from math import isclose, isfinite
 
 from odoo import _, api, Command, fields, models
-from odoo.exceptions import UserError
+from odoo.exceptions import AccessError, UserError
 from odoo.tools.float_utils import float_compare
 
 from .stock_quarantine import QUARANTINE_CONTEXT, QUARANTINE_OPERATION, quarantine_error
@@ -19,6 +19,9 @@ class MrpProduction(models.Model):
     )
     quality_shop_floor_registration_required = fields.Boolean(
         compute='_compute_quality_shop_floor_registration_required', compute_sudo=True,
+    )
+    quality_output_registration_available = fields.Boolean(
+        compute='_compute_quality_output_registration_available', compute_sudo=True,
     )
 
     quality_quarantine_check_ids = fields.One2many('quality.check', 'production_id')
@@ -71,15 +74,56 @@ class MrpProduction(models.Model):
         result = super().set_qty_producing()
         # The Shop Floor confirmation calls this public method after saving
         # the quantity and lot. A work order start only uses the private method.
-        for production in self.filtered(
+        self.filtered(
             lambda mo: mo.qty_producing > 0 and mo.state not in ('done', 'cancel')
             and mo.product_tracking != 'serial' and mo.sudo()._quality_matrix_checks(),
-        ):
-            super(MrpProduction, production).write({
-                'quality_registered_quantity': production.qty_producing,
-                'quality_registered_lot_id': production.lot_producing_id.id,
-            })
+        )._quality_save_output_registration()
         return result
+
+    def action_quality_register_production(self):
+        self.ensure_one()
+        if not self.env.user.has_group('mrp.group_mrp_user'):
+            raise AccessError(_('Реєструвати виробництво можуть користувачі модуля «Виробництво».'))
+        self.check_access_rights('write')
+        self.check_access_rule('write')
+        if not self.quality_output_registration_available:
+            raise UserError(_('Для цього замовлення підтвердження виробітку недоступне.'))
+
+        lot = self.lot_producing_id
+        if (
+            self.qty_producing != self.env.context.get('quality_registration_quantity')
+            or (lot.id or False) != self.env.context.get('quality_registration_lot_id', False)
+        ):
+            raise UserError(_('Кількість або партію змінено. Оновіть замовлення та підтвердьте ще раз.'))
+        if self.product_tracking == 'lot' and not lot:
+            raise UserError(_('Укажіть партію виготовлених виробів.'))
+        if lot and (lot.product_id != self.product_id or lot.company_id != self.company_id):
+            raise UserError(_('Партія має належати товару та компанії цього замовлення.'))
+
+        unit = self.env.ref('uom.product_uom_unit')
+        if self.product_uom_id.category_id != unit.category_id:
+            raise UserError(_('Укажіть фактичну кількість виробів у штуках.'))
+        quantity = self.product_uom_id._compute_quantity(self.qty_producing, unit, round=False)
+        if not isfinite(quantity) or quantity < 1 or not isclose(
+            quantity, round(quantity), rel_tol=0, abs_tol=1e-9,
+        ):
+            raise UserError(_('Укажіть додатну цілу кількість фактично виготовлених виробів.'))
+
+        # The form already applies Odoo's quantity onchange. Confirming here
+        # only saves the same snapshot as the Shop Floor dialog.
+        self._quality_save_output_registration()
+        return True
+
+    def _quality_save_output_registration(self):
+        for production in self:
+            if (
+                production.quality_registered_quantity != production.qty_producing
+                or production.quality_registered_lot_id != production.lot_producing_id
+            ):
+                super(MrpProduction, production).write({
+                    'quality_registered_quantity': production.qty_producing,
+                    'quality_registered_lot_id': production.lot_producing_id.id,
+                })
 
     def _quality_matrix_checks(self):
         self.ensure_one()
@@ -89,6 +133,23 @@ class MrpProduction(models.Model):
             and check.company_id == self.company_id
             and (not check.product_id or check.product_id == self.product_id),
         )
+
+    @api.depends(
+        'state', 'product_id', 'company_id', 'product_tracking', 'qty_produced',
+        'quality_quarantine_check_ids.quality_state',
+        'quality_quarantine_check_ids.x_control_stage',
+        'quality_quarantine_check_ids.measurement_matrix_required',
+        'quality_quarantine_check_ids.point_id', 'quality_quarantine_check_ids.product_id',
+        'quality_quarantine_check_ids.company_id',
+    )
+    def _compute_quality_output_registration_available(self):
+        for production in self:
+            production.quality_output_registration_available = (
+                production.state in ('confirmed', 'progress', 'to_close')
+                and production.product_tracking != 'serial'
+                and not production.qty_produced
+                and any(check.quality_state == 'none' for check in production._quality_matrix_checks())
+            )
 
     @api.depends(
         'state', 'product_id', 'company_id', 'product_tracking', 'qty_producing', 'lot_producing_id',
