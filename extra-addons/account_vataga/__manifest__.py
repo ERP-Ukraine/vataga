@@ -1,6 +1,6 @@
 {
     'name' : 'Accounting Vataga',
-    'version': '1.28',
+    'version': '1.29',
     'category': 'Accounting/Accounting',
     'author': 'ERP Ukraine LLC',
     'website': 'https://erp.co.ua',
@@ -30,6 +30,7 @@
             'account_vataga/static/src/chatter/invoice_chatter.xml',
             'account_vataga/static/src/chatter/invoice_chatter.scss',
             'account_vataga/static/src/components/account_payment_unreconcile.xml',
+            'account_vataga/static/src/scss/vendor_storno.scss',
         ],
     },
 }
