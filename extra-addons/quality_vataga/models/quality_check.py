@@ -934,6 +934,7 @@ class QualityCheck(models.Model):
             'automatic_sample_count': count,
             'automatic_sample_lot_id': (self.lot_id or self.production_id.lot_producing_id).id,
         })
+        self.flush_recordset(['automatic_sample_count', 'automatic_sample_lot_id'])
         self._create_measurement_samples(1, count, AUTOMATIC_SAMPLE_INITIALIZATION)
         return False
 

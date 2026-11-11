@@ -1,5 +1,6 @@
 import os
 import runpy
+from unittest.mock import patch
 
 from psycopg2 import IntegrityError
 
@@ -841,7 +842,18 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
         self.assertEqual(production.quality_registered_quantity, 4)
         self.assertFalse(production.quality_registered_lot_id)
         self.assertEqual(production.qty_produced, 0)
-        self.assertEqual(len(check.get_measurement_matrix_data()['samples']), 4)
+        create_samples = type(check)._create_measurement_samples
+
+        def check_snapshot_is_flushed(record, *args):
+            record.env.cr.execute(
+                'SELECT automatic_sample_count FROM quality_check WHERE id = %s',
+                [record.id],
+            )
+            self.assertEqual(record.env.cr.fetchone()[0], 4)
+            return create_samples(record, *args)
+
+        with patch.object(type(check), '_create_measurement_samples', check_snapshot_is_flushed):
+            self.assertEqual(len(check.get_measurement_matrix_data()['samples']), 4)
 
     def test_mo_form_excludes_serial_and_requires_lot(self):
         point = self._create_visual_only_point('Контроль з форми MO з відстеженням')
