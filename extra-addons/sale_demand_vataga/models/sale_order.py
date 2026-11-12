@@ -3,6 +3,7 @@ import math
 from psycopg2 import IntegrityError
 
 from odoo import api, fields, models
+from odoo.exceptions import UserError
 
 
 class SaleOrder(models.Model):
@@ -144,24 +145,29 @@ class SaleOrderLine(models.Model):
 
     def create_need_to_purchase_ids(self):
         for line in self.filtered(lambda line: not line.display_type):
-            if line.bom_id:
+            bom = line.bom_id
+            if bom:
                 products = line.bom_id.need_to_purchase_ids.mapped('product_id')
                 line.need_to_purchase_ids.filtered(
                     lambda p_line: p_line.product_id.id not in products.ids
                 ).unlink()
                 for bom_line in line.bom_id.need_to_purchase_ids:
-                    multiplier = math.ceil(
-                        line.product_uom._compute_quantity(
-                            line.product_uom_qty, line.bom_id.product_uom_id
+                    try:
+                        multiplier = math.ceil(
+                            line.product_uom._compute_quantity(
+                                line.product_uom_qty, line.bom_id.product_uom_id
+                            )
+                            / line.bom_id.product_qty
                         )
-                        / line.bom_id.product_qty
-                    )
-                    total_qty = (
-                        multiplier
-                        * line.bom_id.product_uom_id._compute_quantity(
-                            bom_line.product_qty, line.product_id.uom_id
+                        total_qty = (
+                            multiplier
+                            * line.bom_id.product_uom_id._compute_quantity(
+                                bom_line.product_qty, line.product_id.uom_id
+                            )
                         )
-                    )
+                    except UserError as error:
+                        error._sale_demand_bom = bom
+                        raise
                     p_line = line.need_to_purchase_ids.filtered(
                         lambda p_line: p_line.product_id.id == bom_line.product_id.id
                     )

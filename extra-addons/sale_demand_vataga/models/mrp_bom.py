@@ -1,4 +1,5 @@
 from odoo import api, fields, models
+from odoo.exceptions import UserError
 
 
 class MrpBom(models.Model):
@@ -45,37 +46,86 @@ class MrpBom(models.Model):
 
     @api.model
     def _cron_create_total_product_line_ids(self):
-        boms = self.env['mrp.bom'].search([('need_update_to_purchase', '=', True)], limit=2)
-        if boms:
-            for bom in boms:
-                bom.need_to_purchase_ids.unlink()
-                warehouse = self.env['stock.warehouse'].browse(
-                    self.env['report.mrp.report_bom_structure'].get_warehouses()[0]['id']
+        bom = component_id = None
+        try:
+            boms = self.env['mrp.bom'].search([('need_update_to_purchase', '=', True)], limit=2)
+            if boms:
+                for bom in boms:
+                    component_id = None
+                    bom.need_to_purchase_ids.unlink()
+                    warehouse = self.env['stock.warehouse'].browse(
+                        self.env['report.mrp.report_bom_structure'].get_warehouses()[0]['id']
+                    )
+                    data = self.env['report.mrp.report_bom_structure']._get_bom_data(
+                        bom, warehouse
+                    )
+                    lines = self.get_all_product_lines(data)
+                    for line in lines:
+                        component_id = line['product_id']
+                        need_to_purchase_line = bom.need_to_purchase_ids.filtered(lambda l: l.product_id.id == line['product_id'])
+                        product = self.env['product.product'].search([('id', '=', line['product_id'])])
+                        if need_to_purchase_line:
+                            need_to_purchase_line.product_qty += line['uom']._compute_quantity(
+                                line['quantity'], product.uom_id
+                            )
+                        else:
+                            self.env['mrp.bom.purchase.line'].create(
+                                {
+                                    'bom_id': bom.id,
+                                    'product_id': line['product_id'],
+                                    'product_qty': line['uom']._compute_quantity(
+                                        line['quantity'], product.uom_id
+                                    ),
+                                }
+                            )
+                bom = boms if len(boms) == 1 else None
+                component_id = None
+                try:
+                    boms.mapped('sale_order_line_ids').create_need_to_purchase_ids()
+                except UserError as error:
+                    bom = getattr(error, '_sale_demand_bom', bom)
+                    raise
+                boms.need_update_to_purchase = False
+                self.env.ref('sale_demand_vataga.cron_update_need_to_purchase')._trigger()
+        except UserError as error:
+            message = self._get_cron_bom_error_message(error, bom, component_id)
+            error.args = (message, *error.args[1:])
+            raise
+
+    def _get_cron_bom_error_message(self, error, bom, component_id):
+        message = ['Помилка перерахунку специфікації.']
+        if bom:
+            bom_name = product_name = product_code = 'Не визначено'
+            try:
+                bom_name = bom.display_name or bom_name
+                product = (bom.product_id or bom.product_tmpl_id).with_context(
+                    active_test=False, display_default_code=False
                 )
-                data = self.env['report.mrp.report_bom_structure']._get_bom_data(
-                    bom, warehouse
-                )
-                lines = self.get_all_product_lines(data)
-                for line in lines:
-                    need_to_purchase_line = bom.need_to_purchase_ids.filtered(lambda l: l.product_id.id == line['product_id'])
-                    product = self.env['product.product'].search([('id', '=', line['product_id'])])
-                    if need_to_purchase_line:
-                        need_to_purchase_line.product_qty += line['uom']._compute_quantity(
-                            line['quantity'], product.uom_id
-                        )
-                    else:
-                        self.env['mrp.bom.purchase.line'].create(
-                            {
-                                'bom_id': bom.id,
-                                'product_id': line['product_id'],
-                                'product_qty': line['uom']._compute_quantity(
-                                    line['quantity'], product.uom_id
-                                ),
-                            }
-                        )
-            boms.mapped('sale_order_line_ids').create_need_to_purchase_ids()
-            boms.need_update_to_purchase = False
-            self.env.ref('sale_demand_vataga.cron_update_need_to_purchase')._trigger()
+                product_name = product.display_name or product_name
+                product_code = product.default_code or 'Не вказано'
+            except Exception:
+                # Diagnostic reads must not mask the original error.
+                pass
+            message.extend([
+                f'Специфікація: {bom_name}\nID специфікації: {bom.id}',
+                f'Виріб: {product_name}\nАртикул виробу: {product_code}',
+            ])
+        if component_id:
+            component_name = component_code = 'Не визначено'
+            try:
+                component = self.env['product.product'].with_context(
+                    active_test=False, display_default_code=False
+                ).browse(component_id)
+                component_name = component.display_name or component_name
+                component_code = component.default_code or 'Не вказано'
+            except Exception:
+                pass
+            message.append(
+                f'Проблемний компонент: {component_name}\n'
+                f'Артикул компонента: {component_code}\nID компонента: {component_id}'
+            )
+        message.append(f'Причина помилки:\n{error}')
+        return '\n\n'.join(message)
 
     def get_all_product_lines(self, data):
         lines = []
