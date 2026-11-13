@@ -76,12 +76,17 @@ class TestPickingAnalogs(TransactionCase):
         self.assertEqual(len(rows), len(expected))
         for row, (original, analog) in zip(rows, expected):
             product, demand, quantity, source, destination, *rest = row.xpath('./td')
+            self.assertIn('background-color: #F2F2F2;', row.get('style', ''))
+            self.assertEqual(product.xpath('.//strong/text()'), ['Аналог'])
+            self.assertEqual(product.xpath('./strong')[0].tail, ': ')
             self.assertEqual(product.text_content().strip(), f'Аналог: {analog.display_name}')
             self.assertEqual(demand.text_content().strip(), '0')
             self.assertFalse(quantity.text_content().strip())
             self.assertEqual(source.text_content().strip(), picking.location_id.display_name)
             self.assertEqual(destination.text_content().strip(), picking.location_dest_id.display_name)
-            self.assertEqual(bool(rest[-1].xpath('.//img')), bool(analog.barcode))
+            barcode_cell = rest[-1]
+            self.assertIn('background-color: #FFFFFF;', barcode_cell.get('style', ''))
+            self.assertEqual(bool(barcode_cell.xpath('.//img')), bool(analog.barcode))
             previous = row.getprevious()
             while previous.get('name') == 'analog_row':
                 previous = previous.getprevious()
