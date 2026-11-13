@@ -129,6 +129,16 @@ class TestPickingAnalogs(TransactionCase):
             self.assertEqual(len(picking.move_line_ids), detail_count)
             self._assert_analog_rows(picking, [(self.single, self.no_barcode)])
 
+    def test_planned_products_print_without_details_or_analogs(self):
+        for picking_type in (self.warehouse.in_type_id, self.warehouse.out_type_id):
+            with self.subTest(picking_type=picking_type.code):
+                picking = self._picking(picking_type, self.plain, detail_count=0)
+                doc = self._render(picking)
+                rows = doc.xpath('//table[@name="internal_move_table"]/tbody/tr')
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(rows[0].xpath('./td[1]')[0].text_content().strip(), self.plain.display_name)
+                self.assertFalse(doc.xpath('//tr[@name="analog_row"]'))
+
     def test_operations_view_loads_the_read_only_widget(self):
         view = self.env['stock.picking'].get_view(view_id=self.env.ref('stock.view_picking_form').id)
         fields = etree.fromstring(view['arch']).xpath(

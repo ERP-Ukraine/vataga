@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <template id="report_picking_analogs" inherit_id="stock.report_picking" primary="True">
-        <!-- Keep analogs printable for moves without detailed operations, including partial reservations. -->
+        <!-- Print planned moves when there are no details; keep analogs visible during partial reservations. -->
         <xpath expr="//table[@name='internal_move_table']" position="before">
             <t t-set="detail_moves" t-value="o.move_line_ids_without_package.move_id"/>
             <t t-set="moves_to_print" t-value="o.move_ids_without_package"/>
@@ -11,7 +11,7 @@
             </t>
         </xpath>
         <xpath expr="//table[@name='internal_move_table']" position="attributes">
-            <attribute name="t-if">moves_to_print and (o.picking_type_id.code == 'internal' or moves_to_print.analog_product_ids)</attribute>
+            <attribute name="t-if">moves_to_print</attribute>
         </xpath>
         <xpath expr="//table[@name='internal_move_table']/tbody/tr[@t-as='move']" position="attributes">
             <attribute name="t-foreach"/>
@@ -38,7 +38,7 @@
 
         <!-- Keep the native detail rows, including packages and lot/serial numbers. -->
         <xpath expr="//table[thead/tr/th[@name='th_product']]" position="attributes">
-            <attribute name="t-if">o.picking_type_id.code != 'internal' and o.move_line_ids and o.move_ids_without_package and (o.move_line_ids_without_package or not o.move_ids_without_package.analog_product_ids)</attribute>
+            <attribute name="t-if">o.picking_type_id.code != 'internal' and o.move_line_ids_without_package and o.move_ids_without_package</attribute>
         </xpath>
         <xpath expr="//t[@t-set='has_barcode']" position="before">
             <t t-set="detail_analogs" t-value="o.move_line_ids_without_package.mapped('move_id.analog_product_ids')"/>
