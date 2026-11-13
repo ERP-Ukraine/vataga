@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <template id="report_picking_analogs" inherit_id="stock.report_picking" primary="True">
+        <!-- Keep analogs printable for moves without detailed operations, including partial reservations. -->
+        <xpath expr="//table[@name='internal_move_table']" position="before">
+            <t t-set="detail_moves" t-value="o.move_line_ids_without_package.move_id"/>
+            <t t-set="moves_to_print" t-value="o.move_ids_without_package"/>
+            <t t-if="o.picking_type_id.code != 'internal'">
+                <t t-set="moves_to_print" t-value="moves_to_print - detail_moves"/>
+                <t t-if="detail_moves" t-set="moves_to_print" t-value="moves_to_print.filtered('analog_product_ids')"/>
+            </t>
+        </xpath>
+        <xpath expr="//table[@name='internal_move_table']" position="attributes">
+            <attribute name="t-if">moves_to_print and (o.picking_type_id.code == 'internal' or moves_to_print.analog_product_ids)</attribute>
+        </xpath>
+        <xpath expr="//table[@name='internal_move_table']/tbody/tr[@t-as='move']" position="attributes">
+            <attribute name="t-foreach"/>
+            <attribute name="t-as"/>
+        </xpath>
+        <xpath expr="//table[@name='internal_move_table']/tbody/tr" position="replace">
+            <t t-foreach="moves_to_print" t-as="move">
+                <t>$0</t>
+                <t t-foreach="move.analog_product_ids" t-as="analog">
+                    <tr name="analog_row">
+                        <td style="word-wrap: break-word;">Аналог: <span t-field="analog.display_name"/></td>
+                        <td>0</td>
+                        <td name="td_actual_quantity">&#160;</td>
+                        <td style="word-wrap: break-word;"><span t-field="move.location_id.display_name"/></td>
+                        <td style="word-wrap: break-word;"><span t-field="move.location_dest_id.display_name"/></td>
+                        <td class="text-center">
+                            <div t-if="analog.barcode" t-field="analog.barcode"
+                                 t-options="{'widget': 'barcode', 'symbology': 'auto', 'width': 400, 'height': 100, 'quiet': 0, 'img_style': 'width:100%;height:35px;'}"/>
+                        </td>
+                    </tr>
+                </t>
+            </t>
+        </xpath>
+
+        <!-- Keep the native detail rows, including packages and lot/serial numbers. -->
+        <xpath expr="//table[thead/tr/th[@name='th_product']]" position="attributes">
+            <attribute name="t-if">o.picking_type_id.code != 'internal' and o.move_line_ids and o.move_ids_without_package and (o.move_line_ids_without_package or not o.move_ids_without_package.analog_product_ids)</attribute>
+        </xpath>
+        <xpath expr="//t[@t-set='has_barcode']" position="before">
+            <t t-set="detail_analogs" t-value="o.move_line_ids_without_package.mapped('move_id.analog_product_ids')"/>
+            <t t-set="multi_locations" t-value="False"/>
+            <t t-set="multi_locations" t-value="True" groups="stock.group_stock_multi_locations"/>
+            <t t-set="show_from" t-value="detail_analogs or (multi_locations and o.picking_type_id.code != 'incoming')"/>
+            <t t-set="show_to" t-value="detail_analogs or (multi_locations and o.picking_type_id.code != 'outgoing')"/>
+        </xpath>
+        <xpath expr="//t[@t-set='has_barcode']" position="after">
+            <t t-set="has_barcode" t-value="has_barcode or detail_analogs"/>
+        </xpath>
+        <xpath expr="//th[@name='th_product']" position="after">
+            <th t-if="detail_analogs"><strong>Попит</strong></th>
+        </xpath>
+        <xpath expr="//th[@name='th_from']" position="attributes">
+            <attribute name="groups"/>
+            <attribute name="t-if">show_from</attribute>
+        </xpath>
+        <xpath expr="//th[@name='th_to']" position="attributes">
+            <attribute name="groups"/>
+            <attribute name="t-if">show_to</attribute>
+        </xpath>
+        <xpath expr="//tr[@t-as='ml']/td[1]" position="after">
+            <td t-if="detail_analogs"><span t-field="ml.move_id.product_uom_qty"/></td>
+        </xpath>
+        <xpath expr="//tr[@t-as='ml']/td[span[contains(@t-esc, 'ml.location_id')]]" position="attributes">
+            <attribute name="groups"/>
+            <attribute name="t-if">show_from</attribute>
+        </xpath>
+        <xpath expr="//tr[@t-as='ml']/td[div/span[@t-field='ml.location_dest_id']]" position="attributes">
+            <attribute name="groups"/>
+            <attribute name="t-if">show_to</attribute>
+        </xpath>
+        <xpath expr="//tr[@t-as='ml']" position="before">
+            <t t-set="detail_lines" t-value="o.move_line_ids_without_package.sorted(lambda ml: (ml.location_id.complete_name, ml.location_dest_id.complete_name))"/>
+        </xpath>
+        <xpath expr="//tr[@t-as='ml']" position="attributes">
+            <attribute name="t-foreach"/>
+            <attribute name="t-as"/>
+        </xpath>
+        <xpath expr="//t[@t-set='detail_lines']/following-sibling::tr[1]" position="replace">
+            <t t-foreach="detail_lines" t-as="ml">
+                <t>$0</t>
+                <t t-foreach="ml.move_id.analog_product_ids" t-as="analog">
+                    <tr name="analog_row">
+                        <td>Аналог: <span t-field="analog.display_name"/></td>
+                        <td>0</td>
+                        <td name="td_actual_quantity">&#160;</td>
+                        <td t-if="show_from"><span t-field="ml.location_id.display_name"/></td>
+                        <td t-if="show_to"><span t-field="ml.location_dest_id.display_name"/></td>
+                        <td t-if="has_serial_number"/>
+                        <td class="text-center" t-if="has_barcode">
+                            <div t-if="analog.barcode" t-field="analog.barcode"
+                                 t-options="{'widget': 'barcode', 'symbology': 'auto', 'width': 400, 'height': 100, 'quiet': 0, 'img_style': 'height:35px;'}"/>
+                        </td>
+                    </tr>
+                </t>
+            </t>
+        </xpath>
+    </template>
+
+    <record id="action_report_picking_analogs" model="ir.actions.report">
+        <field name="name">Операції комплектування (Аналоги)</field>
+        <field name="model">stock.picking</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">product_alternatives_vataga.report_picking_analogs</field>
+        <field name="report_file">product_alternatives_vataga.report_picking_analogs</field>
+        <field name="print_report_name">'Операції комплектування (Аналоги) - %s - %s' % (object.partner_id.name or '', object.name)</field>
+        <field name="binding_model_id" ref="stock.model_stock_picking"/>
+        <field name="binding_type">report</field>
+    </record>
+</odoo>

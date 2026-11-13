@@ -1,6 +1,6 @@
 {
     'name': 'Product Analogs',
-    'version': '17.0.1.21',
+    'version': '17.0.1.22',
     'category': 'Inventory',
     'author': 'Vataga',
     'license': 'LGPL-3',
@@ -11,6 +11,7 @@
         'account_vataga',
         'mrp',
         'product',
+        'product_vataga',
         'purchase_demand_vataga',
         'stock',
     ],
@@ -23,6 +24,8 @@
         'views/account_move_views.xml',
         'views/mrp_bom_views.xml',
         'views/mrp_production_views.xml',
+        'views/stock_picking_views.xml',
+        'report/report_picking_analogs.xml',
     ],
     'assets': {
         'web.assets_backend': [
