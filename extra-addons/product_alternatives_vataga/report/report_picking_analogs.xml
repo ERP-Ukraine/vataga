@@ -21,13 +21,13 @@
             <t t-foreach="moves_to_print" t-as="move">
                 <t>$0</t>
                 <t t-foreach="move.analog_product_ids" t-as="analog">
-                    <tr name="analog_row">
-                        <td style="word-wrap: break-word;">Аналог: <span t-field="analog.display_name"/></td>
+                    <tr name="analog_row" style="background-color: #F2F2F2;">
+                        <td style="word-wrap: break-word;"><strong>Аналог</strong>: <span t-field="analog.display_name"/></td>
                         <td>0</td>
                         <td name="td_actual_quantity">&#160;</td>
                         <td style="word-wrap: break-word;"><span t-field="move.location_id.display_name"/></td>
                         <td style="word-wrap: break-word;"><span t-field="move.location_dest_id.display_name"/></td>
-                        <td class="text-center">
+                        <td class="text-center" style="background-color: #FFFFFF;">
                             <div t-if="analog.barcode" t-field="analog.barcode"
                                  t-options="{'widget': 'barcode', 'symbology': 'auto', 'width': 400, 'height': 100, 'quiet': 0, 'img_style': 'width:100%;height:35px;'}"/>
                         </td>
@@ -83,14 +83,14 @@
             <t t-foreach="detail_lines" t-as="ml">
                 <t>$0</t>
                 <t t-foreach="ml.move_id.analog_product_ids" t-as="analog">
-                    <tr name="analog_row">
-                        <td>Аналог: <span t-field="analog.display_name"/></td>
+                    <tr name="analog_row" style="background-color: #F2F2F2;">
+                        <td><strong>Аналог</strong>: <span t-field="analog.display_name"/></td>
                         <td>0</td>
                         <td name="td_actual_quantity">&#160;</td>
                         <td t-if="show_from"><span t-field="ml.location_id.display_name"/></td>
                         <td t-if="show_to"><span t-field="ml.location_dest_id.display_name"/></td>
                         <td t-if="has_serial_number"/>
-                        <td class="text-center" t-if="has_barcode">
+                        <td class="text-center" t-if="has_barcode" style="background-color: #FFFFFF;">
                             <div t-if="analog.barcode" t-field="analog.barcode"
                                  t-options="{'widget': 'barcode', 'symbology': 'auto', 'width': 400, 'height': 100, 'quiet': 0, 'img_style': 'height:35px;'}"/>
                         </td>
