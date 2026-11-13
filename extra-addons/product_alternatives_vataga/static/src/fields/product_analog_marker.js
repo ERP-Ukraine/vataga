@@ -45,8 +45,8 @@ export class ProductAnalogMarkerField extends Component {
     }
 
     get analogItems() {
-        if (this.isSelectMode) {
-            return this.selectableAnalogItems;
+        if (this.isSelectMode || this.props.payloadField) {
+            return this.payloadAnalogItems;
         }
         return this.fallbackAnalogNames.map((name) => ({
             id: false,
@@ -87,7 +87,7 @@ export class ProductAnalogMarkerField extends Component {
         return Number.isInteger(numericId) && numericId > 0 ? numericId : false;
     }
 
-    get selectableAnalogItems() {
+    get payloadAnalogItems() {
         const payload = this.props.record.data[this.payloadField] || [];
         let analogs = payload;
         if (typeof payload === 'string') {

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_picking_form_move_analogs" model="ir.ui.view">
+        <field name="name">stock.picking.form.move.analogs</field>
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.view_picking_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//page[@name='operations']/field[@name='move_ids_without_package']/tree/field[@name='product_id']" position="after">
+                <field name="analog_product_data" column_invisible="True"/>
+                <field name="analog_marker" string="Аналоги" widget="product_analog_marker"
+                       readonly="True" optional="show" options="{'payloadField': 'analog_product_data'}"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>
