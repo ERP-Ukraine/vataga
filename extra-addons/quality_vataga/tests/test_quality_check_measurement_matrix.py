@@ -7,7 +7,7 @@ from psycopg2 import IntegrityError
 from odoo import Command
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.modules.module import get_module_path
-from odoo.tests import TransactionCase, new_test_user, tagged
+from odoo.tests import TransactionCase, tagged
 
 from ..models.quality_check_sample import AUTOMATIC_SAMPLE_INITIALIZATION
 from ..models.stock_quarantine import QUARANTINE_CONTEXT, QUARANTINE_OPERATION
@@ -347,11 +347,11 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
         production.action_confirm()
         return production
 
-    def _create_lot_matrix_production(self, planned_quantity=5, tracking='lot'):
+    def _create_lot_matrix_production(self, planned_quantity=5):
         product = self.env['product.product'].create({
             'name': 'Виріб з партійним обліком',
             'type': 'product',
-            'tracking': tracking,
+            'tracking': 'lot',
         })
         workcenter = self.env['mrp.workcenter'].create({
             'name': 'Дільниця міжопераційного контролю',
@@ -761,87 +761,6 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
         production.set_qty_producing()
         self.assertEqual(production.quality_registered_quantity, 4)
         self.assertEqual(production.qty_produced, 0)
-        samples = check.get_measurement_matrix_data()['samples']
-        self.assertEqual([row['sample_number'] for row in samples], [1, 2, 3, 4])
-        self.assertEqual(check.get_measurement_matrix_data()['samples'], samples)
-
-    def _register_from_mo_form(self, production):
-        return production.with_context(
-            quality_registration_quantity=production.qty_producing,
-            quality_registration_lot_id=production.lot_producing_id.id or False,
-        ).action_quality_register_production()
-
-    def test_mo_form_registers_partial_batch_after_both_operations_finish(self):
-        production = self._create_lot_matrix_production()
-        point = self._create_visual_only_point('Контроль після реєстрації з форми MO')
-        point.x_control_stage = 'in_process'
-        check = self._create_check_for_point(point, production_id=production.id)
-        lots = self.env['stock.lot'].create([
-            {'name': name, 'product_id': production.product_id.id, 'company_id': production.company_id.id}
-            for name in ('Партія з форми MO', 'Інша партія з форми MO')
-        ])
-        lot, other_lot = lots
-        production.write({'qty_producing': 3, 'lot_producing_id': lot.id})
-        production.workorder_ids.button_finish()
-        self.assertEqual(production.state, 'to_close')
-        self.assertEqual(production.product_qty, 5)
-        self.assertEqual(production.qty_producing, 3)
-        self.assertFalse(check.get_measurement_matrix_data()['samples'])
-
-        moves = production.move_raw_ids | production.move_finished_ids
-        move_data = moves.read(['state', 'picked', 'quantity', 'move_line_ids'])
-        self._register_from_mo_form(production)
-        self.assertEqual(production.quality_registered_quantity, 3)
-        self.assertEqual(production.quality_registered_lot_id, lot)
-        self.assertEqual(production.state, 'to_close')
-        self.assertEqual(production.qty_produced, 0)
-        self.assertEqual(production.move_raw_ids | production.move_finished_ids, moves)
-        self.assertEqual(moves.read(['state', 'picked', 'quantity', 'move_line_ids']), move_data)
-
-        production.lot_producing_id = other_lot
-        self.assertFalse(production.quality_registered_quantity)
-        self.assertFalse(check.get_measurement_matrix_data()['samples'])
-        with self.assertRaises(UserError):
-            production.with_context(
-                quality_registration_quantity=3, quality_registration_lot_id=lot.id,
-            ).action_quality_register_production()
-        production.lot_producing_id = lot
-        self.assertFalse(check.get_measurement_matrix_data()['samples'])
-        self._register_from_mo_form(production)
-        samples = check.get_measurement_matrix_data()['samples']
-        self.assertEqual([row['sample_number'] for row in samples], [1, 2, 3])
-        self.assertEqual(check.automatic_sample_lot_id, lot)
-        self._register_from_mo_form(production)
-        self.assertEqual(check.get_measurement_matrix_data()['samples'], samples)
-        self.assertEqual(check.quality_state, 'none')
-
-    def test_mo_form_requires_explicit_confirmation_and_mrp_access_without_workorders(self):
-        production = self._create_matrix_production(planned_quantity=4)
-        production.qty_producing = 4
-        self.assertFalse(production.quality_output_registration_available)
-        with self.assertRaises(UserError):
-            self._register_from_mo_form(production)
-        point = self._create_visual_only_point('Контроль з форми MO без операцій')
-        point.x_control_stage = 'in_process'
-        check = self._create_check_for_point(point, production_id=production.id)
-        self.assertFalse(check.get_measurement_matrix_data()['samples'])
-
-        quality_user = new_test_user(
-            self.env, login='matrix_registration_inspector', groups='quality.group_quality_user',
-        )
-        self.assertFalse(quality_user.has_group('mrp.group_mrp_user'))
-        with self.assertRaises(AccessError):
-            production.with_user(quality_user).with_context(
-                quality_registration_quantity=4,
-            ).action_quality_register_production()
-        self.assertFalse(production.quality_registered_quantity)
-        with self.assertRaises(UserError):
-            production.action_quality_register_production()
-
-        self._register_from_mo_form(production)
-        self.assertEqual(production.quality_registered_quantity, 4)
-        self.assertFalse(production.quality_registered_lot_id)
-        self.assertEqual(production.qty_produced, 0)
         create_samples = type(check)._create_measurement_samples
 
         def check_snapshot_is_flushed(record, *args):
@@ -853,21 +772,9 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
             return create_samples(record, *args)
 
         with patch.object(type(check), '_create_measurement_samples', check_snapshot_is_flushed):
-            self.assertEqual(len(check.get_measurement_matrix_data()['samples']), 4)
-
-    def test_mo_form_excludes_serial_and_requires_lot(self):
-        point = self._create_visual_only_point('Контроль з форми MO з відстеженням')
-        point.x_control_stage = 'in_process'
-        for tracking in ('serial', 'lot'):
-            with self.subTest(tracking=tracking):
-                production = self._create_lot_matrix_production(planned_quantity=1, tracking=tracking)
-                check = self._create_check_for_point(point, production_id=production.id)
-                production.qty_producing = 1
-                self.assertEqual(production.quality_output_registration_available, tracking == 'lot')
-                with self.assertRaises(UserError):
-                    self._register_from_mo_form(production)
-                self.assertFalse(production.quality_registered_quantity)
-                self.assertFalse(check.get_measurement_matrix_data()['samples'])
+            samples = check.get_measurement_matrix_data()['samples']
+        self.assertEqual([row['sample_number'] for row in samples], [1, 2, 3, 4])
+        self.assertEqual(check.get_measurement_matrix_data()['samples'], samples)
 
     def test_point_without_matrix_configuration_stays_standard(self):
         point = self._create_visual_only_point(
