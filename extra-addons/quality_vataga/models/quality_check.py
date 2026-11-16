@@ -15,9 +15,6 @@ from .quality_check_sample import AUTOMATIC_SAMPLE_INITIALIZATION
 from .quality_point import CONTROL_STAGES
 
 
-RECHECK_INITIALIZATION = object()
-
-
 class QualityCheck(models.Model):
     _inherit = 'quality.check'
 
@@ -278,7 +275,6 @@ class QualityCheck(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
-        recheck = self.env.context.get('quality_vataga_recheck') is RECHECK_INITIALIZATION
         sanitized_vals_list = []
         default_point_id = False
         if any('point_id' not in vals for vals in vals_list):
@@ -286,18 +282,17 @@ class QualityCheck(models.Model):
         points = self.env['quality.point']
         for vals in vals_list:
             sanitized_vals = dict(vals)
-            if 'quality_recheck_ids' in vals or ('quality_recheck_of_id' in vals and not recheck):
-                raise AccessError(_('Повторний контроль створюється лише відповідною дією.'))
-            sanitized_vals.setdefault('quality_recheck_of_id', False)
+            if {'quality_recheck_of_id', 'quality_recheck_ids'} & vals.keys():
+                raise AccessError(_('Створення повторних перевірок вимкнено.'))
+            sanitized_vals.update(quality_recheck_of_id=False, quality_recheck_ids=[])
             sanitized_vals.pop('measurement_matrix_required', None)
             point = points.browse(vals.get('point_id', default_point_id))
-            sanitized_vals['x_control_stage'] = 'in_process' if recheck else (point.x_control_stage or 'incoming')
+            sanitized_vals['x_control_stage'] = point.x_control_stage or 'incoming'
             sanitized_vals['automatic_sample_count'] = 0
             sanitized_vals['automatic_sample_lot_id'] = False
             sanitized_vals_list.append(sanitized_vals)
         checks = super().create(sanitized_vals_list)
-        if not recheck:
-            checks._initialize_measurement_snapshot()
+        checks._initialize_measurement_snapshot()
         checks.filtered(
             lambda check: (
                 check.x_control_stage == 'in_process'
@@ -423,75 +418,8 @@ class QualityCheck(models.Model):
         self.invalidate_recordset()
 
     def action_open_quality_recheck(self):
-        self.ensure_one()
-        if not self.env.user.has_group('quality.group_quality_user'):
-            raise AccessError(_('Повторний контроль може створити інспектор якості.'))
-        self._lock_measurement_checks()
-        if (
-            self.x_control_stage != 'in_process' or self.quality_state != 'fail'
-            or not self.measurement_matrix_required or self.quality_recheck_of_id
-        ):
-            raise UserError(_('Повторний контроль доступний лише для початкової перевірки зі статусом FAIL.'))
-        retry = self.sudo().quality_recheck_ids.sudo(False)
-        if not retry:
-            retry = self._create_quality_recheck()
-        retry.check_access_rights('read')
-        retry.check_access_rule('read')
-        return {
-            'type': 'ir.actions.act_window', 'name': _('Повторний контроль'),
-            'res_model': 'quality.check', 'view_mode': 'form', 'res_id': retry.id,
-        }
-
-    def _create_quality_recheck(self):
-        production = self.production_id
-        lot = self.automatic_sample_lot_id or self.lot_id
-        if (
-            not production or not self.point_id or self.company_id != production.company_id
-            or (self.product_id and self.product_id != production.product_id)
-            or (production.product_tracking != 'none' and not lot)
-            or not self.automatic_sample_count or len(self.sample_ids) != self.automatic_sample_count
-        ):
-            raise UserError(_('Початкова перевірка не містить однозначної партії та кількості зразків.'))
-        self._validate_measurement_sample_structure()
-        binding = {
-            name: self[name].id
-            for name in ('company_id', 'production_id', 'point_id', 'team_id', 'workorder_id')
-        }
-        retry = self.with_context({
-            'allowed_company_ids': self.env.companies.ids,
-            'quality_vataga_recheck': RECHECK_INITIALIZATION,
-        }).create(dict(
-            binding, quality_recheck_of_id=self.id, product_id=production.product_id.id,
-            lot_id=lot.id, measure_on=self.measure_on, quality_state='none',
-            test_type_id=self.test_type_id.id,
-        ))
-        super(QualityCheck, retry).write({
-            'measurement_matrix_required': True,
-            'automatic_sample_count': self.automatic_sample_count,
-            'automatic_sample_lot_id': lot.id,
-        })
-        retry._copy_recheck_measurement_snapshot(self)
-        retry._create_measurement_samples(1, self.automatic_sample_count, AUTOMATIC_SAMPLE_INITIALIZATION)
-        retry.message_post(body=_('Повторний контроль після перевірки %(check)s.', check=self.display_name))
-        return retry
-
-    def _copy_recheck_measurement_snapshot(self, original):
-        context = {'quality_vataga_snapshot_initialization': True}
-        columns = self.env['quality.check.measurement.column'].sudo().with_context(**context)
-        selections = self.env['quality.check.equipment.selection'].sudo().with_context(**context)
-        columns.create([
-            column.copy_data({
-                'quality_check_id': self.id,
-                'equipment_category_ids': [Command.set((column.equipment_category_ids or column.equipment_category_id).ids)],
-            })[0] for column in original.measurement_column_ids
-        ])
-        selections.create([
-            selection.copy_data({
-                'quality_check_id': self.id, 'equipment_id': False,
-                'equipment_ids': [Command.clear()],
-                'preserve_completed_equipment_selection': True,
-            })[0] for selection in original.equipment_selection_ids.filtered('requires_equipment_selection')
-        ])
+        # Reject calls from clients that still have the old form loaded.
+        raise UserError(_('Створення повторних перевірок вимкнено.'))
 
     @api.depends(
         'x_control_stage', 'measurement_matrix_required', 'test_type_id', 'quality_state',

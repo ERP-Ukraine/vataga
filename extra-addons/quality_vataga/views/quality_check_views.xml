@@ -7,10 +7,6 @@
         <field name="priority" eval="99"/>
         <field name="arch" type="xml">
             <xpath expr="//header" position="inside">
-                <button name="action_open_quality_recheck" type="object" string="Повторний контроль"
-                        groups="quality.group_quality_user"
-                        invisible="x_control_stage != 'in_process' or quality_state != 'fail'
-                                   or not measurement_matrix_required or quality_recheck_of_id"/>
                 <button
                     name="action_initialize_measurement_matrix"
                     type="object"

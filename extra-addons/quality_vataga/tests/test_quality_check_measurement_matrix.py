@@ -9,6 +9,7 @@ from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.modules.module import get_module_path
 from odoo.tests import TransactionCase, tagged
 
+from ..models.quality_check import QualityCheck
 from ..models.quality_check_sample import AUTOMATIC_SAMPLE_INITIALIZATION
 from ..models.stock_quarantine import QUARANTINE_CONTEXT, QUARANTINE_OPERATION
 
@@ -1064,9 +1065,7 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
         check.do_fail()
         return production, check, quarantine, stock
 
-    def test_linked_recheck_releases_only_its_original_batch(self):
-        if not self.env.user.has_group('quality.group_quality_user'):
-            self.env.user.groups_id = [Command.link(self.env.ref('quality.group_quality_user').id)]
+    def test_existing_linked_recheck_releases_only_its_original_batch(self):
         production, check, quarantine, stock = self._fail_held_production()
         original_lot = check.automatic_sample_lot_id
         self.assertEqual(quarantine, production.move_finished_ids.location_dest_id)
@@ -1074,18 +1073,17 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
             check.update_measurement_visual_result(check.sample_ids[0].id, 'yes')
         with self.assertRaises(UserError):
             check.write({'quality_state': 'none'})
-        with self.assertRaises(AccessError):
-            self.env['quality.check'].with_context(quality_vataga_recheck=True).create({
-                'quality_recheck_of_id': check.id, 'point_id': check.point_id.id,
-            })
-        check.point_id.x_control_stage = 'incoming'
-        action = check.action_open_quality_recheck()
-        self.assertEqual(action, check.action_open_quality_recheck())
-        retry = self.env['quality.check'].browse(action['res_id'])
+        retry = self._create_check_for_point(
+            check.point_id, production_id=production.id, workorder_id=check.workorder_id.id,
+            product_id=production.product_id.id, lot_id=original_lot.id,
+        )
+        retry.get_measurement_matrix_data()
+        # Seed the stored link of a check created before this workflow was disabled.
+        super(QualityCheck, retry).write({'quality_recheck_of_id': check.id})
         self.assertEqual(retry.quality_recheck_of_id, check)
-        self.assertEqual(retry.production_id, production)
         self.assertEqual(retry.automatic_sample_lot_id, original_lot)
         self.assertEqual(len(retry.sample_ids), 5)
+        self.assertEqual(production.move_finished_ids.quality_release_move_ids.state, 'draft')
         with self.assertRaises(UserError):
             retry.write({'lot_id': False})
         self._pass_quarantine_check(retry)
@@ -1095,6 +1093,32 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
         release = production.move_finished_ids.quality_release_move_ids
         self.assertEqual(release.location_dest_id, stock)
         self.assertEqual(release.state, 'done')
+
+    def test_new_rechecks_cannot_be_created_or_linked(self):
+        production, check, quarantine, _stock = self._fail_held_production()
+        checks = self.env['quality.check']
+        with self.assertRaises(UserError):
+            check.action_open_quality_recheck()
+        with self.assertRaises(AccessError):
+            checks.with_context(quality_vataga_recheck=True).create({
+                'point_id': check.point_id.id, 'quality_recheck_of_id': check.id,
+            })
+        with self.assertRaises(AccessError):
+            check.write({'quality_recheck_ids': [Command.create({'point_id': check.point_id.id})]})
+
+        ordinary_check = checks.with_context(
+            default_quality_recheck_of_id=check.id,
+            default_quality_recheck_ids=[Command.link(check.id)],
+        ).create({
+            'point_id': check.point_id.id, 'team_id': check.team_id.id,
+        })
+        self.assertFalse(ordinary_check.quality_recheck_of_id)
+        self.assertFalse(ordinary_check.quality_recheck_ids)
+        self.assertFalse(check.quality_recheck_ids)
+        self.assertEqual(check.quality_state, 'fail')
+        self.assertEqual(production.quality_quarantine_status, 'fail')
+        self.assertEqual(production.move_finished_ids.location_dest_id, quarantine)
+        self.assertEqual(production.move_finished_ids.quality_release_move_ids.state, 'draft')
 
     def _board_alert_for_held_batch(self, check, decision):
         for group in ('quality_vataga.group_quality_board_approval', 'stock.group_stock_user', 'mrp.group_mrp_user'):
@@ -1109,7 +1133,9 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
 
     def test_board_acceptance_is_approved_exactly_once_and_does_not_rewrite_qc(self):
         production, check, quarantine, stock = self._fail_held_production()
+        self.assertFalse(check.quality_recheck_ids)
         alert = self._board_alert_for_held_batch(check, 'accept_as_is')
+        self.assertTrue(alert.quality_failure_snapshot)
         with self.assertRaises(AccessError):
             alert.action_execute_board_quarantine()
         alert.action_send_for_board_approval()
