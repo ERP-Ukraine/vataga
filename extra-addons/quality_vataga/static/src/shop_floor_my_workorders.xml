@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-inherit="mrp_workorder.MrpDisplay" t-inherit-mode="extension">
+        <xpath expr="//ControlPanelButtons" position="attributes">
+            <attribute name="productionCount">shopFloorProductionCount</attribute>
+            <attribute name="workorders">shopFloorWorkcenterCards</attribute>
+            <attribute name="relevantCount">shopFloorRelevantCount</attribute>
+        </xpath>
+    </t>
+</templates>
