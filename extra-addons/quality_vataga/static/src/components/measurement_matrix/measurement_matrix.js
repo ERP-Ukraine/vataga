@@ -41,6 +41,10 @@ export class QualityMeasurementMatrix extends Component {
         return Number(this.props.record.resId) || false;
     }
 
+    get isEditable() {
+        return this.props.record.data.quality_state === "none" && this.state.data.editable;
+    }
+
     async load(checkId = this.checkId) {
         if (!checkId) {
             this.state.loading = false;
@@ -65,6 +69,7 @@ export class QualityMeasurementMatrix extends Component {
     async addSamples() {
         if (
             !this.checkId ||
+            !this.isEditable ||
             this.state.addingSamples ||
             this.state.removingSamples ||
             this.state.saving
@@ -97,6 +102,7 @@ export class QualityMeasurementMatrix extends Component {
     async removeSamples() {
         if (
             !this.checkId ||
+            !this.isEditable ||
             this.state.addingSamples ||
             this.state.removingSamples ||
             this.state.saving
@@ -175,9 +181,10 @@ export class QualityMeasurementMatrix extends Component {
     }
 
     async applyServerUpdate(method, args) {
-        if (!this.checkId || this.state.saving) {
+        if (!this.checkId || !this.isEditable || this.state.saving) {
             return;
         }
+        const record = this.props.record;
         this.state.saving = true;
         try {
             this.state.data = await this.orm.call(
@@ -185,11 +192,15 @@ export class QualityMeasurementMatrix extends Component {
                 method,
                 [[this.checkId], ...args]
             );
-            if (!(await this.props.record.isDirty())) {
-                await this.props.record.load();
-            }
         } finally {
-            this.state.saving = false;
+            try {
+                // Another tab may have completed the check before this update.
+                if (record === this.props.record && !(await record.isDirty())) {
+                    await record.load();
+                }
+            } finally {
+                this.state.saving = false;
+            }
         }
     }
 
@@ -227,4 +238,5 @@ QualityMeasurementMatrix.props = {
 registry.category("fields").add("quality_measurement_matrix", {
     component: QualityMeasurementMatrix,
     supportedTypes: ["json"],
+    fieldDependencies: [{ name: "quality_state", type: "selection" }],
 });

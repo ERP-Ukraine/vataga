@@ -6,7 +6,7 @@
                 Завантаження матриці…
             </div>
             <div
-                t-if="!state.loading and checkId and state.data.editable and state.data.manual_samples"
+                t-if="!state.loading and checkId and isEditable and state.data.manual_samples"
                 class="o_quality_measurement_sample_controls"
             >
                 <label
@@ -176,7 +176,7 @@
                             >
                                 <select
                                     class="form-select"
-                                    t-att-disabled="!state.data.editable or state.saving"
+                                    t-att-disabled="!isEditable or state.saving"
                                     t-on-change="(ev) => this.updateVisualResult(sample.id, ev)"
                                 >
                                     <option
@@ -212,13 +212,13 @@
                                     inputmode="decimal"
                                     class="form-control"
                                     t-att-value="cell.numeric_input"
-                                    t-att-disabled="!state.data.editable or state.saving"
+                                    t-att-disabled="!isEditable or state.saving"
                                     t-on-change="(ev) => this.updateNumericValue(cell, ev)"
                                 />
                                 <select
                                     t-elif="cell.parameter_type === 'boolean'"
                                     class="form-select"
-                                    t-att-disabled="!state.data.editable or state.saving"
+                                    t-att-disabled="!isEditable or state.saving"
                                     t-on-change="(ev) => this.updateBooleanValue(cell, ev)"
                                 >
                                     <option
@@ -246,12 +246,12 @@
                                         class="form-control"
                                         placeholder="Фактичне значення"
                                         t-att-value="cell.string_value"
-                                        t-att-disabled="!state.data.editable or state.saving"
+                                    t-att-disabled="!isEditable or state.saving"
                                         t-on-change="(ev) => this.updateStringValue(cell, ev)"
                                     />
                                     <select
                                         class="form-select o_quality_measurement_manual_result"
-                                        t-att-disabled="!state.data.editable or state.saving"
+                                    t-att-disabled="!isEditable or state.saving"
                                         t-on-change="(ev) => this.updateManualResult(cell, ev)"
                                     >
                                         <option
