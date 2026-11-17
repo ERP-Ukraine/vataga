@@ -1,6 +1,6 @@
 {
     'name': 'Product and transaction labels',
-    'version': '1.16',
+    'version': '1.17',
     'category': 'Inventory',
     'author': 'Vataga',
     'license': 'LGPL-3',
@@ -14,6 +14,7 @@
         # Transfer/package labels are disabled.
     ],
     'data': [
+        'data/mail_message_subtype.xml',
         'views/product_search_views.xml',
         'views/report_product_label_dymo.xml',
         'views/stock_picking_views.xml',
