@@ -3,3 +3,4 @@ from . import test_product_packaging_search
 from . import test_stock_picking_location_guard
 from . import test_stock_delivery_report
 from . import test_stock_picking_report
+from . import test_product_autolog
