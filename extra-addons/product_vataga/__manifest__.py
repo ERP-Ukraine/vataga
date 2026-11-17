@@ -14,7 +14,6 @@
         # Transfer/package labels are disabled.
     ],
     'data': [
-        'data/mail_message_subtype.xml',
         'views/product_search_views.xml',
         'views/report_product_label_dymo.xml',
         'views/stock_picking_views.xml',
