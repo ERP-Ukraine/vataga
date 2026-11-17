@@ -2,13 +2,7 @@ from odoo import api, fields, models
 from odoo.exceptions import AccessError
 from odoo.osv import expression
 
-
-def autolog_subtype_ids(env):
-    model_data = env['ir.model.data']
-    return tuple(
-        model_data._xmlid_to_res_id('product_vataga.' + name, raise_if_not_found=False)
-        for name in ('mt_product_autolog', 'mt_product_autolog_company')
-    )
+from .product_autolog import autolog_subtype_ids
 
 
 class MailMessage(models.Model):
