@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<odoo noupdate="1">
+<odoo>
     <template
         id="report_deliveryslip_actual_quantity"
         inherit_id="l10n_ua_stock_reports.sales_invoice_template"

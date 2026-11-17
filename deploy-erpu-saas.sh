@@ -32,21 +32,7 @@ wait_for_build() {
         }
 
         state=$(echo "$response" | jq -r '.state')
-        if [ "$environment" = staging1 ] && [ "${ERPUSAAS_STATUS_DIAGNOSTICS:-0}" = 1 ]; then
-            display_name=$(printf '%s' "$response" | jq -r '[.display_name | strings | match("^Build #[0-9]{1,10}\\b").string] | first // "Build"')
-            case "$state" in
-                building|running|failed) ;;
-                *) state=other ;;
-            esac
-            case "$state" in
-                running|failed)
-                    printf '%s' "$response" | python3 .github/scripts/staging_status_diagnostics.py ||
-                        echo "ERPU status diagnostics unavailable"
-                    ;;
-            esac
-        else
-            display_name=$(echo "$response" | jq -r '.display_name')
-        fi
+        display_name=$(echo "$response" | jq -r '.display_name')
 
         echo "[$i/$MAX_WAIT_ATTEMPTS] $display_name - $state"
 
