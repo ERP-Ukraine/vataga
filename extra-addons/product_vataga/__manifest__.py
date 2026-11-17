@@ -24,10 +24,4 @@
         # Transfer/package labels are disabled; keep only the product label override active.
         # 'report/stock_picking_transfer_label.xml',
     ],
-    'assets': {
-        'web.assets_backend': [
-            'product_vataga/static/src/chatter/product_chatter.js',
-            'product_vataga/static/src/chatter/product_chatter.xml',
-        ],
-    },
 }
