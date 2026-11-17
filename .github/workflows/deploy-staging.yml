@@ -16,6 +16,7 @@ jobs:
       - name: Deploy
         run: ./deploy-erpu-saas.sh staging1
         env:
+          ERPUSAAS_STATUS_DIAGNOSTICS: '1'
           ERPUSAAS_DEPLOY_SECRET: ${{ secrets.ERPUSAAS_DEPLOY_SECRET }}
           ERPUSAAS_DEPLOY_PROJECT: ${{ vars.ERPUSAAS_DEPLOY_PROJECT }}
           ERPUSAAS_API_URL: ${{ vars.ERPUSAAS_API_URL }}

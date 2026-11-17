@@ -388,12 +388,9 @@ class ProductAnalog(models.Model):
 
         create_vals = dict(vals)
         create_vals.setdefault('is_primary_link', True)
-        record = self._create_primary_analog_line(create_vals)
+        record = super(ProductAnalog, self).create([create_vals])
         record._sync_reciprocal_line()
         return record
-
-    def _create_primary_analog_line(self, vals):
-        return super().create([vals])
 
     def _check_no_existing_pair_on_write(self, vals):
         for line in self:
