@@ -3,7 +3,7 @@ from werkzeug.exceptions import NotFound
 from odoo import http
 from odoo.http import request
 
-from ..models.product_autolog import PRODUCT_MODELS, SUBTYPE
+from ..models.product_autolog import PRODUCT_MODELS, autolog_subtype_ids
 
 
 class ProductThreadController(http.Controller):
@@ -21,7 +21,7 @@ class ProductThreadController(http.Controller):
         ]
         if hide_product_autologs:
             domain += [
-                ('subtype_id', '!=', request.env.ref(SUBTYPE).id),
+                ('subtype_id', 'not in', list(filter(None, autolog_subtype_ids(request.env)))),
                 '|', ('message_type', '!=', 'notification'), ('tracking_value_ids', '=', False),
             ]
         result = request.env['mail.message']._message_fetch(

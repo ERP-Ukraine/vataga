@@ -10,6 +10,7 @@ from odoo.tools.misc import clean_context
 
 
 SUBTYPE = 'product_vataga.mt_product_autolog'
+COMPANY_SUBTYPE = 'product_vataga.mt_product_autolog_company'
 BATCH = 'vataga_product_autolog_batch'
 SKIP = 'vataga_product_autolog_skip'
 VARIANT_TOGGLE = 'vataga_product_variant_toggle'
@@ -52,9 +53,22 @@ RELATED_MODELS = {
 EMPTY = 'Порожньо'
 
 
+def autolog_subtype_ids(env):
+    model_data = env['ir.model.data']
+    return tuple(
+        model_data._xmlid_to_res_id(xmlid, raise_if_not_found=False)
+        for xmlid in (SUBTYPE, COMPANY_SUBTYPE)
+    )
+
+
 def skipped(records):
     ctx = records.env.context
-    return ctx.get(SKIP) is INTERNAL or ctx.get('tracking_disable') or not records.env.user._is_internal()
+    return (
+        ctx.get(SKIP) is INTERNAL
+        or ctx.get('tracking_disable')
+        or not records.env.registry.ready
+        or not records.env.user._is_internal()
+    )
 
 
 def business_fields(records, names):
@@ -177,11 +191,14 @@ class ProductAutologBatch:
 
         if not any(self.entries.values()):
             return
+        subtype_id, company_subtype_id = autolog_subtype_ids(self.env)
+        if not subtype_id or not company_subtype_id:
+            # Code can start on an existing database before the module data is upgraded.
+            return
         messages = []
         author_id, email_from = self.env['mail.thread']._message_compute_author(
             None, None, raise_on_email=False,
         )
-        subtype_id = self.env.ref(SUBTYPE).id
         for model in PRODUCT_MODELS:
             entries = [(record_id, company_id, lines)
                        for (name, record_id, company_id), lines in self.entries.items() if name == model and lines]
@@ -200,9 +217,10 @@ class ProductAutologBatch:
                 # The underlying line mutation is already authorized. The user may have
                 # write access to supplier prices and only read access to the card.
                 messages.append({
-                    'model': model, 'res_id': record_id, 'body': body, 'subtype_id': subtype_id,
+                    'model': model, 'res_id': record_id, 'body': body,
+                    'subtype_id': company_subtype_id if company_id else subtype_id,
                     'author_id': author_id, 'email_from': email_from, 'message_type': 'notification',
-                    'is_internal': True, 'product_autolog_company_id': company_id,
+                    'is_internal': True, 'record_company_id': company_id,
                 })
         if messages:
             self.env['mail.message'].sudo().with_context(clean_context(self.env.context)).create(messages)

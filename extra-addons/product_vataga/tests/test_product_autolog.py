@@ -14,9 +14,10 @@ class TestProductAutolog(TransactionCase):
         })
         cls.variant = cls.template.product_variant_id
         cls.subtype = cls.env.ref('product_vataga.mt_product_autolog')
+        cls.company_subtype = cls.env.ref('product_vataga.mt_product_autolog_company')
 
     def logs(self, record):
-        return record.message_ids.filtered(lambda msg: msg.subtype_id == self.subtype).sorted('id')
+        return record.message_ids.filtered(lambda msg: msg.subtype_id in (self.subtype | self.company_subtype)).sorted('id')
 
     def test_change_and_noop(self):
         self.assertFalse(self.logs(self.template))
@@ -128,7 +129,9 @@ class TestProductAutolog(TransactionCase):
         self.assertFalse(self.logs(self.variant))
         self.variant.write({'standard_price': 4})
         self.assertIn('Собівартість: було «2.0», стало «4.0»', self.logs(self.variant).body)
-        self.assertEqual(self.logs(self.variant).product_autolog_company_id, self.env.company)
+        self.assertEqual(self.logs(self.variant).record_company_id, self.env.company)
+        self.assertEqual(self.logs(self.variant).subtype_id, self.company_subtype)
+        self.assertFalse(self.env['mail.message']._fields['product_autolog_company_id'].store)
 
     def test_native_type_tracking(self):
         self.env.cr.precommit.run()
@@ -162,11 +165,18 @@ class TestProductAutolog(TransactionCase):
         self.variant.with_user(editor).write({'standard_price': 19})
         log = self.logs(self.variant)
         self.assertEqual(log.author_id, editor.partner_id)
+        self.assertTrue(self.env['mail.message'].with_user(editor).search([('id', '=', log.id)]))
         self.assertFalse(self.env['mail.message'].with_user(user).search([('id', '=', log.id)]))
         with self.assertRaises(AccessError):
             log.with_user(user).read(['body'])
+        for vals in ({'record_company_id': False}, {'subtype_id': self.subtype.id}):
+            with self.assertRaises(AccessError):
+                log.with_user(editor).write(vals)
+        # The native foreign key clears record_company_id when a company is removed.
+        log.write({'record_company_id': False})
+        self.assertFalse(self.env['mail.message'].with_user(editor).search([('id', '=', log.id)]))
         with self.assertRaises(AccessError):
-            log.with_user(editor).write({'product_autolog_company_id': False})
+            log.with_user(editor).read(['body'])
 
 
 @tagged('post_install', '-at_install')
@@ -181,13 +191,16 @@ class TestProductAutologThread(HttpCase):
         template._track_finalize()
         technical = template.message_ids.filtered('tracking_value_ids')
         self.assertTrue(technical)
-        for product in (template, variant):
+        for index, product in enumerate((template, variant), start=1):
             note = product.message_post(body='Автологи товару — звичайна нотатка', subtype_xmlid='mail.mt_note')
-            product.write({'default_code': 'ROUTE-%s' % product.id})
-            automatic = product.message_ids.filtered(
-                lambda msg: msg.subtype_id == self.env.ref('product_vataga.mt_product_autolog')
+            product.write({'default_code': 'ROUTE-%s' % index, 'standard_price': 20 + index})
+            subtypes = self.env.ref('product_vataga.mt_product_autolog') | self.env.ref(
+                'product_vataga.mt_product_autolog_company'
             )
-            self.assertEqual(len(automatic), 1)
+            automatic = product.message_ids.filtered(
+                lambda msg: msg.subtype_id in subtypes
+            )
+            self.assertEqual(len(automatic), 2)
             params = {
                 'thread_model': product._name, 'thread_id': product.id, 'limit': 30,
             }
@@ -197,6 +210,6 @@ class TestProductAutologThread(HttpCase):
                 )
                 ids = [message['id'] for message in result['messages']]
                 self.assertIn(note.id, ids)
-                self.assertEqual(automatic.id in ids, not hide)
+                self.assertEqual(set(automatic.ids) & set(ids), set() if hide else set(automatic.ids))
                 if product == template:
                     self.assertEqual(bool(set(technical.ids) & set(ids)), not hide)
