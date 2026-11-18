@@ -147,3 +147,46 @@ class TestStockDeliveryReport(TransactionCase):
         self.assertEqual(len(product_rows), 1)
         self._assert_row_contains_number(product_rows[0], 7)
         self._assert_row_contains_number(product_rows[0], 70)
+
+    def test_current_localization_quantity_template_accepts_vataga_inheritance(self):
+        # Model the current ERP UA quantity and line-total expressions without
+        # depending on the rest of the localization's report layout.
+        View = self.env['ir.ui.view']
+        parent = View.create({
+            'name': 'Current delivery quantity template',
+            'key': 'product_vataga.test_current_delivery_quantity',
+            'type': 'qweb',
+            'arch_db': """
+                <t t-name="product_vataga.test_current_delivery_quantity">
+                    <table>
+                        <t t-set="lines" t-value="o.move_ids.filtered(
+                            lambda move: move.state != 'cancel' and
+                                (move.quantity if o.state == 'done' else move.product_uom_qty)
+                        )"/>
+                        <tr t-foreach="lines" t-as="move">
+                            <td><span t-esc="move.product_id.name"/></td>
+                            <td><span t-esc="move.quantity if o.state == 'done' else move.product_uom_qty"/></td>
+                            <td><span t-esc="unit_cost * (move.quantity if o.state == 'done' else move.product_uom_qty)"/></td>
+                        </tr>
+                    </table>
+                </t>
+            """,
+        })
+        addon_view = self.env.ref('product_vataga.report_deliveryslip_actual_quantity')
+        View.create({
+            'name': 'Vataga delivery quantity inheritance',
+            'type': 'qweb',
+            'inherit_id': parent.id,
+            'arch_db': addon_view.arch_db,
+        })
+        product = self._create_product('VATAGA QWeb quantity', 'CURRENT-QWEB-QTY', '2000000000244')
+        for planned, actual, state, quantity, total in (
+            (7, (), 'confirmed', 7, 70),
+            (0, (2, 3), 'done', 5, 50),
+        ):
+            with self.subTest(state=state):
+                picking, _move = self._create_picking(product, planned, actual, state)
+                report = self.env['ir.qweb']._render(parent.key, {'o': picking, 'unit_cost': 10})
+                rows = self._product_rows(str(report), product)
+                self.assertEqual(len(rows), 1)
+                self.assertEqual([int(float(cell.text_content())) for cell in rows[0][1:]], [quantity, total])
