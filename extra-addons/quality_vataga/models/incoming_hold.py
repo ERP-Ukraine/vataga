@@ -323,7 +323,7 @@ class IncomingHold(models.Model):
         move._action_confirm(merge=False)
         self.env['stock.move.line'].with_context(context).create(self._move_line_values(move, quantity))
         move.picked = True
-        move._action_done(cancel_backorder=True)
+        picking.with_context(cancel_backorder=True)._action_done()
         return picking, move
 
     def _return_supplier(self, quantity, context):
@@ -349,7 +349,7 @@ class IncomingHold(models.Model):
         move.write({'quality_incoming_hold_id': self.id})
         self.env['stock.move.line'].with_context(context).create(self._move_line_values(move, quantity))
         move.picked = True
-        move._action_done(cancel_backorder=True)
+        picking.with_context(cancel_backorder=True)._action_done()
         return picking, move
 
     def action_open_decision(self):
