@@ -130,6 +130,10 @@ class IncomingHoldQuality(models.Model):
             'picking_id': self.receipt_id.id, 'lot_id': self.lot_id.id,
             'description': description + (failures if not check else Markup('')),
         }
+        # Enterprise's alert form displays the template, with the variant in
+        # a separate field. Supplying only product_id leaves its Product blank.
+        if 'product_tmpl_id' in self.env['quality.alert']._fields:
+            values['product_tmpl_id'] = self.product_id.product_tmpl_id.id
         if check:
             values.update(check_id=check.id, team_id=check.team_id.id)
         else:
@@ -202,9 +206,16 @@ class IncomingCheck(models.Model):
             managed.incoming_hold_id._lock()
             managed._lock_measurement_checks()
             for check in managed:
-                if protected - {'quality_state'} & vals.keys():
+                changed_source = any(
+                    (check[name].id if check._fields[name].type == 'many2one' else check[name]) != vals[name]
+                    for name in protected - {'quality_state'} & vals.keys()
+                )
+                # Enterprise may repeat the already-bound lot/source while
+                # finishing a tracked receipt. Permit identical values only.
+                if changed_source:
                     raise UserError(_('Не можна змінювати джерело та критерії вхідного контролю.'))
-                if (check.quality_state != 'none' and vals.get('quality_state') != check.quality_state):
+                if ('quality_state' in vals and check.quality_state != 'none'
+                        and vals['quality_state'] != check.quality_state):
                     raise UserError(_('Результат завершеного вхідного контролю незмінний.'))
                 if vals.get('quality_state') == 'pass':
                     check._validate_measurement_can_pass()

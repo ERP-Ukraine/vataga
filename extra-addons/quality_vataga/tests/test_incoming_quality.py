@@ -104,6 +104,17 @@ class TestIncomingQuality(IncomingStockFixture):
         with self.assertRaises(UserError):
             check.unlink()
 
+    def test_identical_standard_source_assignment_is_allowed_but_rebinding_is_not(self):
+        _picking, hold = self._receipt()
+        check = hold.check_ids
+        check.write({'product_id': hold.product_id.id, 'picking_id': hold.receipt_id.id,
+                     'move_line_id': hold.receipt_line_id.id, 'lot_id': hold.lot_id.id})
+        check.sample_ids.visual_result = 'yes'
+        check.do_pass()
+        check.write({'lot_id': hold.lot_id.id})
+        with self.assertRaises(UserError):
+            check.write({'picking_id': False})
+
     def test_defect_without_sampling_plan_can_be_returned_but_not_accepted(self):
         self.point.incoming_sample_size = 0
         _picking, hold = self._receipt()
