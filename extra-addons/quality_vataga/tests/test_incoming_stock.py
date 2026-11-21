@@ -88,6 +88,8 @@ class TestIncomingStock(IncomingStockFixture):
             self.assertEqual(operation, hold._execute('return', 'unchecked', 4, 'Sampling defect', 'return4'))
         self.assertFalse(hold.inspection_ids)
         self.assertEqual(operation.picking_id.return_id, picking)
+        self.assertEqual(operation.picking_id.location_id, hold.location_id)
+        self.assertEqual(operation.picking_id.location_dest_id, self.supplier_location)
         self.assertEqual(operation.move_id.origin_returned_move_id, hold.receipt_move_id)
         self.assertEqual(operation.move_id.location_id, hold.location_id)
         self.assertEqual(operation.move_id.location_dest_id, self.supplier_location)

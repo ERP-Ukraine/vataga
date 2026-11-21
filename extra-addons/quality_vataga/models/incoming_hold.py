@@ -336,8 +336,14 @@ class IncomingHold(models.Model):
         wizard.location_id = self.receipt_line_id.location_id
         picking_id, _type_id = wizard._create_returns()
         picking = self.env['stock.picking'].with_context(context).browse(picking_id)
+        # The standard wizard copies the receipt header destination. Controlled
+        # receipts keep that planned destination, whereas their posted moves
+        # end in quarantine. Keep the return header consistent with its moves.
+        picking.write({'location_id': self.location_id.id,
+                       'location_dest_id': self.receipt_line_id.location_id.id})
         move = picking.move_ids.filtered(lambda row: row.origin_returned_move_id == self.receipt_move_id)
-        if len(move) != 1 or move.location_dest_id != self.receipt_line_id.location_id:
+        if (len(move) != 1 or move.location_id != self.location_id
+                or move.location_dest_id != self.receipt_line_id.location_id):
             raise UserError(_('Не вдалося створити повернення вихідного надходження.'))
         move.move_line_ids.unlink()
         move.write({'quality_incoming_hold_id': self.id})

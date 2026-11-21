@@ -60,6 +60,8 @@ class TestIncomingQuality(IncomingStockFixture):
         self.assertEqual(alert.check_id, check)
         self.assertEqual(alert.incoming_receipt_id, picking)
         self.assertEqual(alert.incoming_supplier_id, self.vendor)
+        self.assertEqual(alert.incoming_product_id, self.product)
+        self.assertIn(picking.name, alert.title)
         self.assertIn('Зразок №1', alert.incoming_failure_description)
         with self.assertRaises(UserError):
             hold._execute('release', 'unchecked', 10, 'Cannot accept FAIL', 'fail')

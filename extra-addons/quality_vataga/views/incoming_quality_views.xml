@@ -14,9 +14,9 @@
         <field name="model">quality.incoming.hold</field>
         <field name="arch" type="xml">
             <tree create="0" delete="0">
-                <field name="receipt_id"/><field name="supplier_id"/><field name="product_id"/>
-                <field name="lot_id"/><field name="sampling_state"/><field name="received_qty"/>
-                <field name="released_qty"/><field name="returned_qty"/><field name="remaining_qty"/>
+                <field name="receipt_id" string="Надходження"/><field name="supplier_id" string="Постачальник"/><field name="product_id" string="Товар"/>
+                <field name="lot_id" string="Партія / серійний номер"/><field name="sampling_state" string="Стан вибірки"/><field name="received_qty" string="Отримано"/>
+                <field name="released_qty" string="Прийнято на склад"/><field name="returned_qty" string="Повернуто постачальнику"/><field name="remaining_qty" string="Залишок у карантині"/>
                 <field name="company_id" groups="base.group_multi_company"/>
             </tree>
         </field>
@@ -31,43 +31,43 @@
                             groups="quality.group_quality_user" invisible="sampling_state != 'unconfigured' or remaining_qty == 0"/>
                     <button name="action_open_decision" string="Приймання / повернення / суцільний контроль"
                             type="object" class="oe_highlight" invisible="remaining_qty == 0"/>
-                    <field name="sampling_state" widget="statusbar"/>
+                    <field name="sampling_state" string="Стан вибірки" widget="statusbar"/>
                 </header>
                 <sheet>
                     <group>
-                        <group><field name="receipt_id"/><field name="receipt_line_id"/><field name="supplier_id"/>
-                            <field name="product_id"/><field name="lot_id"/><field name="uom_id"/></group>
-                        <group><field name="location_id"/><field name="destination_id"/><field name="package_id"/>
-                            <field name="owner_id"/><field name="company_id" groups="base.group_multi_company"/></group>
+                        <group><field name="receipt_id" string="Надходження"/><field name="receipt_line_id" string="Рядок надходження"/><field name="supplier_id" string="Постачальник"/>
+                            <field name="product_id" string="Товар"/><field name="lot_id" string="Партія / серійний номер"/><field name="uom_id" string="Одиниця вимірювання"/></group>
+                        <group><field name="location_id" string="Карантинне розташування"/><field name="destination_id" string="Розташування приймання"/><field name="package_id" string="Пакування"/>
+                            <field name="owner_id" string="Власник"/><field name="company_id" groups="base.group_multi_company"/></group>
                     </group>
                     <group string="Баланс партії">
-                        <field name="received_qty"/><field name="checked_qty"/><field name="good_qty"/>
-                        <field name="bad_qty"/><field name="unchecked_qty"/><field name="released_qty"/>
-                        <field name="returned_qty"/><field name="remaining_qty"/>
+                        <field name="received_qty" string="Отримано"/><field name="checked_qty" string="Перевірено суцільно"/><field name="good_qty" string="Придатних у карантині"/>
+                        <field name="bad_qty" string="Брак у карантині"/><field name="unchecked_qty" string="Неперевірених у карантині"/><field name="released_qty" string="Прийнято на склад"/>
+                        <field name="returned_qty" string="Повернуто постачальнику"/><field name="remaining_qty" string="Залишок у карантині"/>
                     </group>
                     <group invisible="not failure_reported_at">
-                        <field name="failure_reason"/><field name="failure_reported_by_id"/><field name="failure_reported_at"/>
+                        <field name="failure_reason"/><field name="failure_reported_by_id" string="Невідповідність зафіксував"/><field name="failure_reported_at" string="Дата фіксації невідповідності"/>
                     </group>
                     <notebook>
                         <page string="Вибірковий контроль">
                             <field name="check_ids" readonly="1">
                                 <tree create="0" delete="0"><field name="name"/><field name="point_id"/>
-                                    <field name="incoming_sample_size"/><field name="quality_state"/></tree>
+                                    <field name="incoming_sample_size" string="Розмір вибірки"/><field name="quality_state"/></tree>
                             </field>
-                            <field name="required_point_ids" widget="many2many_tags" readonly="1"/>
+                            <field name="required_point_ids" string="Обов’язкові контрольні точки" widget="many2many_tags" readonly="1"/>
                         </page>
                         <page string="Сповіщення про якість"><field name="alert_ids" readonly="1"/></page>
                         <page string="Суцільний контроль">
                             <field name="inspection_ids" readonly="1">
-                                <tree create="0" delete="0"><field name="inspected_at"/><field name="inspector_id"/>
-                                    <field name="good_qty"/><field name="bad_qty"/><field name="reason"/></tree>
+                                <tree create="0" delete="0"><field name="inspected_at" string="Дата контролю"/><field name="inspector_id" string="Контролер"/>
+                                    <field name="good_qty" string="Придатних у карантині"/><field name="bad_qty" string="Брак у карантині"/><field name="reason" string="Підстава / результати"/></tree>
                             </field>
                         </page>
                         <page string="Виконані складські рішення">
                             <field name="operation_ids" readonly="1">
-                                <tree create="0" delete="0"><field name="executed_at"/><field name="kind"/>
-                                    <field name="bucket"/><field name="quantity"/><field name="executor_id"/>
-                                    <field name="picking_id"/><field name="reason"/></tree>
+                                <tree create="0" delete="0"><field name="executed_at" string="Дата виконання"/><field name="kind" string="Дія"/>
+                                    <field name="bucket" string="Категорія кількості"/><field name="quantity" string="Кількість"/><field name="executor_id" string="Виконавець"/>
+                                    <field name="picking_id"/><field name="reason" string="Підстава / результати"/></tree>
                             </field>
                         </page>
                     </notebook>
@@ -83,12 +83,12 @@
         <field name="arch" type="xml">
             <form string="Підтвердити рішення вхідного контролю">
                 <group>
-                    <field name="hold_id"/><field name="kind"/>
-                    <field name="bucket" invisible="kind in ('inspect', 'report')"/>
-                    <field name="quantity" invisible="kind in ('inspect', 'report')"/>
-                    <field name="good_qty" invisible="kind != 'inspect'"/>
-                    <field name="bad_qty" invisible="kind != 'inspect'"/>
-                    <field name="reason"/>
+                    <field name="hold_id" string="Вхідна партія"/><field name="kind" string="Дія"/>
+                    <field name="bucket" string="Категорія кількості" invisible="kind in ('inspect', 'report')"/>
+                    <field name="quantity" string="Кількість" invisible="kind in ('inspect', 'report')"/>
+                    <field name="good_qty" string="Придатних у карантині" invisible="kind != 'inspect'"/>
+                    <field name="bad_qty" string="Брак у карантині" invisible="kind != 'inspect'"/>
+                    <field name="reason" string="Підстава / результати"/>
                 </group>
                 <footer><button name="action_confirm" type="object" string="Підтвердити виконання" class="btn-primary"/>
                     <button string="Скасувати" special="cancel" class="btn-secondary"/></footer>
@@ -107,7 +107,7 @@
         <field name="arch" type="xml">
             <xpath expr="//sheet" position="inside">
                 <group string="Вхідний контроль CAB">
-                    <field name="quality_incoming_enabled" readonly="1"/><field name="quality_incoming_location_id"/>
+                    <field name="quality_incoming_enabled" readonly="1"/><field name="quality_incoming_location_id" string="Вхідний карантин"/>
                     <button name="action_enable_incoming_quality" type="object" string="Увімкнути для нових надходжень CAB"
                             groups="stock.group_stock_manager" invisible="code != 'CAB' or quality_incoming_enabled"/>
                 </group>
@@ -130,8 +130,8 @@
         <field name="inherit_id" ref="quality_vataga.quality_point_view_form_control_settings"/>
         <field name="arch" type="xml">
             <xpath expr="//page[@name='control_settings']/group" position="inside">
-                <field name="incoming_sample_size" invisible="x_control_stage != 'incoming'"/>
-                <field name="incoming_acceptance_policy" invisible="x_control_stage != 'incoming'"/>
+                <field name="incoming_sample_size" string="Розмір вибірки" invisible="x_control_stage != 'incoming'"/>
+                <field name="incoming_acceptance_policy" string="Правило приймання" invisible="x_control_stage != 'incoming'"/>
             </xpath>
         </field>
     </record>
@@ -140,7 +140,7 @@
         <field name="inherit_id" ref="quality_control.quality_check_view_form"/>
         <field name="arch" type="xml">
             <xpath expr="//sheet" position="inside"><group string="Вхідна партія" invisible="not incoming_hold_id">
-                <field name="incoming_hold_id"/><field name="incoming_sample_size"/><field name="incoming_acceptance_policy"/>
+                <field name="incoming_hold_id" string="Вхідна партія"/><field name="incoming_sample_size" string="Розмір вибірки"/><field name="incoming_acceptance_policy" string="Правило приймання"/>
             </group></xpath>
         </field>
     </record>
@@ -150,10 +150,10 @@
         <field name="arch" type="xml">
             <xpath expr="/form/sheet | /form[not(sheet)]" position="inside">
                 <group string="Вхідний карантин" invisible="not incoming_hold_id">
-                    <field name="incoming_hold_id"/><field name="incoming_supplier_id"/>
-                    <field name="incoming_receipt_id"/><field name="incoming_lot_id"/>
+                    <field name="incoming_hold_id" string="Вхідна партія"/><field name="incoming_product_id"/><field name="incoming_supplier_id" string="Постачальник"/>
+                    <field name="incoming_receipt_id" string="Надходження"/><field name="incoming_lot_id" string="Партія / серійний номер"/>
                     <button name="action_open_incoming_hold" type="object" string="Відкрити партію та швидке повернення"/>
-                    <field name="incoming_failure_description"/>
+                    <field name="incoming_failure_description" string="Зафіксовані невідповідності"/>
                 </group>
             </xpath>
         </field>

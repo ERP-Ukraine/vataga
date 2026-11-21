@@ -123,9 +123,11 @@ class IncomingHoldQuality(models.Model):
             self.receipt_id.name, _('Фактично отримано'), self.received_qty,
         )
         values = {
+            'title': _('Вхідна невідповідність: %s / %s') % (self.receipt_id.name, self.product_id.display_name),
             'incoming_hold_id': self.id, 'incoming_failure_check_ids': [Command.link(check.id)] if check else [],
             'incoming_failure_description': failures,
             'company_id': self.company_id.id, 'product_id': self.product_id.id,
+            'picking_id': self.receipt_id.id, 'lot_id': self.lot_id.id,
             'description': description + (failures if not check else Markup('')),
         }
         if check:
@@ -259,6 +261,7 @@ class IncomingAlert(models.Model):
     incoming_failure_check_ids = fields.Many2many('quality.check', readonly=True, copy=False)
     incoming_failure_description = fields.Html(readonly=True, copy=False)
     incoming_supplier_id = fields.Many2one(related='incoming_hold_id.supplier_id')
+    incoming_product_id = fields.Many2one(related='incoming_hold_id.product_id', string='Товар вхідної партії')
     incoming_receipt_id = fields.Many2one(related='incoming_hold_id.receipt_id')
     incoming_lot_id = fields.Many2one(related='incoming_hold_id.lot_id')
 
