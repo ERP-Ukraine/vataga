@@ -183,8 +183,11 @@
         <field name="name">quality.check.incoming.source</field><field name="model">quality.check</field>
         <field name="inherit_id" ref="quality_control.quality_check_view_form"/>
         <field name="arch" type="xml">
+            <xpath expr="//button[@name='do_pass' or @name='do_fail']" position="attributes">
+                <attribute name="invisible" add="(incoming_hold_id and quality_state != 'none')" separator=" or "/>
+            </xpath>
             <xpath expr="//sheet" position="inside"><group string="Вхідна партія" invisible="not incoming_hold_id">
-                <field name="incoming_hold_id" string="Вхідна партія"/><field name="incoming_sample_size" string="Розмір вибірки"/><field name="incoming_acceptance_policy" string="Правило приймання"/>
+                <field name="incoming_hold_id" invisible="1"/><field name="incoming_sample_size" string="Розмір вибірки"/><field name="incoming_acceptance_policy" string="Правило приймання"/>
             </group></xpath>
         </field>
     </record>
