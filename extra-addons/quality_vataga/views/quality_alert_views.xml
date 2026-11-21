@@ -10,10 +10,12 @@
                 <attribute name="domain">[('id', 'in', [%(quality_vataga.quality_alert_stage_board_analysis)d, %(quality_vataga.quality_alert_stage_board_approval)d, %(quality_vataga.quality_alert_stage_board_execution)d])]</attribute>
                 <attribute name="options">{'clickable': False, 'no_create': True, 'no_open': True}</attribute>
                 <attribute name="readonly">0</attribute>
+                <attribute name="invisible">incoming_hold_id</attribute>
             </xpath>
             <!-- Own controls: no dependency on an Enterprise header or notebook. -->
             <xpath expr="/form/sheet | /form[not(sheet)]" position="inside">
-                <group name="technical_board_action">
+                <field name="incoming_hold_id" invisible="1"/>
+                <group name="technical_board_action" invisible="incoming_hold_id">
                     <field name="is_board_analysis_stage" invisible="1"/>
                     <field name="is_board_approval_stage" invisible="1"/>
                     <field name="board_is_quarantine_case" invisible="1"/>
@@ -30,7 +32,7 @@
                             invisible="not board_is_quarantine_case or not is_approved or board_executed_at
                                        or approval_user_id != uid or decision_type not in ('accept_as_is', 'scrap', 'unbuild', 'return_supplier')"/>
                 </group>
-                <group string="Рішення Технічної ради">
+                <group string="Рішення Технічної ради" invisible="incoming_hold_id">
                     <group>
                         <field name="decision_type" readonly="is_approved or (board_is_quarantine_case and is_board_approval_stage)"/>
                         <field name="approval_user_id" readonly="is_approved or (board_is_quarantine_case and is_board_approval_stage)" options="{'no_create': True}"/>
@@ -61,7 +63,7 @@
                 <group invisible="not quality_failure_snapshot">
                     <field name="quality_failure_snapshot" readonly="1"/>
                 </group>
-                <notebook name="technical_board_notebook" invisible="decision_type != 'full_control'">
+                <notebook name="technical_board_notebook" invisible="incoming_hold_id or decision_type != 'full_control'">
                     <page string="Суцільний контроль" name="technical_board_full_control">
                         <field name="full_control_line_ids">
                             <tree editable="bottom">

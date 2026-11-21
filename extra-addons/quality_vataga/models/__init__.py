@@ -17,3 +17,4 @@ from . import quality_alert_quarantine
 from . import incoming_hold
 from . import incoming_stock
 from . import incoming_quality
+from . import incoming_ui

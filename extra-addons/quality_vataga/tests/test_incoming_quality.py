@@ -20,6 +20,34 @@ class TestIncomingQuality(IncomingStockFixture):
             'incoming_acceptance_policy': 'all_pass',
         })
 
+    def test_ui_release_opens_existing_wizard_without_moving_stock(self):
+        picking, hold = self._receipt()
+        hold.check_ids.sample_ids.write({'visual_result': 'yes'})
+        hold.check_ids.do_pass()
+        self.assertEqual(picking.ui_incoming_hold_id, hold)
+        self.assertTrue(hold.ui_can_release)
+        action = picking.action_ui_incoming_release()
+        self.assertEqual(action['res_model'], 'quality.incoming.decision')
+        self.assertEqual(action['context']['default_kind'], 'release')
+        self.assertEqual(action['context']['default_bucket'], 'unchecked')
+        self.assertEqual(action['context']['default_quantity'], 10)
+        self.assertFalse(hold.operation_ids)
+        self.assertEqual(hold.remaining_qty, 10)
+        self.assertEqual(self._quantity(hold.location_id), 10)
+
+    def test_ui_completed_return_preserves_failed_quality_result(self):
+        picking, hold = self._receipt()
+        hold.check_ids.do_fail()
+        action = picking.action_ui_incoming_return()
+        self.assertEqual(action['context']['default_kind'], 'return')
+        self.assertEqual(action['context']['default_quantity'], 10)
+        hold._execute('return', 'unchecked', 10, 'UI complete return', 'ui-return')
+        self.assertEqual(hold.ui_processing_state, 'done')
+        self.assertEqual(hold.check_ids.quality_state, 'fail')
+        self.assertEqual(hold.sampling_state, 'fail')
+        self.assertFalse(any((hold.ui_can_check, hold.ui_can_release, hold.ui_can_return,
+                              hold.ui_can_inspect, hold.ui_can_report)))
+
     def test_standard_pre_receipt_checks_are_deferred_without_changing_results(self):
         picking = self.env['stock.picking'].create({
             'picking_type_id': self.warehouse.in_type_id.id, 'partner_id': self.vendor.id,

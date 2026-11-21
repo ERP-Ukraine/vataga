@@ -15,7 +15,7 @@
         <field name="arch" type="xml">
             <tree create="0" delete="0">
                 <field name="receipt_id" string="Надходження"/><field name="supplier_id" string="Постачальник"/><field name="product_id" string="Товар"/>
-                <field name="lot_id" string="Партія / серійний номер"/><field name="sampling_state" string="Стан вибірки"/><field name="received_qty" string="Отримано"/>
+                <field name="lot_id" string="Партія / серійний номер"/><field name="ui_processing_state" string="Обробка партії"/><field name="sampling_state" string="Результат контролю"/><field name="received_qty" string="Отримано"/>
                 <field name="released_qty" string="Прийнято на склад"/><field name="returned_qty" string="Повернуто постачальнику"/><field name="remaining_qty" string="Залишок у карантині"/>
                 <field name="company_id" groups="base.group_multi_company"/>
             </tree>
@@ -25,72 +25,78 @@
         <field name="name">quality.incoming.hold.form</field>
         <field name="model">quality.incoming.hold</field>
         <field name="arch" type="xml">
-            <form create="0" delete="0">
+            <form create="0" edit="0" delete="0">
                 <header>
-                    <button name="action_start_checks" string="Створити контроль за налаштованим QCP" type="object"
-                            groups="quality.group_quality_user" invisible="sampling_state != 'unconfigured' or remaining_qty == 0"/>
-                    <button name="action_open_decision" string="Приймання / повернення / суцільний контроль"
-                            type="object" class="oe_highlight" invisible="remaining_qty == 0"/>
-                    <field name="sampling_state" string="Стан вибірки" widget="statusbar"/>
-                </header>
-                <sheet>
+                    <button name="action_ui_check" string="Перевірити" type="object" class="oe_highlight" invisible="not ui_can_check"/>
+                    <button name="action_ui_release" string="Прийняти на склад" type="object" class="oe_highlight" invisible="not ui_can_release"/>
+                    <button name="action_ui_return" string="Повернути постачальнику" type="object" invisible="not ui_can_return"/>
+                    <button name="action_ui_inspect" string="Суцільний контроль" type="object" invisible="not ui_can_inspect"/>
+</header>
+                <sheet><field name="ui_can_check" invisible="1"/><field name="ui_can_release" invisible="1"/><field name="ui_can_return" invisible="1"/><field name="ui_can_inspect" invisible="1"/><field name="ui_can_report" invisible="1"/>
+                    <div class="oe_title"><h1><field name="receipt_id" readonly="1"/></h1></div>
                     <group>
-                        <group><field name="receipt_id" string="Надходження"/><field name="receipt_line_id" string="Рядок надходження"/><field name="supplier_id" string="Постачальник"/>
-                            <field name="product_id" string="Товар"/><field name="lot_id" string="Партія / серійний номер"/><field name="uom_id" string="Одиниця вимірювання"/></group>
-                        <group><field name="location_id" string="Карантинне розташування"/><field name="destination_id" string="Розташування приймання"/><field name="package_id" string="Пакування"/>
-                            <field name="owner_id" string="Власник"/><field name="company_id" groups="base.group_multi_company"/></group>
+                        <group><field name="product_id" string="Товар"/><field name="lot_id" string="Партія / серійний номер"/></group>
+                        <group><field name="ui_processing_state" widget="badge" decoration-success="ui_processing_state == 'done'" string="Обробка партії"/>
+                            <field name="sampling_state" widget="badge" decoration-danger="sampling_state == 'fail'" decoration-success="sampling_state == 'pass'" string="Результат контролю"/></group>
                     </group>
-                    <group string="Баланс партії">
-                        <field name="received_qty" string="Отримано"/><field name="checked_qty" string="Перевірено суцільно"/><field name="good_qty" string="Придатних у карантині"/>
-                        <field name="bad_qty" string="Брак у карантині"/><field name="unchecked_qty" string="Неперевірених у карантині"/><field name="released_qty" string="Прийнято на склад"/>
-                        <field name="returned_qty" string="Повернуто постачальнику"/><field name="remaining_qty" string="Залишок у карантині"/>
-                    </group>
-                    <group invisible="not failure_reported_at">
-                        <field name="failure_reason"/><field name="failure_reported_by_id" string="Невідповідність зафіксував"/><field name="failure_reported_at" string="Дата фіксації невідповідності"/>
-                    </group>
-                    <notebook>
-                        <page string="Вибірковий контроль">
-                            <field name="check_ids" readonly="1">
-                                <tree create="0" delete="0"><field name="name"/><field name="point_id"/>
-                                    <field name="incoming_sample_size" string="Розмір вибірки"/><field name="quality_state"/></tree>
-                            </field>
-                            <field name="required_point_ids" string="Обов’язкові контрольні точки" widget="many2many_tags" readonly="1"/>
-                        </page>
-                        <page string="Сповіщення про якість"><field name="alert_ids" readonly="1"/></page>
-                        <page string="Суцільний контроль">
-                            <field name="inspection_ids" readonly="1">
-                                <tree create="0" delete="0"><field name="inspected_at" string="Дата контролю"/><field name="inspector_id" string="Контролер"/>
-                                    <field name="good_qty" string="Придатних у карантині"/><field name="bad_qty" string="Брак у карантині"/><field name="reason" string="Підстава / результати"/></tree>
-                            </field>
-                        </page>
-                        <page string="Виконані складські рішення">
-                            <field name="operation_ids" readonly="1">
-                                <tree create="0" delete="0"><field name="executed_at" string="Дата виконання"/><field name="kind" string="Дія"/>
-                                    <field name="bucket" string="Категорія кількості"/><field name="quantity" string="Кількість"/><field name="executor_id" string="Виконавець"/>
-                                    <field name="picking_id"/><field name="reason" string="Підстава / результати"/></tree>
-                            </field>
-                        </page>
-                    </notebook>
+                    <div class="row my-3">
+                        <div class="col-6 col-lg-3"><label for="received_qty" string="Отримано"/><h2><field name="received_qty" nolabel="1"/></h2></div>
+                        <div class="col-6 col-lg-3"><label for="released_qty" string="Прийнято"/><h2><field name="released_qty" nolabel="1"/></h2></div>
+                        <div class="col-6 col-lg-3"><label for="returned_qty" string="Повернуто"/><h2><field name="returned_qty" nolabel="1"/></h2></div>
+                        <div class="col-6 col-lg-3"><label for="remaining_qty" string="Залишилось у карантині"/><h2><field name="remaining_qty" nolabel="1"/></h2></div>
+                    </div>
+                    <button name="action_ui_report" type="object" class="btn-link" string="Зафіксувати невідповідність" invisible="not ui_can_report"/>
+                    <details class="mt-3">
+                        <summary class="h5">Деталі, результати та історія</summary>
+                        <group string="Повний кількісний баланс">
+                            <group><field name="checked_qty" string="Перевірено суцільно"/><field name="unchecked_qty" string="Неперевірених у карантині"/></group>
+                            <group><field name="good_qty" string="Придатних у карантині"/><field name="bad_qty" string="Брак у карантині"/><field name="uom_id" string="Одиниця вимірювання"/></group>
+                        </group>
+                        <group string="Джерело та розташування">
+                            <group><field name="supplier_id" string="Постачальник"/><field name="receipt_line_id" string="Рядок надходження"/>
+                                <field name="location_id" string="Карантин"/><field name="destination_id" string="Склад приймання"/></group>
+                            <group><field name="package_id" string="Пакування"/><field name="owner_id" string="Власник"/><field name="company_id" groups="base.group_multi_company"/></group>
+                        </group>
+                        <group invisible="not failure_reported_at" string="Зафіксована невідповідність">
+                            <field name="failure_reason"/><field name="failure_reported_by_id" string="Зафіксував"/><field name="failure_reported_at" string="Дата"/>
+                        </group>
+                        <separator string="Перевірки якості (QC)"/>
+                        <field name="check_ids" readonly="1">
+                            <tree create="0" delete="0"><field name="name"/><field name="point_id"/><field name="incoming_sample_size" string="Вибірка"/><field name="quality_state"/></tree>
+                        </field>
+                        <field name="required_point_ids" string="Обов’язкові контрольні точки" widget="many2many_tags" readonly="1"/>
+                        <separator string="Сповіщення про якість (Alert)"/>
+                        <field name="alert_ids" readonly="1"><tree create="0" delete="0"><field name="display_name"/><field name="incoming_failure_description"/></tree></field>
+                        <separator string="Результати суцільного контролю"/>
+                        <field name="inspection_ids" readonly="1">
+                            <tree create="0" delete="0"><field name="inspected_at" string="Дата"/><field name="inspector_id" string="Контролер"/>
+                                <field name="good_qty" string="Придатних"/><field name="bad_qty" string="Брак"/><field name="reason" string="Результати"/></tree>
+                        </field>
+                        <separator string="Історія операцій та складські документи"/>
+                        <field name="operation_ids" readonly="1">
+                            <tree create="0" delete="0"><field name="executed_at" string="Дата"/><field name="kind" string="Дія"/><field name="bucket" string="Категорія"/>
+                                <field name="quantity" string="Кількість"/><field name="executor_id" string="Виконавець"/><field name="picking_id" widget="many2one" string="Складський документ"/><field name="reason" string="Підстава"/></tree>
+                        </field>
+                    </details>
                 </sheet>
-                <div class="oe_chatter"><field name="message_follower_ids"/><field name="activity_ids"/>
-                    <field name="message_ids"/></div>
+                <div class="oe_chatter"><field name="message_follower_ids"/><field name="activity_ids"/><field name="message_ids"/></div>
             </form>
         </field>
     </record>
     <record id="incoming_decision_form" model="ir.ui.view">
-        <field name="name">quality.incoming.decision.form</field>
-        <field name="model">quality.incoming.decision</field>
+        <field name="name">quality.incoming.decision.form</field><field name="model">quality.incoming.decision</field>
         <field name="arch" type="xml">
-            <form string="Підтвердити рішення вхідного контролю">
+            <form string="Підтвердження вхідного контролю">
                 <group>
-                    <field name="hold_id" string="Вхідна партія"/><field name="kind" string="Дія"/>
-                    <field name="bucket" string="Категорія кількості" invisible="kind in ('inspect', 'report')"/>
+                    <field name="hold_id" string="Вхідна партія"/>
+                    <field name="kind" invisible="1"/>
+                    <field name="bucket" string="Повернути з категорії" invisible="kind != 'return'"/>
                     <field name="quantity" string="Кількість" invisible="kind in ('inspect', 'report')"/>
-                    <field name="good_qty" string="Придатних у карантині" invisible="kind != 'inspect'"/>
-                    <field name="bad_qty" string="Брак у карантині" invisible="kind != 'inspect'"/>
+                    <field name="good_qty" string="Придатних" invisible="kind != 'inspect'"/>
+                    <field name="bad_qty" string="Брак" invisible="kind != 'inspect'"/>
                     <field name="reason" string="Підстава / результати"/>
                 </group>
-                <footer><button name="action_confirm" type="object" string="Підтвердити виконання" class="btn-primary"/>
+                <footer><button name="action_confirm" type="object" string="Підтвердити" class="btn-primary"/>
                     <button string="Скасувати" special="cancel" class="btn-secondary"/></footer>
             </form>
         </field>
@@ -118,10 +124,45 @@
         <field name="name">stock.picking.incoming.quality</field><field name="model">stock.picking</field>
         <field name="inherit_id" ref="stock.view_picking_form"/>
         <field name="arch" type="xml">
-            <xpath expr="//div[@name='button_box']" position="inside">
+            <xpath expr="//sheet/notebook" position="before">
                 <field name="quality_incoming_hold_ids" invisible="1"/>
-                <button name="action_open_incoming_holds" type="object" class="oe_stat_button" icon="fa-lock"
-                        invisible="not quality_incoming_hold_ids" string="Вхідний карантин"/>
+                <field name="ui_incoming_hold_id" invisible="1"/>
+                <field name="ui_incoming_can_check" invisible="1"/><field name="ui_incoming_can_release" invisible="1"/><field name="ui_incoming_can_return" invisible="1"/><field name="ui_incoming_can_inspect" invisible="1"/><field name="ui_incoming_can_report" invisible="1"/>
+                <div name="incoming_quality" invisible="not quality_incoming_hold_ids">
+                    <separator string="Вхідний контроль"/>
+                    <div invisible="not ui_incoming_hold_id">
+                        <group>
+                            <group><field name="ui_incoming_product_id" string="Товар"/><field name="ui_incoming_lot_id" string="Партія / серійний номер"/></group>
+                            <group><field name="ui_incoming_state" string="Обробка партії" widget="badge" decoration-success="ui_incoming_state == 'done'"/>
+                                <field name="ui_incoming_quality_state" string="Результат контролю" widget="badge" decoration-danger="ui_incoming_quality_state == 'fail'" decoration-success="ui_incoming_quality_state == 'pass'"/></group>
+                        </group>
+                        <div class="row my-3">
+                        <div class="col-6 col-lg-3"><label for="ui_incoming_received_qty" string="Отримано"/><h2><field name="ui_incoming_received_qty" nolabel="1"/></h2></div>
+                        <div class="col-6 col-lg-3"><label for="ui_incoming_released_qty" string="Прийнято"/><h2><field name="ui_incoming_released_qty" nolabel="1"/></h2></div>
+                        <div class="col-6 col-lg-3"><label for="ui_incoming_returned_qty" string="Повернуто"/><h2><field name="ui_incoming_returned_qty" nolabel="1"/></h2></div>
+                        <div class="col-6 col-lg-3"><label for="ui_incoming_remaining_qty" string="Залишилось у карантині"/><h2><field name="ui_incoming_remaining_qty" nolabel="1"/></h2></div>
+                    </div>
+                        <div class="d-flex flex-wrap gap-2 mb-2">
+                    <button name="action_ui_incoming_check" string="Перевірити" type="object" class="oe_highlight" invisible="not ui_incoming_can_check"/>
+                    <button name="action_ui_incoming_release" string="Прийняти на склад" type="object" class="oe_highlight" invisible="not ui_incoming_can_release"/>
+                    <button name="action_ui_incoming_return" string="Повернути постачальнику" type="object" invisible="not ui_incoming_can_return"/>
+                    <button name="action_ui_incoming_inspect" string="Суцільний контроль" type="object" invisible="not ui_incoming_can_inspect"/>
+</div>
+                        <button name="action_ui_incoming_report" type="object" class="btn-link" string="Зафіксувати невідповідність" invisible="not ui_incoming_can_report"/>
+                        <button name="action_ui_incoming_details" type="object" class="btn-link" string="Результати та історія"/>
+                    </div>
+                    <div invisible="ui_incoming_hold_id">
+                        <p class="text-muted">Оберіть партію або серійний номер для перевірки та складського рішення.</p>
+                        <field name="quality_incoming_hold_ids" readonly="1">
+                            <tree create="0" delete="0">
+                                <field name="product_id" string="Товар"/><field name="lot_id" string="Партія / серійний номер"/>
+                                <field name="ui_processing_state" string="Обробка"/><field name="sampling_state" string="Контроль"/>
+                                <field name="received_qty" string="Отримано"/><field name="released_qty" string="Прийнято"/><field name="returned_qty" string="Повернуто"/><field name="remaining_qty" string="У карантині"/>
+                                <button name="action_ui_details" type="object" string="Відкрити" icon="fa-external-link"/>
+                            </tree>
+                        </field>
+                    </div>
+                </div>
             </xpath>
         </field>
     </record>
@@ -149,11 +190,11 @@
         <field name="inherit_id" ref="quality_control.quality_alert_view_form"/>
         <field name="arch" type="xml">
             <xpath expr="/form/sheet | /form[not(sheet)]" position="inside">
-                <group string="Вхідний карантин" invisible="not incoming_hold_id">
-                    <field name="incoming_hold_id" string="Вхідна партія"/><field name="incoming_product_id"/><field name="incoming_supplier_id" string="Постачальник"/>
-                    <field name="incoming_receipt_id" string="Надходження"/><field name="incoming_lot_id" string="Партія / серійний номер"/>
-                    <button name="action_open_incoming_hold" type="object" string="Відкрити партію та швидке повернення"/>
-                    <field name="incoming_failure_description" string="Зафіксовані невідповідності"/>
+                <field name="incoming_hold_id" invisible="1"/>
+                <group string="Вхідний контроль" invisible="not incoming_hold_id">
+                    <group><field name="incoming_receipt_id" string="Надходження"/><field name="incoming_product_id" string="Товар"/>
+                        <field name="incoming_supplier_id" string="Постачальник"/><field name="incoming_lot_id" string="Партія / серійний номер"/></group>
+                    <group><field name="incoming_failure_description" string="Зафіксовані невідповідності"/></group>
                 </group>
             </xpath>
         </field>
