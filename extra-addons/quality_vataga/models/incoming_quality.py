@@ -86,19 +86,46 @@ class IncomingHoldQuality(models.Model):
             })
         return True
 
-    def _has_failure(self):
+    def _sampling_batch(self):
+        """Keep acceptance common to all source lines of a product in one IN.
+
+        Quantities remain independent (lot, serial, owner and package), but
+        splitting a receipt into lines must not split its acceptance gate.
+        Separate supplier receipts never share acceptance decisions.
+        """
+        self.ensure_one()
+        ids = self.sudo().search([('receipt_id', '=', self.receipt_id.id),
+                                  ('product_id', '=', self.product_id.id)]).ids
+        return self.browse(ids)
+
+    def _lock(self):
+        batch = self.browse()
+        for hold in self:
+            batch |= hold._sampling_batch()
+        return super(IncomingHoldQuality, batch)._lock()
+
+    def _source_has_failure(self):
         self.ensure_one()
         return super()._has_failure() or any(check.quality_state == 'fail' for check in self.sudo().check_ids)
 
-    def _sampling_passed(self):
+    def _has_failure(self):
+        self.ensure_one()
+        return any(source._source_has_failure() for source in self._sampling_batch().sudo())
+
+    def _source_sampling_passed(self):
         self.ensure_one()
         checks = self.sudo().check_ids
-        return bool(not self._has_failure() and checks and self.required_point_ids and len(checks) == len(self.required_point_ids)
+        return bool(not self._source_has_failure() and checks and self.required_point_ids and len(checks) == len(self.required_point_ids)
                     and set(checks.point_id.ids) == set(self.required_point_ids.ids)
                     and all(check.quality_state == 'pass' and check.incoming_sample_size > 0
                             and check.incoming_acceptance_policy == 'all_pass'
                             and len(check.sample_ids) == check.incoming_sample_size
                             and check.can_pass_measurement_check for check in checks))
+
+    def _sampling_passed(self):
+        self.ensure_one()
+        batch = self._sampling_batch().sudo()
+        return bool(batch and all(source._source_sampling_passed() for source in batch))
 
     def _record_manual_failure_alert(self):
         return self._record_failure_alert()

@@ -136,3 +136,36 @@ class TestIncomingQuality(IncomingStockFixture):
         self.assertFalse(hold._sampling_passed())
         with self.assertRaises(UserError):
             hold._execute('release', 'unchecked', 10, 'Second QC pending', 'one')
+
+    def test_split_receipt_lines_share_acceptance_gate_and_failure(self):
+        picking = self.env['stock.picking'].create({
+            'picking_type_id': self.warehouse.in_type_id.id, 'partner_id': self.vendor.id,
+            'location_id': self.supplier_location.id, 'location_dest_id': self.warehouse.lot_stock_id.id,
+        })
+        move = self.env['stock.move'].create({
+            'name': 'Split controlled source', 'picking_id': picking.id, 'product_id': self.product.id,
+            'product_uom': self.product.uom_id.id, 'product_uom_qty': 2,
+            'location_id': self.supplier_location.id, 'location_dest_id': self.warehouse.lot_stock_id.id,
+        })
+        picking.action_confirm()
+        move.move_line_ids.unlink()
+        self.env['stock.move.line'].create([{
+            'move_id': move.id, 'picking_id': picking.id, 'product_id': self.product.id,
+            'product_uom_id': self.product.uom_id.id, 'quantity': 1,
+            'location_id': self.supplier_location.id, 'location_dest_id': self.warehouse.lot_stock_id.id,
+        } for _index in range(2)])
+        move.picked = True
+        picking._action_done()
+        first, second = picking.quality_incoming_hold_ids.sorted('id')
+        first.check_ids.sample_ids.visual_result = 'yes'
+        first.check_ids.do_pass()
+        with self.assertRaises(UserError):
+            first._execute('release', 'unchecked', 1, 'Other source pending', 'pendingbatch')
+        second.check_ids.sample_ids.visual_result = 'no'
+        second.check_ids.do_fail()
+        self.assertTrue(first._has_failure())
+        with self.assertRaises(UserError):
+            first._execute('release', 'unchecked', 1, 'Other source failed', 'failedbatch')
+        first._inspect(1, 0, 'Confirmed full inspection of good source', 'goodinspection')
+        first._execute('release', 'good', 1, 'Only fully inspected good item', 'goodsource')
+        self.assertEqual(second.remaining_qty, 1)
