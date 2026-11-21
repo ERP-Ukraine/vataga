@@ -1,7 +1,7 @@
 from odoo import _, api, Command, fields, models
 from odoo.exceptions import AccessError, UserError
 
-from .incoming_hold import incoming_context, internal
+from .incoming_hold import (incoming_context, internal, INCOMING_DEFER_CONTEXT, INCOMING_DEFER_OPERATION)
 
 
 class IncomingProduct(models.Model):
@@ -185,6 +185,14 @@ class IncomingMove(models.Model):
             done |= super(IncomingMove, others)._action_done(cancel_backorder=cancel_backorder)
         return done
 
+    def _action_confirm(self, merge=True, merge_into=False):
+        scoped = self.with_context(**{INCOMING_DEFER_CONTEXT: INCOMING_DEFER_OPERATION})
+        return super(IncomingMove, scoped)._action_confirm(merge=merge, merge_into=merge_into)
+
+    def _action_assign(self, force_qty=False):
+        scoped = self.with_context(**{INCOMING_DEFER_CONTEXT: INCOMING_DEFER_OPERATION})
+        return super(IncomingMove, scoped)._action_assign(force_qty=force_qty)
+
     def _prepare_move_split_vals(self, qty):
         vals = super()._prepare_move_split_vals(qty)
         if self.quality_incoming_required and self.quality_incoming_destination_id:
@@ -199,6 +207,10 @@ class IncomingPicking(models.Model):
     _inherit = 'stock.picking'
 
     quality_incoming_hold_ids = fields.One2many('quality.incoming.hold', 'receipt_id', readonly=True)
+
+    def action_confirm(self):
+        scoped = self.with_context(**{INCOMING_DEFER_CONTEXT: INCOMING_DEFER_OPERATION})
+        return super(IncomingPicking, scoped).action_confirm()
 
     def write(self, vals):
         if not internal(self.env) and {'picking_type_id', 'company_id', 'location_id'} & vals.keys():

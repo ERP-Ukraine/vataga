@@ -5,7 +5,7 @@ from markupsafe import Markup
 from odoo import _, api, Command, fields, models
 from odoo.exceptions import AccessError, UserError, ValidationError
 
-from .incoming_hold import incoming_context, internal
+from .incoming_hold import (incoming_context, internal, INCOMING_DEFER_CONTEXT, INCOMING_DEFER_OPERATION)
 from .quality_check_sample import AUTOMATIC_SAMPLE_INITIALIZATION
 
 
@@ -155,6 +155,12 @@ class IncomingCheck(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        # Standard Enterprise creates point checks while confirming/assigning
+        # receipts. For this explicitly opted-in flow, the authoritative QC is
+        # created from the posted source line instead. No existing QC is
+        # deleted, passed, rebound or included in the permission to release.
+        if self.env.context.get(INCOMING_DEFER_CONTEXT) is INCOMING_DEFER_OPERATION:
+            vals_list = [vals for vals in vals_list if not self._defer_incoming_point_check(vals)]
         names = {'incoming_hold_id', 'incoming_sample_size', 'incoming_acceptance_policy'}
         for vals in vals_list:
             if any(vals.get(name) for name in names):
@@ -169,6 +175,20 @@ class IncomingCheck(models.Model):
                 raise ValidationError(_('Налаштуйте матрицю та розмір вибірки у QCP.'))
             check._create_measurement_samples(1, check.incoming_sample_size, AUTOMATIC_SAMPLE_INITIALIZATION)
         return checks
+
+    def _defer_incoming_point_check(self, vals):
+        if vals.get('incoming_hold_id') or vals.get('quality_state', 'none') != 'none':
+            return False
+        point = self.env['quality.point'].browse(vals.get('point_id'))
+        picking = self.env['stock.picking'].browse(vals.get('picking_id'))
+        if (not point or point.x_control_stage != 'incoming' or not picking
+                or picking.state in ('done', 'cancel')):
+            return False
+        moves = picking.move_ids.filtered(lambda move: move.state != 'cancel' and move.product_id.type == 'product')
+        if vals.get('product_id'):
+            moves = moves.filtered(lambda move: move.product_id.id == vals['product_id'])
+        # Operation-wide checks involving ordinary goods remain standard.
+        return bool(moves and all(move._incoming_scope() for move in moves))
 
     def write(self, vals):
         managed = self.filtered('incoming_hold_id')

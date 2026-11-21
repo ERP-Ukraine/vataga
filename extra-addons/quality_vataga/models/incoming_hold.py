@@ -11,6 +11,8 @@ from .stock_quarantine import QUARANTINE_CONTEXT, QUARANTINE_OPERATION
 
 INCOMING_CONTEXT = 'quality_vataga_incoming_operation'
 INCOMING_OPERATION = object()
+INCOMING_DEFER_CONTEXT = 'quality_vataga_incoming_defer'
+INCOMING_DEFER_OPERATION = object()
 
 
 def incoming_context(env):

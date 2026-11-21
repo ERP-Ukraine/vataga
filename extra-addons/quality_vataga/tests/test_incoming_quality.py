@@ -20,6 +20,23 @@ class TestIncomingQuality(IncomingStockFixture):
             'incoming_acceptance_policy': 'all_pass',
         })
 
+    def test_standard_pre_receipt_checks_are_deferred_without_changing_results(self):
+        picking = self.env['stock.picking'].create({
+            'picking_type_id': self.warehouse.in_type_id.id, 'partner_id': self.vendor.id,
+            'location_id': self.supplier_location.id, 'location_dest_id': self.warehouse.lot_stock_id.id,
+            'move_ids': [Command.create({'name': 'A Deferred receipt', 'product_id': self.product.id,
+                'product_uom': self.product.uom_id.id, 'product_uom_qty': 10,
+                'location_id': self.supplier_location.id, 'location_dest_id': self.warehouse.lot_stock_id.id})],
+        })
+        picking.action_confirm()
+        self.assertFalse(self.env['quality.check'].search([
+            ('picking_id', '=', picking.id), ('point_id', '=', self.point.id)]))
+        picking.move_ids.quantity = 10
+        picking.move_ids.picked = True
+        picking._action_done()
+        self.assertEqual(len(picking.quality_incoming_hold_ids.check_ids), 1)
+        self.assertEqual(len(picking.quality_incoming_hold_ids.check_ids.sample_ids), 2)
+
     def test_qcp_plan_is_snapshotted_and_all_pass_allows_batch(self):
         _picking, hold = self._receipt()
         check = hold.check_ids
