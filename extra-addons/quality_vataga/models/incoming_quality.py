@@ -218,6 +218,11 @@ class IncomingCheck(models.Model):
                 or picking.state in ('done', 'cancel')):
             return False
         moves = picking.move_ids.filtered(lambda move: move.state != 'cancel' and move.product_id.type == 'product')
+        if not moves and picking.backorder_id:
+            # During standard backorder copying the remaining moves still
+            # belong to the source IN until _create_backorder rebinds them.
+            moves = picking.backorder_id._get_moves_to_backorder().filtered(
+                lambda move: move.product_id.type == 'product')
         if vals.get('product_id'):
             moves = moves.filtered(lambda move: move.product_id.id == vals['product_id'])
         # Operation-wide checks involving ordinary goods remain standard.

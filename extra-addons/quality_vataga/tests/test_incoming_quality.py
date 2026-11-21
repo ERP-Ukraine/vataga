@@ -49,6 +49,19 @@ class TestIncomingQuality(IncomingStockFixture):
         hold._execute('release', 'unchecked', 10, 'Two required samples passed', 'samplepass')
         self.assertEqual(hold.remaining_qty, 0)
 
+    def test_backorder_has_no_pre_receipt_check_and_receives_its_own_plan(self):
+        picking, hold = self._receipt(quantity=10, received=4)
+        backorder = self.env['stock.picking'].search([('backorder_id', '=', picking.id)])
+        self.assertTrue(backorder)
+        self.assertFalse(self.env['quality.check'].search([('picking_id', '=', backorder.id)]))
+        self.assertEqual(hold.received_qty, 4)
+        backorder.move_ids.quantity = 6
+        backorder.move_ids.picked = True
+        backorder._action_done()
+        self.assertEqual(backorder.quality_incoming_hold_ids.received_qty, 6)
+        self.assertEqual(len(backorder.quality_incoming_hold_ids.check_ids), 1)
+        self.assertEqual(len(backorder.quality_incoming_hold_ids.check_ids.sample_ids), 2)
+
     def test_fail_creates_one_alert_and_quick_return_without_full_control(self):
         picking, hold = self._receipt()
         check = hold.check_ids

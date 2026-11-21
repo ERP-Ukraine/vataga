@@ -212,6 +212,12 @@ class IncomingPicking(models.Model):
         scoped = self.with_context(**{INCOMING_DEFER_CONTEXT: INCOMING_DEFER_OPERATION})
         return super(IncomingPicking, scoped).action_confirm()
 
+    def _create_backorder(self):
+        # Enterprise can create checks while copying a picking or rebinding
+        # its remaining moves, outside move confirmation/assignment wrappers.
+        scoped = self.with_context(**{INCOMING_DEFER_CONTEXT: INCOMING_DEFER_OPERATION})
+        return super(IncomingPicking, scoped)._create_backorder()
+
     def write(self, vals):
         if not internal(self.env) and {'picking_type_id', 'company_id', 'location_id'} & vals.keys():
             if self.move_ids.filtered('quality_incoming_required'):
