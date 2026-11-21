@@ -198,8 +198,8 @@
             <xpath expr="/form/sheet | /form[not(sheet)]" position="inside">
                 <field name="incoming_hold_id" invisible="1"/>
                 <group string="Вхідний контроль" invisible="not incoming_hold_id">
-                    <group><field name="incoming_receipt_id" string="Надходження"/><field name="incoming_product_id" string="Товар"/>
-                        <field name="incoming_supplier_id" string="Постачальник"/><field name="incoming_lot_id" string="Партія / серійний номер"/></group>
+                    <group><field name="incoming_receipt_id" string="Надходження" invisible="picking_id"/><field name="incoming_product_id" string="Товар" invisible="product_tmpl_id"/>
+                        <field name="incoming_supplier_id" string="Постачальник"/><field name="incoming_lot_id" string="Партія / серійний номер" invisible="lot_id"/></group>
                     <group><field name="incoming_failure_description" string="Зафіксовані невідповідності"/></group>
                 </group>
             </xpath>
