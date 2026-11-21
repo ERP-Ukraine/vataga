@@ -40,7 +40,8 @@ class IncomingHoldUI(models.Model):
             failed = hold._has_failure()
             passed = hold._sampling_passed()
             hold.ui_can_check = bool(quality_user and remaining and not hold.inspection_ids
-                                     and not hold.operation_ids and not failed and not passed)
+                                     and not hold.operation_ids and not failed and not passed
+                                     and (not hold.check_ids or any(check.quality_state == 'none' for check in hold.check_ids)))
             hold.ui_can_release = bool(quality_user and stock_user and remaining and (
                 positive(hold.good_qty) or (not hold.inspection_ids and passed and positive(hold.unchecked_qty))))
             hold.ui_can_return = bool(stock_user and remaining and failed)
@@ -82,8 +83,14 @@ class IncomingHoldUI(models.Model):
         action = self.action_open_decision()
         action['name'] = {'release': _('Прийняти на склад'), 'return': _('Повернути постачальнику'),
                           'inspect': _('Суцільний контроль'), 'report': _('Зафіксувати невідповідність')}[kind]
-        action['context'] = dict(action.get('context', {}), default_kind=kind,
-                                 default_bucket=bucket, default_quantity=quantity)
+        # Pre-fill the transient itself, never default_quantity in the action
+        # context: the existing executor propagates its context to Stock, where
+        # that default also applies to automatically created move lines.
+        wizard = self.env['quality.incoming.decision'].create({
+            'hold_id': self.id, 'kind': kind, 'bucket': bucket, 'quantity': quantity,
+            'reason': '',
+        })
+        action['res_id'] = wizard.id
         return action
 
     def action_ui_release(self):
@@ -166,3 +173,11 @@ class IncomingPickingUI(models.Model):
 
     def action_ui_incoming_details(self):
         return self._ui_incoming_hold().action_ui_details()
+
+
+class IncomingDecisionUI(models.TransientModel):
+    _inherit = 'quality.incoming.decision'
+
+    ui_receipt_id = fields.Many2one(related='hold_id.receipt_id', compute_sudo=False)
+    ui_product_id = fields.Many2one(related='hold_id.product_id', compute_sudo=False)
+    ui_lot_id = fields.Many2one(related='hold_id.lot_id', compute_sudo=False)

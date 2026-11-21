@@ -66,7 +66,7 @@
                         </field>
                         <field name="required_point_ids" string="Обов’язкові контрольні точки" widget="many2many_tags" readonly="1"/>
                         <separator string="Сповіщення про якість (Alert)"/>
-                        <field name="alert_ids" readonly="1"><tree create="0" delete="0"><field name="display_name"/><field name="incoming_failure_description"/></tree></field>
+                        <field name="alert_ids" readonly="1"><tree create="0" delete="0"><field name="display_name" string="Сповіщення"/><field name="incoming_failure_description" string="Невідповідності"/></tree></field>
                         <separator string="Результати суцільного контролю"/>
                         <field name="inspection_ids" readonly="1">
                             <tree create="0" delete="0"><field name="inspected_at" string="Дата"/><field name="inspector_id" string="Контролер"/>
@@ -88,7 +88,10 @@
         <field name="arch" type="xml">
             <form string="Підтвердження вхідного контролю">
                 <group>
-                    <field name="hold_id" string="Вхідна партія"/>
+                    <field name="hold_id" invisible="1"/>
+                    <field name="ui_receipt_id" string="Надходження"/>
+                    <field name="ui_product_id" string="Товар"/>
+                    <field name="ui_lot_id" string="Партія / серійний номер"/>
                     <field name="kind" invisible="1"/>
                     <field name="bucket" string="Повернути з категорії" invisible="kind != 'return'"/>
                     <field name="quantity" string="Кількість" invisible="kind in ('inspect', 'report')"/>
