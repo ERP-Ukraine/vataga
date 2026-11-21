@@ -197,6 +197,9 @@
         <field name="arch" type="xml">
             <xpath expr="/form/sheet | /form[not(sheet)]" position="inside">
                 <field name="incoming_hold_id" invisible="1"/>
+                <field name="picking_id" invisible="1"/>
+                <field name="product_tmpl_id" invisible="1"/>
+                <field name="lot_id" invisible="1"/>
                 <group string="Вхідний контроль" invisible="not incoming_hold_id">
                     <group><field name="incoming_receipt_id" string="Надходження" invisible="picking_id"/><field name="incoming_product_id" string="Товар" invisible="product_tmpl_id"/>
                         <field name="incoming_supplier_id" string="Постачальник"/><field name="incoming_lot_id" string="Партія / серійний номер" invisible="lot_id"/></group>
