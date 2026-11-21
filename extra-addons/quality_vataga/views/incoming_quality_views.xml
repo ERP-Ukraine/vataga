@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="incoming_product_form" model="ir.ui.view">
+        <field name="name">product.template.incoming.quality</field><field name="model">product.template</field>
+        <field name="inherit_id" ref="product.product_template_form_view"/>
+        <field name="arch" type="xml"><xpath expr="//sheet" position="inside">
+            <group string="Вхідний контроль CAB" groups="stock.group_stock_manager,quality.group_quality_manager">
+                <field name="quality_incoming_controlled"/>
+            </group>
+        </xpath></field>
+    </record>
+    <record id="incoming_hold_tree" model="ir.ui.view">
+        <field name="name">quality.incoming.hold.tree</field>
+        <field name="model">quality.incoming.hold</field>
+        <field name="arch" type="xml">
+            <tree create="0" delete="0">
+                <field name="receipt_id"/><field name="supplier_id"/><field name="product_id"/>
+                <field name="lot_id"/><field name="sampling_state"/><field name="received_qty"/>
+                <field name="released_qty"/><field name="returned_qty"/><field name="remaining_qty"/>
+                <field name="company_id" groups="base.group_multi_company"/>
+            </tree>
+        </field>
+    </record>
+    <record id="incoming_hold_form" model="ir.ui.view">
+        <field name="name">quality.incoming.hold.form</field>
+        <field name="model">quality.incoming.hold</field>
+        <field name="arch" type="xml">
+            <form create="0" delete="0">
+                <header>
+                    <button name="action_start_checks" string="Створити контроль за налаштованим QCP" type="object"
+                            groups="quality.group_quality_user" invisible="sampling_state != 'unconfigured' or remaining_qty == 0"/>
+                    <button name="action_open_decision" string="Приймання / повернення / суцільний контроль"
+                            type="object" class="oe_highlight" invisible="remaining_qty == 0"/>
+                    <field name="sampling_state" widget="statusbar"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group><field name="receipt_id"/><field name="receipt_line_id"/><field name="supplier_id"/>
+                            <field name="product_id"/><field name="lot_id"/><field name="uom_id"/></group>
+                        <group><field name="location_id"/><field name="destination_id"/><field name="package_id"/>
+                            <field name="owner_id"/><field name="company_id" groups="base.group_multi_company"/></group>
+                    </group>
+                    <group string="Баланс партії">
+                        <field name="received_qty"/><field name="checked_qty"/><field name="good_qty"/>
+                        <field name="bad_qty"/><field name="unchecked_qty"/><field name="released_qty"/>
+                        <field name="returned_qty"/><field name="remaining_qty"/>
+                    </group>
+                    <group invisible="not failure_reported_at">
+                        <field name="failure_reason"/><field name="failure_reported_by_id"/><field name="failure_reported_at"/>
+                    </group>
+                    <notebook>
+                        <page string="Вибірковий контроль">
+                            <field name="check_ids" readonly="1">
+                                <tree create="0" delete="0"><field name="name"/><field name="point_id"/>
+                                    <field name="incoming_sample_size"/><field name="quality_state"/></tree>
+                            </field>
+                            <field name="required_point_ids" widget="many2many_tags" readonly="1"/>
+                        </page>
+                        <page string="Сповіщення про якість"><field name="alert_ids" readonly="1"/></page>
+                        <page string="Суцільний контроль">
+                            <field name="inspection_ids" readonly="1">
+                                <tree create="0" delete="0"><field name="inspected_at"/><field name="inspector_id"/>
+                                    <field name="good_qty"/><field name="bad_qty"/><field name="reason"/></tree>
+                            </field>
+                        </page>
+                        <page string="Виконані складські рішення">
+                            <field name="operation_ids" readonly="1">
+                                <tree create="0" delete="0"><field name="executed_at"/><field name="kind"/>
+                                    <field name="bucket"/><field name="quantity"/><field name="executor_id"/>
+                                    <field name="picking_id"/><field name="reason"/></tree>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+                <div class="oe_chatter"><field name="message_follower_ids"/><field name="activity_ids"/>
+                    <field name="message_ids"/></div>
+            </form>
+        </field>
+    </record>
+    <record id="incoming_decision_form" model="ir.ui.view">
+        <field name="name">quality.incoming.decision.form</field>
+        <field name="model">quality.incoming.decision</field>
+        <field name="arch" type="xml">
+            <form string="Підтвердити рішення вхідного контролю">
+                <group>
+                    <field name="hold_id"/><field name="kind"/>
+                    <field name="bucket" invisible="kind in ('inspect', 'report')"/>
+                    <field name="quantity" invisible="kind in ('inspect', 'report')"/>
+                    <field name="good_qty" invisible="kind != 'inspect'"/>
+                    <field name="bad_qty" invisible="kind != 'inspect'"/>
+                    <field name="reason"/>
+                </group>
+                <footer><button name="action_confirm" type="object" string="Підтвердити виконання" class="btn-primary"/>
+                    <button string="Скасувати" special="cancel" class="btn-secondary"/></footer>
+            </form>
+        </field>
+    </record>
+    <record id="incoming_hold_action" model="ir.actions.act_window">
+        <field name="name">Вхідний карантин</field><field name="res_model">quality.incoming.hold</field>
+        <field name="view_mode">tree,form</field>
+    </record>
+    <menuitem id="incoming_hold_menu" name="Вхідний карантин" parent="stock.menu_stock_root"
+              action="incoming_hold_action" groups="stock.group_stock_user,quality.group_quality_user" sequence="35"/>
+    <record id="incoming_warehouse_form" model="ir.ui.view">
+        <field name="name">stock.warehouse.incoming.quality</field><field name="model">stock.warehouse</field>
+        <field name="inherit_id" ref="stock.view_warehouse"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet" position="inside">
+                <group string="Вхідний контроль CAB">
+                    <field name="quality_incoming_enabled" readonly="1"/><field name="quality_incoming_location_id"/>
+                    <button name="action_enable_incoming_quality" type="object" string="Увімкнути для нових надходжень CAB"
+                            groups="stock.group_stock_manager" invisible="code != 'CAB' or quality_incoming_enabled"/>
+                </group>
+            </xpath>
+        </field>
+    </record>
+    <record id="incoming_picking_form" model="ir.ui.view">
+        <field name="name">stock.picking.incoming.quality</field><field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.view_picking_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//div[@name='button_box']" position="inside">
+                <field name="quality_incoming_hold_ids" invisible="1"/>
+                <button name="action_open_incoming_holds" type="object" class="oe_stat_button" icon="fa-lock"
+                        invisible="not quality_incoming_hold_ids" string="Вхідний карантин"/>
+            </xpath>
+        </field>
+    </record>
+    <record id="incoming_point_form" model="ir.ui.view">
+        <field name="name">quality.point.incoming.sampling</field><field name="model">quality.point</field>
+        <field name="inherit_id" ref="quality_vataga.quality_point_view_form_control_settings"/>
+        <field name="arch" type="xml">
+            <xpath expr="//page[@name='control_settings']/group" position="inside">
+                <field name="incoming_sample_size" invisible="x_control_stage != 'incoming'"/>
+                <field name="incoming_acceptance_policy" invisible="x_control_stage != 'incoming'"/>
+            </xpath>
+        </field>
+    </record>
+    <record id="incoming_check_form" model="ir.ui.view">
+        <field name="name">quality.check.incoming.source</field><field name="model">quality.check</field>
+        <field name="inherit_id" ref="quality_control.quality_check_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet" position="inside"><group string="Вхідна партія" invisible="not incoming_hold_id">
+                <field name="incoming_hold_id"/><field name="incoming_sample_size"/><field name="incoming_acceptance_policy"/>
+            </group></xpath>
+        </field>
+    </record>
+    <record id="incoming_alert_form" model="ir.ui.view">
+        <field name="name">quality.alert.incoming.source</field><field name="model">quality.alert</field>
+        <field name="inherit_id" ref="quality_control.quality_alert_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="/form/sheet | /form[not(sheet)]" position="inside">
+                <group string="Вхідний карантин" invisible="not incoming_hold_id">
+                    <field name="incoming_hold_id"/><field name="incoming_supplier_id"/>
+                    <field name="incoming_receipt_id"/><field name="incoming_lot_id"/>
+                    <button name="action_open_incoming_hold" type="object" string="Відкрити партію та швидке повернення"/>
+                    <field name="incoming_failure_description"/>
+                </group>
+            </xpath>
+        </field>
+    </record>
+</odoo>

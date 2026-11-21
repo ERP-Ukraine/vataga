@@ -6,3 +6,11 @@ access_quality_check_measurement_column,quality.check.measurement.column,model_q
 access_quality_check_sample,quality.check.sample,model_quality_check_sample,base.group_user,1,0,0,0
 access_quality_check_measurement_value,quality.check.measurement.value,model_quality_check_measurement_value,base.group_user,1,0,0,0
 access_quality_alert_full_control_line,quality.alert.full.control.line,model_quality_alert_full_control_line,quality.group_quality_user,1,1,1,1
+access_incoming_hold_quality,incoming.hold.quality,model_quality_incoming_hold,quality.group_quality_user,1,1,0,0
+access_incoming_hold_stock,incoming.hold.stock,model_quality_incoming_hold,stock.group_stock_user,1,1,0,0
+access_incoming_inspection_quality,incoming.inspection.quality,model_quality_incoming_inspection,quality.group_quality_user,1,0,0,0
+access_incoming_inspection_stock,incoming.inspection.stock,model_quality_incoming_inspection,stock.group_stock_user,1,0,0,0
+access_incoming_operation_quality,incoming.operation.quality,model_quality_incoming_operation,quality.group_quality_user,1,0,0,0
+access_incoming_operation_stock,incoming.operation.stock,model_quality_incoming_operation,stock.group_stock_user,1,0,0,0
+access_incoming_decision_quality,incoming.decision.quality,model_quality_incoming_decision,quality.group_quality_user,1,1,1,1
+access_incoming_decision_stock,incoming.decision.stock,model_quality_incoming_decision,stock.group_stock_user,1,1,1,1

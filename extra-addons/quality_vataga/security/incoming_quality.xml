@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="incoming_hold_company_rule" model="ir.rule">
+        <field name="name">Вхідний карантин за компаніями</field>
+        <field name="model_id" ref="model_quality_incoming_hold"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="incoming_inspection_company_rule" model="ir.rule">
+        <field name="name">Суцільний контроль за компаніями</field>
+        <field name="model_id" ref="model_quality_incoming_inspection"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="incoming_operation_company_rule" model="ir.rule">
+        <field name="name">Рішення вхідного контролю за компаніями</field>
+        <field name="model_id" ref="model_quality_incoming_operation"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+</odoo>

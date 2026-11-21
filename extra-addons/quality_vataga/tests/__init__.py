@@ -4,3 +4,5 @@ from . import test_quality_check_product_quantity
 from . import test_quality_check_arrival_details
 from . import test_quality_check_production
 from . import test_quality_technical_board
+from . import test_incoming_stock
+from . import test_incoming_quality
