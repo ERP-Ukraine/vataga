@@ -33,6 +33,10 @@ def plan_production_release(sources, checks, required_points, tracking):
         source_ids.add(source['id'])
         by_lot[source.get('lot_id') or 0].append(source)
         result['produced'] += int(source['quantity'])
+    # The existing matrix records its immutable lot when samples are initialized.
+    # Before then an unfinished QC may legitimately have no lot yet.
+    if any(check.get('state') not in ('pass', 'fail') for check in checks):
+        return stop('pending_checks')
     by_check = defaultdict(dict)
     for check in checks:
         lot = check.get('lot_id') or 0

@@ -31,7 +31,7 @@
                     </group>
                     <separator string="Первинні перевірки та повна історія зразків"/>
                     <field name="check_ids" readonly="1">
-                        <tree create="0" delete="0"><field name="name"/><field name="point_id"/><field name="workorder_id"/><field name="lot_id"/>
+                        <tree create="0" delete="0"><field name="name"/><field name="point_id"/><field name="workorder_id"/><field name="automatic_sample_lot_id" string="Партія/серійний номер"/>
                             <field name="automatic_sample_count" string="Виробів"/><field name="quality_state"/></tree>
                     </field>
                     <separator string="Проведений виробничий випуск"/>

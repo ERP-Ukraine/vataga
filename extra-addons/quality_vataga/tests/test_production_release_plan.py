@@ -48,6 +48,13 @@ class TestProductionReleasePlan(unittest.TestCase):
     def test_pending_check_blocks_complete_matrix(self):
         self.assertFalse(self.plan(['pass'] * 5, state='none')['ready'])
 
+    def test_uninitialized_pending_check_has_waiting_reason(self):
+        check = self.check([], state='none', lot=False)
+        result = plan_production_release([self.source()], [check], [1], 'lot')
+        self.assertFalse(result['ready'])
+        self.assertEqual(result['reasons'], ['pending_checks'])
+        self.assertFalse(result['allocations'])
+
     def test_multiple_operations_do_not_match_ordinals(self):
         checks = [self.check(['pass'] * 3 + ['fail'] * 2),
                   self.check(['fail'] * 2 + ['pass'] * 3, point=2)]

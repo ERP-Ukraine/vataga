@@ -40,7 +40,7 @@ class TestProductionReleaseStock(IncomingStockFixture):
         _picking, hold = self._receipt(quantity=5)
         release = self._pending(hold)
         for allocation in ({hold.receipt_line_id.id: 6}, {-1: 3}):
-            with self.env.cr.savepoint(), self.assertRaises(UserError):
+            with self.assertRaises(UserError), self.env.cr.savepoint():
                 complete_partial_production_release(release, allocation)
             self.assertEqual(release.state, 'draft')
             self.assertFalse(release.picking_id)
