@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="production_disposition_company_rule" model="ir.rule">
+        <field name="name">Розподіл ВТК за компаніями</field>
+        <field name="model_id" ref="model_quality_production_disposition"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+</odoo>

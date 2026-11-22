@@ -14,3 +14,5 @@ access_incoming_operation_quality,incoming.operation.quality,model_quality_incom
 access_incoming_operation_stock,incoming.operation.stock,model_quality_incoming_operation,stock.group_stock_user,1,0,0,0
 access_incoming_decision_quality,incoming.decision.quality,model_quality_incoming_decision,quality.group_quality_user,1,1,1,1
 access_incoming_decision_stock,incoming.decision.stock,model_quality_incoming_decision,stock.group_stock_user,1,1,1,1
+access_production_disposition_quality,production.disposition.quality,model_quality_production_disposition,quality.group_quality_user,1,0,0,0
+access_production_disposition_stock,production.disposition.stock,model_quality_production_disposition,stock.group_stock_user,1,0,0,0

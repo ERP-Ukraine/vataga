@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="production_control_product_form" model="ir.ui.view">
+        <field name="name">product.template.production.partial.control</field>
+        <field name="model">product.template</field>
+        <field name="inherit_id" ref="product.product_template_form_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet" position="inside">
+                <group string="Міжопераційний контроль CAB" groups="quality.group_quality_manager,stock.group_stock_manager">
+                    <field name="quality_partial_production_control"/>
+                </group>
+            </xpath>
+        </field>
+    </record>
+    <record id="production_disposition_form" model="ir.ui.view">
+        <field name="name">quality.production.disposition.form</field>
+        <field name="model">quality.production.disposition</field>
+        <field name="arch" type="xml">
+            <form create="0" edit="0" delete="0">
+                <sheet>
+                    <div class="oe_title"><h1><field name="production_id" readonly="1"/></h1></div>
+                    <group><field name="product_id" string="Товар"/><field name="company_id" groups="base.group_multi_company"/></group>
+                    <group string="Фактичний випуск">
+                        <group><field name="produced_qty"/><field name="released_qty"/></group>
+                        <group><field name="remaining_qty"/><field name="disposed_qty" invisible="disposed_qty == 0"/></group>
+                    </group>
+                    <group string="Початкові поштучні результати QC">
+                        <field name="good_qty"/><field name="bad_qty"/><field name="unidentified_qty"/>
+                        <field name="reason" invisible="not reason"/>
+                        <field name="decided_by_id" string="Зафіксував"/><field name="decided_at" string="Дата"/>
+                    </group>
+                    <separator string="Первинні перевірки та повна історія зразків"/>
+                    <field name="check_ids" readonly="1">
+                        <tree create="0" delete="0"><field name="name"/><field name="point_id"/><field name="workorder_id"/><field name="lot_id"/>
+                            <field name="automatic_sample_count" string="Виробів"/><field name="quality_state"/></tree>
+                    </field>
+                    <separator string="Проведений виробничий випуск"/>
+                    <field name="source_move_ids" readonly="1">
+                        <tree create="0" delete="0"><field name="reference"/><field name="product_id"/><field name="quantity"/>
+                            <field name="product_uom"/><field name="location_dest_id"/><field name="state"/></tree>
+                    </field>
+                    <separator string="Переміщення дозволеної кількості"/>
+                    <field name="release_move_ids" readonly="1">
+                        <tree create="0" delete="0"><field name="picking_id" widget="many2one"/><field name="product_id"/><field name="quantity"/>
+                            <field name="product_uom"/><field name="location_id"/><field name="location_dest_id"/><field name="state"/></tree>
+                    </field>
+                    <details groups="base.group_system"><summary>Зафіксовані джерела та ідентичності</summary><field name="snapshot_text" readonly="1" nolabel="1"/></details>
+                </sheet>
+            </form>
+        </field>
+    </record>
+    <record id="production_disposition_tree" model="ir.ui.view">
+        <field name="name">quality.production.disposition.tree</field>
+        <field name="model">quality.production.disposition</field>
+        <field name="arch" type="xml">
+            <tree create="0" delete="0">
+                <field name="production_id"/><field name="product_id"/><field name="produced_qty"/>
+                <field name="released_qty"/><field name="remaining_qty"/><field name="reason"/><field name="decided_at"/>
+            </tree>
+        </field>
+    </record>
+    <record id="mrp_production_partial_release_form" model="ir.ui.view">
+        <field name="name">mrp.production.partial.release.form</field>
+        <field name="model">mrp.production</field>
+        <field name="inherit_id" ref="quality_vataga.mrp_production_form_quality_quarantine"/>
+        <field name="arch" type="xml">
+            <xpath expr="//div[@name='button_box']" position="inside">
+                <field name="quality_disposition_ids" invisible="1"/>
+                <button name="action_open_quality_disposition" type="object" class="oe_stat_button" icon="fa-balance-scale"
+                        string="Розподіл ВТК" invisible="not quality_disposition_ids"/>
+            </xpath>
+            <xpath expr="//group[@name='group_extra_info']" position="inside">
+                <field name="quality_partial_release_enabled" string="Поштучний розподіл ВТК" invisible="not quality_partial_release_enabled"/>
+                <field name="quality_partial_release_note" invisible="not quality_partial_release_enabled or not quality_partial_release_note"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>

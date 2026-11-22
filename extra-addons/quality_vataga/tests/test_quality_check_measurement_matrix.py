@@ -924,6 +924,77 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
             check.update_measurement_visual_result(sample['id'], 'yes')
         check.do_pass()
 
+    def _stage_b_order(self):
+        from ..models.production_release import PRODUCTION_DISPOSITION_CONTEXT, PRODUCTION_DISPOSITION_OPERATION
+        production, check, quarantine, stock = self._create_quarantine_order()
+        # This fixture uses its own Q13 warehouse. Public configuration remains
+        # CAB-only; the private token isolates the new engine in this test.
+        production.with_context(**{PRODUCTION_DISPOSITION_CONTEXT: PRODUCTION_DISPOSITION_OPERATION}).write({
+            'quality_partial_release_enabled': True})
+        production.button_mark_done()
+        check.get_measurement_matrix_data()
+        return production, check, quarantine, stock
+
+    def test_stage_b_partial_fail_releases_three_once_and_preserves_five_sources(self):
+        production, check, quarantine, stock = self._stage_b_order()
+        samples = check.sample_ids.sorted('sample_number')
+        for index, sample in enumerate(samples):
+            check.update_measurement_visual_result(sample.id, 'yes' if index < 3 else 'no')
+        check.do_fail()
+        decision = production.quality_disposition_ids
+        self.assertEqual((decision.produced_qty, decision.good_qty, decision.bad_qty,
+                          decision.released_qty, decision.remaining_qty), (5, 3, 2, 3, 2))
+        self.assertEqual(production.move_finished_ids.quantity, 5)
+        self.assertEqual(production.move_finished_ids.quality_release_move_ids.quantity, 3)
+        self.assertEqual(check.quality_state, 'fail')
+        self.assertEqual(check.sample_ids, samples)
+        quant = self.env['stock.quant']
+        self.assertEqual(quant._get_available_quantity(production.product_id, quarantine,
+                                                       lot_id=production.lot_producing_id), 2)
+        self.assertEqual(quant._get_available_quantity(production.product_id, stock,
+                                                       lot_id=production.lot_producing_id), 3)
+        before = decision.release_move_ids
+        production.sudo()._quality_release_if_passed()
+        check.do_fail()
+        self.assertEqual(production.quality_disposition_ids, decision)
+        self.assertEqual(decision.release_move_ids, before)
+        self.assertEqual(decision.released_qty, 3)
+
+    def test_stage_b_pending_samples_cannot_release_known_passes(self):
+        production, check, quarantine, stock = self._stage_b_order()
+        for sample in check.sample_ids[:3]:
+            check.update_measurement_visual_result(sample.id, 'yes')
+        production.sudo()._quality_release_if_passed()
+        self.assertFalse(production.quality_disposition_ids)
+        self.assertTrue(production.quality_partial_release_note)
+        self.assertEqual(production.move_finished_ids.quality_release_move_ids.state, 'draft')
+        self.assertEqual(self.env['stock.quant']._get_available_quantity(
+            production.product_id, stock, lot_id=production.lot_producing_id), 0)
+
+    def test_stage_b_full_pass_keeps_original_full_release_path(self):
+        production, check, quarantine, stock = self._stage_b_order()
+        self._pass_quarantine_check(check)
+        decision = production.quality_disposition_ids
+        self.assertEqual((decision.produced_qty, decision.good_qty, decision.released_qty,
+                          decision.remaining_qty), (5, 5, 5, 0))
+        self.assertEqual(production.move_finished_ids.quantity, 5)
+        self.assertEqual(production.move_finished_ids.quality_release_move_ids.state, 'done')
+
+    def test_stage_b_full_fail_keeps_whole_batch_and_blocks_forged_state(self):
+        production, check, quarantine, stock = self._stage_b_order()
+        for sample in check.sample_ids:
+            check.update_measurement_visual_result(sample.id, 'no')
+        check.do_fail()
+        decision = production.quality_disposition_ids
+        self.assertEqual((decision.bad_qty, decision.released_qty, decision.remaining_qty), (5, 0, 5))
+        self.assertEqual(production.move_finished_ids.quality_release_move_ids.state, 'draft')
+        with self.assertRaises(AccessError):
+            production.write({'quality_partial_release_enabled': False})
+        with self.assertRaises(AccessError):
+            decision.write({'good_qty': 5})
+        with self.assertRaises(AccessError):
+            decision.copy()
+
     def test_quarantine_pending_and_pass_preserves_batch_and_releases_once(self):
         production, check, quarantine, stock = self._create_quarantine_order()
         product = production.product_id

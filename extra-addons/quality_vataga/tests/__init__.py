@@ -6,3 +6,5 @@ from . import test_quality_check_production
 from . import test_quality_technical_board
 from . import test_incoming_stock
 from . import test_incoming_quality
+from . import test_production_release_plan
+from . import test_production_release_stock
