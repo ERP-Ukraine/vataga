@@ -1,0 +1,15 @@
+Date: 2026-11-22
+Tool: Pyflakes 3.4.0
+Final result: PASS; exit code 0; no diagnostics on stdout/stderr.
+
+Checked files:
+extra-addons/quality_vataga/models/production_quality_case.py
+extra-addons/quality_vataga/models/production_case_stock_guards.py
+extra-addons/quality_vataga/models/production_residual_plan.py
+extra-addons/quality_vataga/models/production_residual_stock.py
+extra-addons/quality_vataga/tests/test_production_residual_plan.py
+extra-addons/quality_vataga/tests/test_production_residual_stock.py
+extra-addons/quality_vataga/tests/test_quality_check_measurement_matrix.py
+
+Invocation through pyflakes.api.checkRecursive(..., Reporter(stdout, stderr)).
+Limitation: static Python check only; no Enterprise model/registry execution.

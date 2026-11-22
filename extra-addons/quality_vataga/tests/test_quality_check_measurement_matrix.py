@@ -924,6 +924,206 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
             check.update_measurement_visual_result(sample['id'], 'yes')
         check.do_pass()
 
+    def _stage_c_order(self, *, second_check=False):
+        from ..models.production_release import PRODUCTION_DISPOSITION_CONTEXT, PRODUCTION_DISPOSITION_OPERATION
+        from ..models.production_residual_stock import case_context
+        production, check, quarantine, stock = self._create_quarantine_order()
+        checks = check
+        if second_check:
+            point = check.point_id.copy({'title': 'Друга обов’язкова QC випадку C'})
+            checks |= self._create_check_for_point(point, production_id=production.id,
+                                                   workorder_id=check.workorder_id.id,
+                                                   product_id=production.product_id.id,
+                                                   company_id=production.company_id.id)
+        production.with_context(**{PRODUCTION_DISPOSITION_CONTEXT: PRODUCTION_DISPOSITION_OPERATION}).write({
+            'quality_partial_release_enabled': True})
+        # Disposable Q13 fixture only. Public activation stays new-MO/CAB-only.
+        production.with_context(case_context(self.env)).write({'quality_production_case_enabled': True})
+        production.button_mark_done()
+        for item in checks:
+            item.get_measurement_matrix_data()
+        return production, checks, quarantine, stock
+
+    def _stage_c_results(self, check, good):
+        for index, sample in enumerate(check.sample_ids):
+            check.update_measurement_visual_result(sample.id, 'yes' if index < good else 'no')
+        check.do_fail() if good < 5 else check.do_pass()
+
+    def _stage_c_approve(self, alert, decision='scrap'):
+        for group in ('quality_vataga.group_quality_board_approval', 'stock.group_stock_user', 'mrp.group_mrp_user'):
+            if not self.env.user.has_group(group):
+                self.env.user.groups_id = [Command.link(self.env.ref(group).id)]
+        alert.write({'decision_type': decision, 'approval_user_id': self.env.uid,
+                     'decision_reason': 'Ізольований ORM-тест C: підтверджений залишок'})
+        alert.action_send_for_board_approval()
+        alert.action_approve_technical_board()
+
+    def test_stage_c_partial_scrap_preserves_released_three_qc_and_source(self):
+        production, check, quarantine, stock = self._stage_c_order()
+        self._stage_c_results(check, 3)
+        alert = production.quality_production_case_ids
+        decision = production.quality_disposition_ids
+        self.assertEqual(len(alert), 1)
+        self.assertEqual((decision.released_qty, decision.remaining_qty), (3, 2))
+        original = (check.control_date, check.quality_state, decision.snapshot,
+                    production.move_finished_ids.filtered(lambda move: not move.scrapped).quantity)
+        self._stage_c_approve(alert)
+        self.assertEqual(alert.production_residual_approval[0]['quantity'], 2)
+        alert.action_execute_board_quarantine()
+        self.assertEqual((decision.released_qty, decision.disposed_qty, decision.remaining_qty), (3, 2, 0))
+        operation = alert.production_residual_operation_ids
+        self.assertEqual((len(operation), operation.quantity, operation.scrap_id.state), (1, 2, 'done'))
+        self.assertEqual(operation.scrap_id.move_ids.location_id, quarantine)
+        self.assertEqual((check.control_date, check.quality_state, decision.snapshot,
+                          production.move_finished_ids.filtered(lambda move: not move.scrapped).quantity), original)
+        alert.action_execute_board_quarantine()
+        self.assertEqual(alert.production_residual_operation_ids, operation)
+        self.assertEqual(production.move_finished_ids.quality_release_move_ids.filtered(lambda move: move.state == 'done').quantity, 3)
+
+    def test_stage_c_all_fail_scrap_cancels_only_unposted_release(self):
+        production, check, _quarantine, _stock = self._stage_c_order()
+        self._stage_c_results(check, 0)
+        alert = production.quality_production_case_ids
+        self._stage_c_approve(alert)
+        alert.action_execute_board_quarantine()
+        self.assertEqual((production.quality_disposition_ids.released_qty,
+                          production.quality_disposition_ids.remaining_qty), (0, 0))
+        self.assertEqual(production.move_finished_ids.quality_release_move_ids.state, 'cancel')
+        self.assertEqual(alert.production_residual_operation_ids.quantity, 5)
+
+    def test_stage_c_d_request_keeps_quarantine_and_has_no_unbuild(self):
+        production, check, _quarantine, _stock = self._stage_c_order()
+        self._stage_c_results(check, 3)
+        alert = production.quality_production_case_ids
+        self._stage_c_approve(alert, 'unbuild')
+        alert.action_execute_board_quarantine()
+        self.assertTrue(alert.production_d_requested_at)
+        self.assertFalse(alert.production_residual_operation_ids)
+        self.assertEqual(production.quality_disposition_ids.remaining_qty, 2)
+        self.assertFalse(self.env['mrp.unbuild'].search([('mo_id', '=', production.id)]))
+        alert.action_execute_board_quarantine()
+        self.assertEqual(production.quality_disposition_ids.remaining_qty, 2)
+
+    def test_stage_c_multiple_qcs_and_repeats_have_one_alert_and_evidence(self):
+        production, checks, _quarantine, _stock = self._stage_c_order(second_check=True)
+        self._stage_c_results(checks[0], 0)
+        alert = production.quality_production_case_ids
+        self.assertEqual(len(alert), 1)
+        self.assertFalse(alert.production_case_ready)
+        self._stage_c_results(checks[1], 0)
+        self.assertEqual(production.quality_production_case_ids, alert)
+        self.assertEqual(len(alert.production_case_evidence), 2)
+        evidence = dict(alert.production_case_evidence)
+        checks[0].do_fail()
+        self.assertEqual(alert.production_case_evidence, evidence)
+        self.assertEqual(checks[0].do_alert()['res_id'], alert.id)
+        with self.assertRaises(UserError), self.cr.savepoint():
+            self.env['quality.alert'].create({'check_id': checks[0].id, 'team_id': checks[0].team_id.id})
+
+    def test_stage_c_pending_fail_creates_alert_without_processing(self):
+        production, check, _quarantine, _stock = self._stage_c_order()
+        check.update_measurement_visual_result(check.sample_ids[0].id, 'no')
+        check.do_fail()
+        alert = production.quality_production_case_ids
+        self.assertEqual(len(alert), 1)
+        self.assertFalse(production.quality_disposition_ids)
+        self.assertFalse(alert.production_case_ready)
+        self.assertEqual((alert.production_case_produced_qty, alert.production_case_held_qty), (5, 5))
+        with self.assertRaises(UserError), self.cr.savepoint():
+            self._stage_c_approve(alert)
+        self.assertFalse(alert.production_residual_operation_ids)
+
+    def test_stage_c_direct_stock_and_forged_audit_are_blocked(self):
+        production, check, _quarantine, stock = self._stage_c_order()
+        self._stage_c_results(check, 3)
+        alert = production.quality_production_case_ids
+        with self.assertRaises(AccessError):
+            alert.write({'production_residual_approval': [{'quantity': 5}]})
+        with self.assertRaises(AccessError):
+            production.write({'quality_production_case_enabled': False})
+        with self.assertRaises(UserError), self.cr.savepoint():
+            self.env['stock.scrap'].create({'production_id': production.id, 'product_id': production.product_id.id,
+                                           'product_uom_id': production.product_uom_id.id, 'scrap_qty': 2,
+                                           'location_id': stock.id})
+        with self.assertRaises(UserError), self.cr.savepoint():
+            self.env['mrp.unbuild'].create({'mo_id': production.id, 'product_id': production.product_id.id,
+                                           'product_uom_id': production.product_uom_id.id, 'product_qty': 2,
+                                           'location_id': stock.id})
+        self.assertEqual((production.quality_disposition_ids.released_qty,
+                          production.quality_disposition_ids.remaining_qty), (3, 2))
+
+    def test_stage_c_full_pass_has_no_alert_and_old_mo_cannot_opt_in(self):
+        production, check, _quarantine, _stock = self._stage_c_order()
+        self._stage_c_results(check, 5)
+        self.assertFalse(production.quality_production_case_ids)
+        self.assertEqual(production.quality_disposition_ids.released_qty, 5)
+        duplicate = production.copy()
+        self.assertFalse(duplicate.quality_production_case_enabled)
+        with self.assertRaises(AccessError):
+            duplicate.write({'quality_production_case_enabled': True})
+
+    def test_stage_c_unassigned_users_cannot_approve_or_execute(self):
+        production, check, _quarantine, _stock = self._stage_c_order()
+        self._stage_c_results(check, 3)
+        alert = production.quality_production_case_ids
+        self._stage_c_approve(alert)
+        for suffix, board in (('master', False), ('other-board', True)):
+            groups = self.env.ref('quality.group_quality_user') | self.env.ref('mrp.group_mrp_user')
+            if board:
+                groups |= self.env.ref('quality_vataga.group_quality_board_approval')
+            user = self.env['res.users'].with_context(no_reset_password=True).create({
+                'name': 'C isolated %s' % suffix, 'login': 'stage-c-%s' % suffix,
+                'company_id': self.env.company.id, 'company_ids': [Command.set(self.env.company.ids)],
+                'groups_id': [Command.set(groups.ids)],
+            })
+            candidate = alert.with_user(user)
+            self.assertFalse(candidate.production_case_can_execute)
+            with self.assertRaises(AccessError), self.cr.savepoint():
+                candidate.action_approve_technical_board()
+            with self.assertRaises(AccessError), self.cr.savepoint():
+                candidate.action_execute_board_quarantine()
+        self.assertFalse(alert.production_residual_operation_ids)
+        self.assertEqual(production.quality_disposition_ids.remaining_qty, 2)
+
+    def test_stage_c_approval_does_not_authorize_changed_stock(self):
+        from ..models.stock_quarantine import QUARANTINE_CONTEXT, QUARANTINE_OPERATION
+        production, check, quarantine, _stock = self._stage_c_order()
+        self._stage_c_results(check, 3)
+        alert = production.quality_production_case_ids
+        self._stage_c_approve(alert)
+        quant = self.env['stock.quant'].search([
+            ('product_id', '=', production.product_id.id), ('lot_id', '=', production.lot_producing_id.id),
+            ('location_id', '=', quarantine.id),
+        ])
+        quant.with_context(**{QUARANTINE_CONTEXT: QUARANTINE_OPERATION}).write({'quantity': 1.6})
+        with self.assertRaises(UserError), self.cr.savepoint():
+            alert.action_execute_board_quarantine()
+        self.assertFalse(alert.production_residual_operation_ids)
+        self.assertFalse(self.env['stock.scrap'].search([('production_id', '=', production.id)]))
+        self.assertEqual(production.move_finished_ids.quality_release_move_ids.quantity, 3)
+
+    def test_stage_c_default_context_and_copies_cannot_forge_case_audit(self):
+        production, check, _quarantine, _stock = self._stage_c_order()
+        self._stage_c_results(check, 3)
+        alert = production.quality_production_case_ids
+        with self.assertRaises(UserError), self.cr.savepoint():
+            alert.copy()
+        with self.assertRaises(UserError), self.cr.savepoint():
+            self.env['quality.alert'].with_context(default_check_id=check.id).create({'team_id': check.team_id.id})
+        ordinary = self.env['quality.alert'].with_context(
+            default_production_case_mo_id=production.id,
+            default_production_residual_approval=[{'quantity': 5}],
+        ).create({'team_id': check.team_id.id})
+        self.assertFalse(ordinary.production_case_mo_id)
+        self.assertFalse(ordinary.production_residual_approval)
+        with self.assertRaises(AccessError), self.cr.savepoint():
+            alert.with_context(quality_vataga_production_case=True).write({'production_case_evidence': {}})
+        with self.assertRaises(UserError), self.cr.savepoint():
+            self.env['mrp.unbuild'].with_context(default_mo_id=production.id).create({
+                'product_id': production.product_id.id, 'product_uom_id': production.product_uom_id.id,
+                'product_qty': 2})
+        self.assertEqual(production.quality_production_case_ids, alert)
+
     def _stage_b_order(self):
         from ..models.production_release import PRODUCTION_DISPOSITION_CONTEXT, PRODUCTION_DISPOSITION_OPERATION
         production, check, quarantine, stock = self._create_quarantine_order()
