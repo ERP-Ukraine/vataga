@@ -311,6 +311,32 @@ class IncomingAlert(models.Model):
     _sql_constraints = [('incoming_alert_unique', 'unique(incoming_hold_id)',
                          'Для цієї вхідної партії сповіщення вже створене.')]
 
+    def _check_incoming_board_action(self):
+        # Also serialize with source edits before classifying the alert.
+        self._lock_board_records()
+        # copy=False clears incoming_hold_id on a duplicate, while the original
+        # QC/receipt can survive. Classify by the source, never by the view or
+        # client context. sudo is only for this classification; execution keeps
+        # the original user and all existing board permissions.
+        if any(alert.incoming_hold_id or alert.check_id.incoming_hold_id
+               or alert.picking_id.picking_type_id.code == 'incoming'
+               or alert.check_id.picking_id.picking_type_id.code == 'incoming'
+               for alert in self.sudo()):
+            raise UserError(_('Технічна рада недоступна для вхідних сповіщень. '
+                              'Використовуйте дії вхідного контролю з надходження.'))
+
+    def action_send_for_board_approval(self):
+        self._check_incoming_board_action()
+        return super().action_send_for_board_approval()
+
+    def action_approve_technical_board(self):
+        self._check_incoming_board_action()
+        return super().action_approve_technical_board()
+
+    def action_execute_board_quarantine(self):
+        self._check_incoming_board_action()
+        return super().action_execute_board_quarantine()
+
     @api.model_create_multi
     def create(self, vals_list):
         if not internal(self.env) and any(any(vals.get(key) for key in (

@@ -39,6 +39,38 @@ class TestIncomingQuality(IncomingStockFixture):
         self.assertEqual(result['res_model'], 'stock.picking')
         self.assertEqual(hold.released_qty, 10)
 
+    def test_board_rpc_rejects_incoming_source_and_its_copy(self):
+        picking, hold = self._receipt()
+        hold.check_ids.do_fail()
+        alert = hold.alert_ids
+        duplicate = alert.copy()
+        self.assertFalse(duplicate.incoming_hold_id)
+        self.assertTrue(duplicate.check_id or duplicate.picking_id)
+        for record in alert | duplicate:
+            before = (record.stage_id, record.is_approved, record.approved_at,
+                      record.board_executed_at, record.message_ids)
+            for method in ('action_send_for_board_approval', 'action_approve_technical_board',
+                           'action_execute_board_quarantine'):
+                with self.assertRaisesRegex(UserError, 'Технічна рада недоступна'):
+                    getattr(record, method)()
+            self.assertEqual((record.stage_id, record.is_approved, record.approved_at,
+                              record.board_executed_at, record.message_ids), before)
+        self.assertFalse(hold.operation_ids)
+        self.assertEqual(hold.remaining_qty, 10)
+        self.assertEqual(self._quantity(hold.location_id), 10)
+
+    def test_board_rpc_rejects_receipt_only_incoming_alert(self):
+        picking, hold = self._receipt()
+        alert = self.env['quality.alert'].create({
+            'name': 'Incoming receipt-only security test', 'picking_id': picking.id,
+            'team_id': self.point.team_id.id,
+        })
+        self.assertFalse(alert.check_id)
+        self.assertFalse(alert.incoming_hold_id)
+        with self.assertRaisesRegex(UserError, 'Технічна рада недоступна'):
+            alert.action_send_for_board_approval()
+        self.assertFalse(hold.operation_ids)
+
     def test_ui_completed_return_preserves_failed_quality_result(self):
         picking, hold = self._receipt()
         hold.check_ids.do_fail()
