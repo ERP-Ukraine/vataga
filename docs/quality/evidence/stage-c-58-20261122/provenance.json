@@ -1,0 +1,81 @@
+{
+  "date": "2026-11-22",
+  "candidate": "17.0.2.58",
+  "base_commit": "8df24247",
+  "native_runner": {
+    "stock_and_authority_methods": 56,
+    "ordinary_mrp_guard_methods": 4,
+    "failures": 0,
+    "errors": 0
+  },
+  "pure_plan_methods": 33,
+  "total_executed_methods": 93,
+  "model_worktree_bytes_identical_to_native_copies_sha256": {
+    "production_case_authority.py": "896eeb1a6f4164949a6f4f2213db78c4131e77e25a75e9b50554ecf26c884167",
+    "production_case_stock_guards.py": "3575dff5fd84e7c96836564206518465c1c319a92854cd2665a8e4677b6545a2",
+    "production_quality_case.py": "b89a70d5bc58baafbe372ffd1a4ae39827d509dd4966d80aaa9046f7edc277c3",
+    "production_release.py": "80d56a7e4b63147b21a3505413581b4109230bf176abfc1ab8eaa256f58d216e",
+    "production_release_plan.py": "eb5325de64d7e03a45769a6bdc7e23797ed541822be86888d30bbd388c13d532",
+    "production_release_stock.py": "ed7341ae1b9d188ec3a6e30eaf7bef78ca71610160cf3db04809fbbc6de2ca95",
+    "production_residual_plan.py": "281745d91586f8852390d3f82bd2b962a6eaf63dc518fa5249b2bfa4d63b534c",
+    "production_residual_stock.py": "5c86d7cc89013d4fa33145631c884c057d841cd4d5c3699da15dcc9bcc4e18a6",
+    "quality_alert.py": "819c3ee7cee5cef6c018e0f427941e12c4014975a4e634c1ba6a827960af2d19",
+    "quality_alert_full_control_line.py": "65698c8bc7f8f7bb380e6afea96060ca10e9fd529d10544a791263c4649d1768",
+    "quality_alert_quarantine.py": "7336628ab0c924901a9fb49a884a8f27c1cff4dedc6fddeb560a9a9fc0146cc5"
+  },
+  "source_test_bodies_ast_identical": [
+    "test_stage_c_authority_ordinary_separate_actors_and_idempotent_scrap",
+    "test_stage_c_authority_dual_role_master_cannot_execute_own_case",
+    "test_stage_c_authority_unassigned_users_and_board_rpc_cannot_execute_ordinary",
+    "test_stage_c_authority_only_coordinator_assigns_without_granting_groups",
+    "test_stage_c_authority_ordinary_d_request_has_no_stock_movement",
+    "test_stage_c_authority_revoke_requires_new_confirmation_and_keeps_history",
+    "test_stage_c_authority_forged_route_and_decision_are_blocked",
+    "test_stage_c_authority_full_fail_separate_actors_scrap_only_five",
+    "test_stage_c_authority_critical_keeps_board_executor_and_rejects_master",
+    "test_stage_c_authority_revoked_role_blocks_stock_execution",
+    "test_stage_c_authority_cross_company_assignment_is_rejected",
+    "test_stage_c_authority_all_pass_keeps_b_release_without_case",
+    "test_stage_c_authority_pending_samples_block_master_confirmation",
+    "test_stage_c_authority_scoped_read_preserves_existing_mrp_rights",
+    "test_stage_c_authority_reuses_alert_navigation_without_narrowing_open_menus",
+    "test_stage_c_authority_non_quality_mrp_keeps_standard_mo_access",
+    "test_stage_c_authority_custom_legacy_read_is_preserved_without_widening_write",
+    "test_stage_c_g01_workorder_create_and_default_cannot_scrap_released_stock",
+    "test_stage_c_g01_write_and_contradictory_links_are_blocked",
+    "test_stage_c_g01_direct_posting_and_link_stripping_are_blocked",
+    "test_stage_c_g01_stock_move_cannot_attach_to_protected_scrap",
+    "test_stage_c_multiple_qcs_and_repeats_have_one_alert_and_evidence",
+    "test_stage_c_pending_fail_creates_alert_without_processing"
+  ],
+  "authority_security_records_identical": true,
+  "new_role_members_and_implied": [
+    "group_quality_production_executor|0|0",
+    "group_quality_production_master|0|0"
+  ],
+  "unchanged_quantity_and_stock_helpers_since_57": [
+    "production_release.py",
+    "production_release_plan.py",
+    "production_release_stock.py",
+    "production_residual_plan.py",
+    "production_residual_stock.py"
+  ],
+  "declared_enterprise_boundaries": [
+    "quality.alert base, stages and teams",
+    "quality.check, points, sample input and write-event boundary",
+    "full-PASS MRP release boundary; real EE matrix validation and Shop Floor NOT loaded"
+  ],
+  "native_real": [
+    "Community Odoo 17 ORM, ACL, record rules, mail and menus",
+    "MRP manufacture and Stock moves/quants",
+    "unchanged source B/C/authority/legacy board models",
+    "test-only internal users and companies"
+  ],
+  "full_enterprise_erpua_integration": "BLOCKED",
+  "browser_acceptance": "BLOCKED: Trusted RPC service is not configured: browser",
+  "push_and_deployment": "NOT RUN: user explicitly deferred",
+  "remote_staging_workflow_blob": "448907bf2d1d1d54e76d41c1357f20c2746501bb",
+  "remote_deploy_script_blob": "00372d090592a63f7187a5a4f49146e733e2e3c3",
+  "workflow_does_not_invoke_module_upgrade": true,
+  "erpua_internal_auto_upgrade": "UNVERIFIED; manual Apps Upgrade required in prepared procedure"
+}

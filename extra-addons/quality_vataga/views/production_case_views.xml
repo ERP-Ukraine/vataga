@@ -16,9 +16,10 @@
         <field name="inherit_id" ref="quality_vataga.mrp_production_partial_release_form"/>
         <field name="arch" type="xml">
             <xpath expr="//div[@name='button_box']" position="inside">
-                <field name="quality_production_case_ids" invisible="1"/>
+                <field name="quality_production_case_ids" invisible="1" groups="quality.group_quality_user,quality_vataga.group_quality_production_master,quality_vataga.group_quality_production_executor"/>
                 <button name="action_open_production_quality_case" type="object" class="oe_stat_button" icon="fa-bell"
-                        string="Сповіщення про брак" invisible="not quality_production_case_ids"/>
+                        string="Сповіщення про брак" invisible="not quality_production_case_ids"
+                        groups="quality.group_quality_user,quality_vataga.group_quality_production_master,quality_vataga.group_quality_production_executor"/>
             </xpath>
             <xpath expr="//field[@name='quality_partial_release_enabled']" position="after">
                 <field name="quality_production_case_enabled" string="Обробка браку C" invisible="not quality_production_case_enabled"/>
@@ -47,6 +48,11 @@
                 <field name="production_case_mo_id" invisible="1"/>
                 <field name="production_case_ready" invisible="1"/>
                 <field name="production_case_can_execute" invisible="1"/>
+                <field name="production_case_can_confirm" invisible="1"/>
+                <field name="production_case_can_assign" invisible="1"/>
+                <field name="production_case_can_escalate" invisible="1"/>
+                <field name="production_case_can_revoke" invisible="1"/>
+                <field name="production_current_decision_id" invisible="1"/>
                 <field name="production_d_requested_at" invisible="1"/>
                 <field name="production_residual_operation_ids" invisible="1"/>
                 <group string="Виробничий брак — підтверджений залишок" invisible="not production_case_mo_id">
@@ -54,6 +60,7 @@
                         <field name="production_case_mo_id" string="MO"/>
                         <field name="production_disposition_id" string="Розподіл ВТК"/>
                         <field name="production_case_status"/>
+                        <field name="production_route" string="Маршрут обробки"/>
                         <field name="production_case_reason" invisible="not production_case_reason"/>
                     </group>
                     <group>
@@ -62,34 +69,55 @@
                         <field name="production_case_held_qty"/>
                         <field name="production_case_disposed_qty"/>
                     </group>
-                    <group string="Пропозиція майстра / рішення техради">
-                        <field name="production_case_proposal" readonly="is_approved or is_board_approval_stage or not production_case_ready"/>
+                    <group string="Призначення Quality Manager">
+                        <field name="production_master_id" readonly="not production_case_can_assign"
+                               domain="[('active', '=', True), ('share', '=', False), ('groups_id', 'in', [%(quality_vataga.group_quality_production_master)d])]" options="{'no_create': True}"/>
+                        <field name="production_executor_id" readonly="not production_case_can_assign" invisible="production_route == 'board'"
+                               domain="[('active', '=', True), ('share', '=', False), ('groups_id', 'in', [%(quality_vataga.group_quality_production_executor)d]), ('groups_id', 'in', [%(stock.group_stock_user)d])]" options="{'no_create': True}"/>
+                        <field name="production_assignment_reason" readonly="not production_case_can_assign and not production_case_can_revoke"/>
+                    </group>
+                    <group string="Рішення майстра / передача критичного випадку">
+                        <field name="production_case_proposal" readonly="production_current_decision_id or is_approved or is_board_approval_stage or not production_case_ready or (not production_case_can_confirm and not production_case_can_assign)"/>
                         <field name="decision_reason" string="Підстава пропозиції / передачі техраді"
-                               readonly="is_approved or is_board_approval_stage"/>
-                        <field name="approval_user_id" readonly="is_approved or is_board_approval_stage" options="{'no_create': True}"/>
+                               readonly="production_current_decision_id or is_approved or is_board_approval_stage or (not production_case_can_confirm and not production_case_can_assign)"/>
+                        <field name="approval_user_id" readonly="not production_case_can_assign" options="{'no_create': True}"/>
                     </group>
                     <group>
                         <field name="production_proposed_by_id" invisible="not production_proposed_at"/>
                         <field name="production_proposed_at" invisible="not production_proposed_at"/>
-                        <field name="is_approved"/>
+                        <field name="is_approved" invisible="production_route != 'board'"/>
                         <field name="approved_by_id" invisible="not is_approved"/>
                         <field name="approved_at" invisible="not is_approved"/>
                         <field name="production_d_requested_by_id" invisible="not production_d_requested_at"/>
                         <field name="production_d_requested_at" invisible="not production_d_requested_at"/>
                     </group>
-                    <button name="action_send_for_board_approval" type="object" string="Передати пропозицію техраді"
-                            class="oe_highlight" invisible="not production_case_ready or not is_board_analysis_stage or is_approved"/>
+                    <button name="action_confirm_ordinary_production" type="object" string="Підтвердити звичайне рішення"
+                            class="oe_highlight" confirm="Підтвердити рішення майстра для окремого складського виконавця?"
+                            invisible="not production_case_ready or not production_case_can_confirm"/>
+                    <button name="action_execute_ordinary_production" type="object" string="Виконати рішення майстра"
+                            class="oe_highlight" confirm="Виконати підтверджене рішення лише для залишку карантину?"
+                            invisible="production_route != 'ordinary' or not production_current_decision_id or not production_case_ready or not production_case_can_execute"/>
+                    <button name="action_revoke_ordinary_production" type="object" string="Відкликати невиконане рішення"
+                            confirm="Відкликати рішення? Для виконання знадобиться нове підтвердження майстра."
+                            invisible="not production_case_can_revoke"/>
+                    <button name="action_send_for_board_approval" type="object" string="Передати критичний випадок техраді"
+                            class="oe_highlight" invisible="not production_case_ready or not production_case_can_escalate or not is_board_analysis_stage or is_approved"/>
                     <button name="action_approve_technical_board" type="object" string="Затвердити рішення техради"
                             class="oe_highlight" groups="quality_vataga.group_quality_board_approval"
-                            invisible="not production_case_ready or not is_board_approval_stage or is_approved or approval_user_id != uid"/>
+                            invisible="production_route != 'board' or not production_case_ready or not is_board_approval_stage or is_approved or approval_user_id != uid"/>
                     <button name="action_execute_board_quarantine" type="object" string="Підтвердити списання залишку"
                             class="oe_highlight" groups="quality_vataga.group_quality_board_approval"
                             confirm="Списати весь підтверджений залишок з карантину?"
-                            invisible="not production_case_ready or not is_approved or not production_case_can_execute or decision_type != 'scrap'"/>
+                            invisible="production_route != 'board' or not production_case_ready or not is_approved or not production_case_can_execute or decision_type != 'scrap'"/>
                     <button name="action_execute_board_quarantine" type="object" string="Підтвердити заявку розбирання D"
                             class="oe_highlight" groups="quality_vataga.group_quality_board_approval"
                             confirm="Зафіксувати заявку D без розбирання та складських рухів?"
-                            invisible="not production_case_ready or not is_approved or not production_case_can_execute or decision_type != 'unbuild'"/>
+                            invisible="production_route != 'board' or not production_case_ready or not is_approved or not production_case_can_execute or decision_type != 'unbuild'"/>
+                    <field name="production_decision_ids" readonly="1" nolabel="1">
+                        <tree create="0" delete="0"><field name="recorded_at" string="Дата"/><field name="event" string="Подія"/><field name="route" string="Маршрут"/>
+                            <field name="actor_id" string="Виконав дію"/><field name="master_id" string="Майстер"/>
+                            <field name="executor_id" string="Виконавець"/><field name="reason" string="Підстава"/></tree>
+                    </field>
                     <separator string="Первинні QC — результати збережено"/>
                     <field name="production_case_check_ids" readonly="1" nolabel="1">
                         <tree create="0" delete="0"><field name="name"/><field name="workorder_id"/>
@@ -112,7 +140,8 @@
         <field name="inherit_id" ref="quality_vataga.production_disposition_form"/>
         <field name="arch" type="xml">
             <xpath expr="/form/sheet/group[field[@name='product_id']]" position="after">
-                <group string="Сповіщення та обробка залишку" invisible="not production_case_ids">
+                <group string="Сповіщення та обробка залишку" invisible="not production_case_ids"
+                       groups="quality.group_quality_user,quality_vataga.group_quality_production_master,quality_vataga.group_quality_production_executor">
                     <field name="production_case_ids" readonly="1" nolabel="1">
                         <tree create="0" delete="0"><field name="name"/><field name="production_case_status"/></tree>
                     </field>
@@ -124,4 +153,5 @@
             </xpath>
         </field>
     </record>
+    <function model="ir.ui.menu" name="_configure_production_case_navigation"/>
 </odoo>

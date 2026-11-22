@@ -20,4 +20,5 @@ from . import incoming_quality
 from . import incoming_ui
 from . import production_release
 from . import production_quality_case
+from . import production_case_authority
 from . import production_case_stock_guards

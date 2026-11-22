@@ -950,13 +950,323 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
         check.do_fail() if good < 5 else check.do_pass()
 
     def _stage_c_approve(self, alert, decision='scrap'):
-        for group in ('quality_vataga.group_quality_board_approval', 'stock.group_stock_user', 'mrp.group_mrp_user'):
-            if not self.env.user.has_group(group):
-                self.env.user.groups_id = [Command.link(self.env.ref(group).id)]
-        alert.write({'decision_type': decision, 'approval_user_id': self.env.uid,
+        board = self._stage_c_user('critical-board-%s' % alert.id,
+                                   ['quality.group_quality_manager', 'stock.group_stock_user', 'mrp.group_mrp_user'])
+        master = self._stage_c_user('critical-master-%s' % alert.id, ['quality_vataga.group_quality_production_master'])
+        alert = alert.with_user(board)
+        alert.write({'decision_type': decision, 'approval_user_id': board.id,
+                     'production_master_id': master.id, 'production_assignment_reason': 'Ізольоване призначення критичного випадку',
                      'decision_reason': 'Ізольований ORM-тест C: підтверджений залишок'})
-        alert.action_send_for_board_approval()
+        alert.with_user(master).action_send_for_board_approval()
         alert.action_approve_technical_board()
+        return alert
+
+    def _stage_c_user(self, suffix, group_names):
+        groups = self.env.ref('base.group_user')
+        for name in group_names:
+            groups |= self.env.ref(name)
+        return self.env['res.users'].with_context(no_reset_password=True).create({
+            'name': 'C isolated ' + suffix, 'login': 'stage-c-' + suffix,
+            'email': 'stage-c-' + suffix + '@example.invalid',
+            'company_id': self.env.company.id, 'company_ids': [Command.set(self.env.company.ids)],
+            'groups_id': [Command.set(groups.ids)],
+        })
+
+    def _stage_c_ordinary(self, *, good=3, decision='scrap'):
+        production, check, quarantine, stock = self._stage_c_order()
+        self._stage_c_results(check, good)
+        alert = production.quality_production_case_ids
+        coordinator = self._stage_c_user('coordinator-%s' % production.id, ['quality.group_quality_manager'])
+        master = self._stage_c_user('master-%s' % production.id, ['quality_vataga.group_quality_production_master'])
+        executor = self._stage_c_user('executor-%s' % production.id,
+                                    ['quality_vataga.group_quality_production_executor', 'stock.group_stock_user'])
+        alert.with_user(coordinator).write({
+            'production_master_id': master.id, 'production_executor_id': executor.id,
+            'production_assignment_reason': 'Isolated C assignment',
+        })
+        alert.with_user(master).write({'decision_type': decision, 'decision_reason': 'Confirmed ordinary defect'})
+        return production, check, quarantine, stock, alert, coordinator, master, executor
+
+    def test_stage_c_authority_ordinary_separate_actors_and_idempotent_scrap(self):
+        production, check, _quarantine, _stock, alert, _coordinator, master, executor = self._stage_c_ordinary()
+        self.assertFalse(master.has_group('stock.group_stock_user'))
+        self.assertFalse(master.has_group('quality_vataga.group_quality_board_approval'))
+        self.assertFalse(executor.has_group('quality_vataga.group_quality_board_approval'))
+        snapshot = production.quality_disposition_ids.snapshot
+        alert.with_user(master).action_confirm_ordinary_production()
+        decision = alert.production_current_decision_id
+        self.assertEqual((decision.actor_id, decision.master_id, decision.executor_id), (master, master, executor))
+        self.assertFalse(alert.is_approved)
+        alert.with_user(executor).action_execute_ordinary_production()
+        operation = alert.production_residual_operation_ids
+        self.assertEqual((operation.quantity, operation.executed_by_id, operation.decision_id), (2, executor, decision))
+        self.assertEqual((production.quality_disposition_ids.released_qty, production.quality_disposition_ids.remaining_qty), (3, 0))
+        alert.with_user(executor).action_execute_ordinary_production()
+        self.assertEqual(alert.production_residual_operation_ids, operation)
+        self.assertEqual((check.quality_state, production.quality_disposition_ids.snapshot), ('fail', snapshot))
+
+    def test_stage_c_authority_dual_role_master_cannot_execute_own_case(self):
+        _production, _check, _q, _s, alert, coordinator, master, executor = self._stage_c_ordinary()
+        master.groups_id = [Command.link(self.env.ref('quality_vataga.group_quality_production_executor').id),
+                            Command.link(self.env.ref('stock.group_stock_user').id)]
+        with self.assertRaises(UserError), self.cr.savepoint():
+            alert.with_user(coordinator).write({'production_executor_id': master.id})
+        self.assertEqual(alert.production_executor_id, executor)
+        alert.with_user(master).action_confirm_ordinary_production()
+        with self.assertRaises(AccessError), self.cr.savepoint():
+            alert.with_user(master).action_execute_ordinary_production()
+        self.assertFalse(alert.production_residual_operation_ids)
+
+    def test_stage_c_authority_unassigned_users_and_board_rpc_cannot_execute_ordinary(self):
+        _production, _check, _q, _s, alert, _coordinator, master, executor = self._stage_c_ordinary()
+        outsider = self._stage_c_user('outsider-%s' % alert.id,
+                                     ['quality.group_quality_user', 'stock.group_stock_user',
+                                      'quality_vataga.group_quality_production_master',
+                                      'quality_vataga.group_quality_production_executor'])
+        with self.assertRaises(AccessError), self.cr.savepoint():
+            alert.with_user(outsider).action_confirm_ordinary_production()
+        alert.with_user(master).action_confirm_ordinary_production()
+        for user in (outsider, master):
+            with self.assertRaises(AccessError), self.cr.savepoint():
+                alert.with_user(user).action_execute_ordinary_production()
+        with self.assertRaises(AccessError), self.cr.savepoint():
+            alert.with_user(executor).write({'description': 'Executor cannot edit the alert'})
+        with self.assertRaises(AccessError), self.cr.savepoint():
+            alert.with_user(master).action_execute_board_quarantine()
+
+    def test_stage_c_authority_only_coordinator_assigns_without_granting_groups(self):
+        _production, _check, _q, _s, alert, coordinator, master, executor = self._stage_c_ordinary()
+        before = (master.groups_id, executor.groups_id)
+        with self.assertRaises(AccessError), self.cr.savepoint():
+            alert.with_user(master).write({'production_executor_id': master.id})
+        no_stock = self._stage_c_user('no-stock-%s' % alert.id, ['quality_vataga.group_quality_production_executor'])
+        with self.assertRaises(UserError), self.cr.savepoint():
+            alert.with_user(coordinator).write({'production_executor_id': no_stock.id})
+        self.assertFalse(no_stock.has_group('stock.group_stock_user'))
+        self.assertEqual((master.groups_id, executor.groups_id), before)
+        self.assertEqual(alert.production_executor_id, executor)
+
+    def test_stage_c_authority_ordinary_d_request_has_no_stock_movement(self):
+        production, _check, _q, _s, alert, _coordinator, master, executor = self._stage_c_ordinary(decision='unbuild')
+        alert.with_user(master).action_confirm_ordinary_production()
+        alert.with_user(executor).action_execute_ordinary_production()
+        stamp = alert.production_d_requested_at
+        self.assertTrue(stamp)
+        self.assertEqual(alert.production_d_requested_by_id, executor)
+        self.assertFalse(alert.production_residual_operation_ids)
+        self.assertFalse(self.env['mrp.unbuild'].search([('mo_id', '=', production.id)]))
+        self.assertEqual((production.quality_disposition_ids.released_qty, production.quality_disposition_ids.remaining_qty), (3, 2))
+        alert.with_user(executor).action_execute_ordinary_production()
+        self.assertEqual(alert.production_d_requested_at, stamp)
+
+    def test_stage_c_authority_revoke_requires_new_confirmation_and_keeps_history(self):
+        _production, _check, _q, _s, alert, coordinator, master, executor = self._stage_c_ordinary()
+        alert.with_user(master).action_confirm_ordinary_production()
+        original = alert.production_current_decision_id
+        alert.with_user(coordinator).write({'production_assignment_reason': 'Executor reassignment'})
+        alert.with_user(coordinator).action_revoke_ordinary_production()
+        self.assertFalse(alert.production_current_decision_id)
+        with self.assertRaises(AccessError), self.cr.savepoint():
+            alert.with_user(executor).action_execute_ordinary_production()
+        alert.with_user(master).action_confirm_ordinary_production()
+        self.assertNotEqual(alert.production_current_decision_id, original)
+        self.assertEqual(original.event, 'confirmed')
+        self.assertEqual(len(alert.production_decision_ids.filtered(lambda row: row.event == 'revoked')), 1)
+        with self.assertRaises(AccessError):
+            original.write({'reason': 'Cannot rewrite history'})
+        alert.with_user(executor).action_execute_ordinary_production()
+        self.assertEqual(alert.production_residual_operation_ids.decision_id, alert.production_current_decision_id)
+
+    def test_stage_c_authority_forged_route_and_decision_are_blocked(self):
+        _production, _check, _q, _s, alert, _coordinator, master, _executor = self._stage_c_ordinary()
+        for values in ({'production_route': 'ordinary'}, {'production_current_decision_id': False}):
+            with self.assertRaises(AccessError), self.cr.savepoint():
+                alert.with_user(master).with_context(quality_vataga_production_case=True).write(values)
+        with self.assertRaises(AccessError), self.cr.savepoint():
+            self.env['quality.production.case.decision'].with_user(master).create({
+                'alert_id': alert.id, 'route': 'ordinary', 'event': 'confirmed', 'actor_id': master.id, 'reason': 'Forged'})
+
+    def test_stage_c_authority_full_fail_separate_actors_scrap_only_five(self):
+        production, check, _q, _s, alert, _coordinator, master, executor = self._stage_c_ordinary(good=0)
+        alert.with_user(master).action_confirm_ordinary_production()
+        alert.with_user(executor).action_execute_ordinary_production()
+        self.assertEqual(alert.production_residual_operation_ids.quantity, 5)
+        self.assertEqual((production.quality_disposition_ids.released_qty, production.quality_disposition_ids.remaining_qty), (0, 0))
+        self.assertEqual(check.quality_state, 'fail')
+
+    def test_stage_c_authority_critical_keeps_board_executor_and_rejects_master(self):
+        production, check, _q, _s = self._stage_c_order()
+        self._stage_c_results(check, 3)
+        alert = production.quality_production_case_ids
+        alert = self._stage_c_approve(alert)
+        self.assertEqual(alert.production_route, 'board')
+        self.assertFalse(alert.production_executor_id)
+        with self.assertRaises(UserError), self.cr.savepoint():
+            alert.with_user(alert.production_master_id).action_confirm_ordinary_production()
+        alert.action_execute_board_quarantine()
+        self.assertEqual(alert.production_residual_operation_ids.executed_by_id, alert.env.user)
+        self.assertEqual((production.quality_disposition_ids.released_qty, production.quality_disposition_ids.remaining_qty), (3, 0))
+
+    def test_stage_c_authority_revoked_role_blocks_stock_execution(self):
+        production, _check, _q, _s, alert, _coordinator, master, executor = self._stage_c_ordinary()
+        alert.with_user(master).action_confirm_ordinary_production()
+        executor.groups_id = [Command.unlink(self.env.ref('quality_vataga.group_quality_production_executor').id)]
+        with self.assertRaises(AccessError), self.cr.savepoint():
+            alert.with_user(executor).action_execute_ordinary_production()
+        self.assertFalse(alert.production_residual_operation_ids)
+        self.assertEqual(production.quality_disposition_ids.remaining_qty, 2)
+
+    def test_stage_c_authority_cross_company_assignment_is_rejected(self):
+        _production, _check, _q, _s, alert, coordinator, _master, executor = self._stage_c_ordinary()
+        company = self.env['res.company'].create({'name': 'C different assignment company'})
+        foreign = self._stage_c_user('foreign-%s' % alert.id,
+                                    ['quality_vataga.group_quality_production_executor', 'stock.group_stock_user'])
+        foreign.write({'company_id': company.id, 'company_ids': [Command.set(company.ids)]})
+        with self.assertRaises(UserError), self.cr.savepoint():
+            alert.with_user(coordinator).write({'production_executor_id': foreign.id})
+        self.assertEqual(alert.production_executor_id, executor)
+
+    def test_stage_c_authority_all_pass_keeps_b_release_without_case(self):
+        production, check, _q, _s = self._stage_c_order()
+        self._stage_c_results(check, 5)
+        self.assertEqual(production.quality_disposition_ids.released_qty, 5)
+        self.assertFalse(production.quality_production_case_ids)
+        self.assertEqual(check.quality_state, 'pass')
+
+    def test_stage_c_authority_pending_samples_block_master_confirmation(self):
+        production, check, _q, _s = self._stage_c_order()
+        check.update_measurement_visual_result(check.sample_ids[0].id, 'no')
+        check.do_fail()
+        alert = production.quality_production_case_ids
+        coordinator = self._stage_c_user('pending-coordinator-%s' % alert.id, ['quality.group_quality_manager'])
+        master = self._stage_c_user('pending-master-%s' % alert.id, ['quality_vataga.group_quality_production_master'])
+        executor = self._stage_c_user('pending-executor-%s' % alert.id,
+                                    ['quality_vataga.group_quality_production_executor', 'stock.group_stock_user'])
+        alert.with_user(coordinator).write({'production_master_id': master.id, 'production_executor_id': executor.id,
+                                            'production_assignment_reason': 'Pending assignment'})
+        alert.with_user(master).write({'decision_type': 'scrap', 'decision_reason': 'Pending sample result'})
+        with self.assertRaises(UserError), self.cr.savepoint():
+            alert.with_user(master).action_confirm_ordinary_production()
+        self.assertFalse(alert.production_current_decision_id)
+        self.assertFalse(alert.production_residual_operation_ids)
+        self.assertEqual((alert.production_case_produced_qty, alert.production_case_held_qty), (5, 5))
+
+    def test_stage_c_authority_scoped_read_preserves_existing_mrp_rights(self):
+        production, check, _q, _s, alert, _coordinator, master, executor = self._stage_c_ordinary()
+        self.assertEqual(production.with_user(master).read(['state'])[0]['state'], 'done')
+        self.assertEqual(check.with_user(master).read(['quality_state'])[0]['quality_state'], 'fail')
+        self.assertEqual(alert.with_user(executor).read(['production_route'])[0]['production_route'], 'unclassified')
+        other = self.env['mrp.production'].create({'product_id': production.product_id.id, 'product_qty': 1,
+                                                   'picking_type_id': production.picking_type_id.id})
+        with self.assertRaises(AccessError), self.cr.savepoint():
+            other.with_user(master).read(['state'])
+        master.groups_id = [Command.link(self.env.ref('mrp.group_mrp_user').id)]
+        self.assertEqual(other.with_user(master).read(['state'])[0]['state'], 'draft')
+
+    def test_stage_c_authority_reuses_alert_navigation_without_narrowing_open_menus(self):
+        quality = self.env.ref('quality.group_quality_user')
+        master = self.env.ref('quality_vataga.group_quality_production_master')
+        executor = self.env.ref('quality_vataga.group_quality_production_executor')
+        action = self.env['ir.actions.act_window'].create({
+            'name': 'C navigation contract', 'res_model': 'quality.alert', 'view_mode': 'tree,form',
+            'groups_id': [Command.set(quality.ids)]})
+        parent = self.env['ir.ui.menu'].create({'name': 'C existing root', 'groups_id': [Command.set(quality.ids)]})
+        menu = self.env['ir.ui.menu'].create({'name': 'C existing alerts', 'parent_id': parent.id,
+                                             'action': 'ir.actions.act_window,%s' % action.id,
+                                             'groups_id': [Command.set(quality.ids)]})
+        open_menu = self.env['ir.ui.menu'].create({'name': 'Unrestricted alerts',
+                                                  'action': 'ir.actions.act_window,%s' % action.id})
+        self.env['ir.ui.menu'].sudo()._configure_production_case_navigation()
+        for record in (action, parent, menu):
+            self.assertTrue(quality | master | executor <= record.groups_id)
+        self.assertFalse(open_menu.groups_id)
+
+    def test_stage_c_authority_non_quality_mrp_keeps_standard_mo_access(self):
+        production, check, _q, _s = self._stage_c_order()
+        self._stage_c_results(check, 3)
+        operator = self._stage_c_user('ordinary-mrp-%s' % production.id, ['mrp.group_mrp_user'])
+        self.assertEqual(production.with_user(operator).read(['state'])[0]['state'], 'done')
+        self.assertNotIn('quality_production_case_ids', production.with_user(operator).fields_get())
+        self.assertNotIn('production_case_ids', production.quality_disposition_ids.with_user(operator).fields_get())
+
+    def test_stage_c_authority_custom_legacy_read_is_preserved_without_widening_write(self):
+        _production, _check, _q, _s, alert, _coordinator, _master, _executor = self._stage_c_ordinary()
+        legacy = self.env['res.groups'].create({'name': 'Isolated ERP-UA-like read-only Alert role'})
+        self.env['ir.model.access'].create({
+            'name': 'Isolated existing read-only grant', 'model_id': self.env['ir.model']._get_id('quality.alert'),
+            'group_id': legacy.id, 'perm_read': True, 'perm_write': False, 'perm_create': False, 'perm_unlink': False})
+        reader = self._stage_c_user('custom-reader-%s' % alert.id, ['quality_vataga.group_quality_production_master'])
+        reader.groups_id = [Command.link(legacy.id)]
+        self.assertEqual(alert.with_user(reader).read(['name'])[0]['id'], alert.id)
+        with self.assertRaises(AccessError), self.cr.savepoint():
+            alert.with_user(reader).write({'description': 'Read access must not widen master write access'})
+
+    def _stage_c_g01(self):
+        production, check, quarantine, stock = self._stage_c_order()
+        self._stage_c_results(check, 3)
+        user = self._stage_c_user('g01-stock-%s' % production.id, ['stock.group_stock_user', 'mrp.group_mrp_user'])
+        values = {'product_id': production.product_id.id, 'product_uom_id': production.product_uom_id.id,
+                  'scrap_qty': 2, 'location_id': stock.id}
+        return production, quarantine, stock, user, values
+
+    def test_stage_c_g01_workorder_create_and_default_cannot_scrap_released_stock(self):
+        production, quarantine, stock, user, values = self._stage_c_g01()
+        workorder = production.workorder_ids[:1]
+        self.assertTrue(workorder)
+        count = self.env['stock.scrap'].search_count([])
+        for context, extra in (({}, {'workorder_id': workorder.id}), ({'default_workorder_id': workorder.id}, {})):
+            with self.assertRaises(UserError), self.cr.savepoint():
+                self.env['stock.scrap'].with_user(user).with_context(context).create(dict(values, **extra))
+        self.assertEqual(self.env['stock.scrap'].search_count([]), count)
+        for location, quantity in ((quarantine, 2), (stock, 3)):
+            self.assertEqual(self.env['stock.quant']._get_available_quantity(
+                production.product_id, location, lot_id=production.lot_producing_id, strict=True), quantity)
+
+    def test_stage_c_g01_write_and_contradictory_links_are_blocked(self):
+        production, _q, _s, user, values = self._stage_c_g01()
+        scrap = self.env['stock.scrap'].with_user(user).create(values)
+        with self.assertRaises(UserError), self.cr.savepoint():
+            scrap.write({'workorder_id': production.workorder_ids[:1].id})
+        self.assertFalse(scrap.workorder_id)
+        other = self.env['mrp.production'].create({'product_id': production.product_id.id, 'product_qty': 1,
+                                                   'picking_type_id': production.picking_type_id.id})
+        with self.assertRaises(UserError), self.cr.savepoint():
+            self.env['stock.scrap'].with_user(user).create(dict(values, production_id=other.id,
+                                                               workorder_id=production.workorder_ids[:1].id))
+        self.assertEqual(scrap.state, 'draft')
+
+    def test_stage_c_g01_direct_posting_and_link_stripping_are_blocked(self):
+        from ..models.production_residual_stock import case_context
+        production, quarantine, stock, user, values = self._stage_c_g01()
+        latent = self.env['stock.scrap'].with_context(case_context(self.env)).create(dict(
+            values, workorder_id=production.workorder_ids[:1].id,
+            production_id=production.id, quality_production_case_id=production.quality_production_case_ids.id))
+        public = latent.with_context({}).with_user(user)
+        for method in ('action_validate', 'do_scrap'):
+            with self.assertRaises(UserError), self.cr.savepoint():
+                getattr(public, method)()
+        with self.assertRaises(UserError), self.cr.savepoint():
+            public.write({'workorder_id': False, 'production_id': False, 'quality_production_case_id': False})
+        self.assertEqual(latent.state, 'draft')
+        for location, quantity in ((quarantine, 2), (stock, 3)):
+            self.assertEqual(self.env['stock.quant']._get_available_quantity(
+                production.product_id, location, lot_id=production.lot_producing_id, strict=True), quantity)
+
+    def test_stage_c_g01_stock_move_cannot_attach_to_protected_scrap(self):
+        from ..models.production_residual_stock import case_context
+        production, _q, stock, user, values = self._stage_c_g01()
+        latent = self.env['stock.scrap'].with_context(case_context(self.env)).create(dict(
+            values, workorder_id=production.workorder_ids[:1].id))
+        move_values = {'name': 'Forged extra C scrap move', 'product_id': production.product_id.id,
+                       'product_uom': production.product_uom_id.id, 'product_uom_qty': 2,
+                       'location_id': stock.id, 'location_dest_id': stock.id}
+        with self.assertRaises(UserError), self.cr.savepoint():
+            self.env['stock.move'].with_user(user).create(dict(move_values, scrap_id=latent.id))
+        move = self.env['stock.move'].with_user(user).create(move_values)
+        with self.assertRaises(UserError), self.cr.savepoint():
+            move.write({'scrap_id': latent.id})
+        self.assertFalse(move.scrap_id)
+        self.assertFalse(latent.move_ids)
 
     def test_stage_c_partial_scrap_preserves_released_three_qc_and_source(self):
         production, check, quarantine, stock = self._stage_c_order()
@@ -967,7 +1277,7 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
         self.assertEqual((decision.released_qty, decision.remaining_qty), (3, 2))
         original = (check.control_date, check.quality_state, decision.snapshot,
                     production.move_finished_ids.filtered(lambda move: not move.scrapped).quantity)
-        self._stage_c_approve(alert)
+        alert = self._stage_c_approve(alert)
         self.assertEqual(alert.production_residual_approval[0]['quantity'], 2)
         alert.action_execute_board_quarantine()
         self.assertEqual((decision.released_qty, decision.disposed_qty, decision.remaining_qty), (3, 2, 0))
@@ -984,7 +1294,7 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
         production, check, _quarantine, _stock = self._stage_c_order()
         self._stage_c_results(check, 0)
         alert = production.quality_production_case_ids
-        self._stage_c_approve(alert)
+        alert = self._stage_c_approve(alert)
         alert.action_execute_board_quarantine()
         self.assertEqual((production.quality_disposition_ids.released_qty,
                           production.quality_disposition_ids.remaining_qty), (0, 0))
@@ -995,7 +1305,7 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
         production, check, _quarantine, _stock = self._stage_c_order()
         self._stage_c_results(check, 3)
         alert = production.quality_production_case_ids
-        self._stage_c_approve(alert, 'unbuild')
+        alert = self._stage_c_approve(alert, 'unbuild')
         alert.action_execute_board_quarantine()
         self.assertTrue(alert.production_d_requested_at)
         self.assertFalse(alert.production_residual_operation_ids)
@@ -1066,7 +1376,7 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
         production, check, _quarantine, _stock = self._stage_c_order()
         self._stage_c_results(check, 3)
         alert = production.quality_production_case_ids
-        self._stage_c_approve(alert)
+        alert = self._stage_c_approve(alert)
         for suffix, board in (('master', False), ('other-board', True)):
             groups = self.env.ref('quality.group_quality_user') | self.env.ref('mrp.group_mrp_user')
             if board:
@@ -1090,7 +1400,7 @@ class TestQualityCheckMeasurementMatrix(TransactionCase):
         production, check, quarantine, _stock = self._stage_c_order()
         self._stage_c_results(check, 3)
         alert = production.quality_production_case_ids
-        self._stage_c_approve(alert)
+        alert = self._stage_c_approve(alert)
         quant = self.env['stock.quant'].search([
             ('product_id', '=', production.product_id.id), ('lot_id', '=', production.lot_producing_id.id),
             ('location_id', '=', quarantine.id),

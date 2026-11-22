@@ -1,8 +1,226 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version='1.0' encoding='UTF-8'?>
 <odoo>
-    <record id="production_residual_company_rule" model="ir.rule">
-        <field name="name">Обробка виробничого браку за компаніями</field>
-        <field name="model_id" ref="model_quality_production_residual_operation"/>
-        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
-    </record>
+  <record id="group_quality_production_master" model="res.groups">
+    <field name="name">Виробничий брак C: рішення майстра</field>
+  </record>
+  <record id="group_quality_production_executor" model="res.groups">
+    <field name="name">Виробничий брак C: складський виконавець</field>
+  </record>
+  <record id="production_residual_company_rule" model="ir.rule">
+    <field name="name">Обробка виробничого браку за компаніями</field>
+    <field name="model_id" ref="model_quality_production_residual_operation"/>
+    <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+  </record>
+  <record id="production_decision_company_rule" model="ir.rule">
+    <field name="name">Рішення виробничого браку за компаніями</field>
+    <field name="model_id" ref="model_quality_production_case_decision"/>
+    <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+  </record>
+  <record id="access_production_master_alert" model="ir.model.access">
+    <field name="name">production.case.master.alert</field>
+    <field name="model_id" search="[('model', '=', 'quality.alert')]"/>
+    <field name="group_id" ref="group_quality_production_master"/>
+    <field name="perm_read">1</field>
+    <field name="perm_write">1</field>
+    <field name="perm_create">0</field>
+    <field name="perm_unlink">0</field>
+  </record>
+  <record id="access_production_master_check" model="ir.model.access">
+    <field name="name">production.case.master.check</field>
+    <field name="model_id" search="[('model', '=', 'quality.check')]"/>
+    <field name="group_id" ref="group_quality_production_master"/>
+    <field name="perm_read">1</field>
+    <field name="perm_write">0</field>
+    <field name="perm_create">0</field>
+    <field name="perm_unlink">0</field>
+  </record>
+  <record id="access_production_master_mo" model="ir.model.access">
+    <field name="name">production.case.master.mo</field>
+    <field name="model_id" search="[('model', '=', 'mrp.production')]"/>
+    <field name="group_id" ref="group_quality_production_master"/>
+    <field name="perm_read">1</field>
+    <field name="perm_write">0</field>
+    <field name="perm_create">0</field>
+    <field name="perm_unlink">0</field>
+  </record>
+  <record id="access_production_master_wo" model="ir.model.access">
+    <field name="name">production.case.master.wo</field>
+    <field name="model_id" search="[('model', '=', 'mrp.workorder')]"/>
+    <field name="group_id" ref="group_quality_production_master"/>
+    <field name="perm_read">1</field>
+    <field name="perm_write">0</field>
+    <field name="perm_create">0</field>
+    <field name="perm_unlink">0</field>
+  </record>
+  <record id="access_production_master_disposition" model="ir.model.access">
+    <field name="name">production.case.master.disposition</field>
+    <field name="model_id" search="[('model', '=', 'quality.production.disposition')]"/>
+    <field name="group_id" ref="group_quality_production_master"/>
+    <field name="perm_read">1</field>
+    <field name="perm_write">0</field>
+    <field name="perm_create">0</field>
+    <field name="perm_unlink">0</field>
+  </record>
+  <record id="access_production_master_operation" model="ir.model.access">
+    <field name="name">production.case.master.operation</field>
+    <field name="model_id" search="[('model', '=', 'quality.production.residual.operation')]"/>
+    <field name="group_id" ref="group_quality_production_master"/>
+    <field name="perm_read">1</field>
+    <field name="perm_write">0</field>
+    <field name="perm_create">0</field>
+    <field name="perm_unlink">0</field>
+  </record>
+  <record id="access_production_master_decision" model="ir.model.access">
+    <field name="name">production.case.master.decision</field>
+    <field name="model_id" search="[('model', '=', 'quality.production.case.decision')]"/>
+    <field name="group_id" ref="group_quality_production_master"/>
+    <field name="perm_read">1</field>
+    <field name="perm_write">0</field>
+    <field name="perm_create">0</field>
+    <field name="perm_unlink">0</field>
+  </record>
+  <record id="access_production_executor_alert" model="ir.model.access">
+    <field name="name">production.case.executor.alert</field>
+    <field name="model_id" search="[('model', '=', 'quality.alert')]"/>
+    <field name="group_id" ref="group_quality_production_executor"/>
+    <field name="perm_read">1</field>
+    <field name="perm_write">0</field>
+    <field name="perm_create">0</field>
+    <field name="perm_unlink">0</field>
+  </record>
+  <record id="access_production_executor_check" model="ir.model.access">
+    <field name="name">production.case.executor.check</field>
+    <field name="model_id" search="[('model', '=', 'quality.check')]"/>
+    <field name="group_id" ref="group_quality_production_executor"/>
+    <field name="perm_read">1</field>
+    <field name="perm_write">0</field>
+    <field name="perm_create">0</field>
+    <field name="perm_unlink">0</field>
+  </record>
+  <record id="access_production_executor_mo" model="ir.model.access">
+    <field name="name">production.case.executor.mo</field>
+    <field name="model_id" search="[('model', '=', 'mrp.production')]"/>
+    <field name="group_id" ref="group_quality_production_executor"/>
+    <field name="perm_read">1</field>
+    <field name="perm_write">0</field>
+    <field name="perm_create">0</field>
+    <field name="perm_unlink">0</field>
+  </record>
+  <record id="access_production_executor_wo" model="ir.model.access">
+    <field name="name">production.case.executor.wo</field>
+    <field name="model_id" search="[('model', '=', 'mrp.workorder')]"/>
+    <field name="group_id" ref="group_quality_production_executor"/>
+    <field name="perm_read">1</field>
+    <field name="perm_write">0</field>
+    <field name="perm_create">0</field>
+    <field name="perm_unlink">0</field>
+  </record>
+  <record id="access_production_executor_disposition" model="ir.model.access">
+    <field name="name">production.case.executor.disposition</field>
+    <field name="model_id" search="[('model', '=', 'quality.production.disposition')]"/>
+    <field name="group_id" ref="group_quality_production_executor"/>
+    <field name="perm_read">1</field>
+    <field name="perm_write">0</field>
+    <field name="perm_create">0</field>
+    <field name="perm_unlink">0</field>
+  </record>
+  <record id="access_production_executor_operation" model="ir.model.access">
+    <field name="name">production.case.executor.operation</field>
+    <field name="model_id" search="[('model', '=', 'quality.production.residual.operation')]"/>
+    <field name="group_id" ref="group_quality_production_executor"/>
+    <field name="perm_read">1</field>
+    <field name="perm_write">0</field>
+    <field name="perm_create">0</field>
+    <field name="perm_unlink">0</field>
+  </record>
+  <record id="access_production_executor_decision" model="ir.model.access">
+    <field name="name">production.case.executor.decision</field>
+    <field name="model_id" search="[('model', '=', 'quality.production.case.decision')]"/>
+    <field name="group_id" ref="group_quality_production_executor"/>
+    <field name="perm_read">1</field>
+    <field name="perm_write">0</field>
+    <field name="perm_create">0</field>
+    <field name="perm_unlink">0</field>
+  </record>
+  <record id="access_production_decision_quality" model="ir.model.access">
+    <field name="name">production.case.decision.quality</field>
+    <field name="model_id" ref="model_quality_production_case_decision"/>
+    <field name="group_id" ref="quality.group_quality_user"/>
+    <field name="perm_read">1</field>
+    <field name="perm_write">0</field>
+    <field name="perm_create">0</field>
+    <field name="perm_unlink">0</field>
+  </record>
+  <record id="production_case_scoped_alert" model="ir.rule">
+    <field name="name">C: призначений доступ без зміни попередніх ролей (alert)</field>
+    <field name="model_id" search="[('model', '=', 'quality.alert')]"/>
+    <field name="domain_force">[(1, '=', 1)] if (user._production_case_legacy_access('quality.alert', 'read')) or not (user.has_group('quality_vataga.group_quality_production_master') or user.has_group('quality_vataga.group_quality_production_executor')) else [('production_case_mo_id', '!=', False), ('company_id', 'in', company_ids), '|', ('production_master_id', '=', user.id), ('production_executor_id', '=', user.id)]</field>
+    <field name="perm_read">1</field>
+    <field name="perm_write">0</field>
+    <field name="perm_create">0</field>
+    <field name="perm_unlink">0</field>
+  </record>
+  <record id="production_case_scoped_alert_write" model="ir.rule">
+    <field name="name">C: лише призначений запис без розширення старих read-only ролей</field>
+    <field name="model_id" search="[('model', '=', 'quality.alert')]"/>
+    <field name="domain_force">[(1, '=', 1)] if user._production_case_legacy_access('quality.alert', 'write') or not (user.has_group('quality_vataga.group_quality_production_master') or user.has_group('quality_vataga.group_quality_production_executor')) else [('production_case_mo_id', '!=', False), ('company_id', 'in', company_ids), '|', ('production_master_id', '=', user.id), ('production_executor_id', '=', user.id)]</field>
+    <field name="perm_read">0</field>
+    <field name="perm_write">1</field>
+    <field name="perm_create">0</field>
+    <field name="perm_unlink">0</field>
+  </record>
+  <record id="production_case_scoped_check" model="ir.rule">
+    <field name="name">C: призначений доступ без зміни попередніх ролей (check)</field>
+    <field name="model_id" search="[('model', '=', 'quality.check')]"/>
+    <field name="domain_force">[(1, '=', 1)] if (user._production_case_legacy_access('quality.check', 'read')) or not (user.has_group('quality_vataga.group_quality_production_master') or user.has_group('quality_vataga.group_quality_production_executor')) else [('company_id', 'in', company_ids), '|', ('production_id.quality_production_case_ids.production_master_id', '=', user.id), ('production_id.quality_production_case_ids.production_executor_id', '=', user.id)]</field>
+    <field name="perm_read">1</field>
+    <field name="perm_write">0</field>
+    <field name="perm_create">0</field>
+    <field name="perm_unlink">0</field>
+  </record>
+  <record id="production_case_scoped_mo" model="ir.rule">
+    <field name="name">C: призначений доступ без зміни попередніх ролей (mo)</field>
+    <field name="model_id" search="[('model', '=', 'mrp.production')]"/>
+    <field name="domain_force">[(1, '=', 1)] if (user._production_case_legacy_access('mrp.production', 'read')) or not (user.has_group('quality_vataga.group_quality_production_master') or user.has_group('quality_vataga.group_quality_production_executor')) else [('company_id', 'in', company_ids), '|', ('quality_production_case_ids.production_master_id', '=', user.id), ('quality_production_case_ids.production_executor_id', '=', user.id)]</field>
+    <field name="perm_read">1</field>
+    <field name="perm_write">0</field>
+    <field name="perm_create">0</field>
+    <field name="perm_unlink">0</field>
+  </record>
+  <record id="production_case_scoped_wo" model="ir.rule">
+    <field name="name">C: призначений доступ без зміни попередніх ролей (wo)</field>
+    <field name="model_id" search="[('model', '=', 'mrp.workorder')]"/>
+    <field name="domain_force">[(1, '=', 1)] if (user._production_case_legacy_access('mrp.workorder', 'read')) or not (user.has_group('quality_vataga.group_quality_production_master') or user.has_group('quality_vataga.group_quality_production_executor')) else [('company_id', 'in', company_ids), '|', ('production_id.quality_production_case_ids.production_master_id', '=', user.id), ('production_id.quality_production_case_ids.production_executor_id', '=', user.id)]</field>
+    <field name="perm_read">1</field>
+    <field name="perm_write">0</field>
+    <field name="perm_create">0</field>
+    <field name="perm_unlink">0</field>
+  </record>
+  <record id="production_case_scoped_disposition" model="ir.rule">
+    <field name="name">C: призначений доступ без зміни попередніх ролей (disposition)</field>
+    <field name="model_id" search="[('model', '=', 'quality.production.disposition')]"/>
+    <field name="domain_force">[(1, '=', 1)] if (user._production_case_legacy_access('quality.production.disposition', 'read')) or not (user.has_group('quality_vataga.group_quality_production_master') or user.has_group('quality_vataga.group_quality_production_executor')) else [('company_id', 'in', company_ids), '|', ('production_id.quality_production_case_ids.production_master_id', '=', user.id), ('production_id.quality_production_case_ids.production_executor_id', '=', user.id)]</field>
+    <field name="perm_read">1</field>
+    <field name="perm_write">0</field>
+    <field name="perm_create">0</field>
+    <field name="perm_unlink">0</field>
+  </record>
+  <record id="production_case_scoped_operation" model="ir.rule">
+    <field name="name">C: призначений доступ без зміни попередніх ролей (operation)</field>
+    <field name="model_id" search="[('model', '=', 'quality.production.residual.operation')]"/>
+    <field name="domain_force">[(1, '=', 1)] if (user._production_case_legacy_access('quality.production.residual.operation', 'read')) or not (user.has_group('quality_vataga.group_quality_production_master') or user.has_group('quality_vataga.group_quality_production_executor')) else [('company_id', 'in', company_ids), '|', ('alert_id.production_master_id', '=', user.id), ('alert_id.production_executor_id', '=', user.id)]</field>
+    <field name="perm_read">1</field>
+    <field name="perm_write">0</field>
+    <field name="perm_create">0</field>
+    <field name="perm_unlink">0</field>
+  </record>
+  <record id="production_case_scoped_decision" model="ir.rule">
+    <field name="name">C: призначений доступ без зміни попередніх ролей (decision)</field>
+    <field name="model_id" search="[('model', '=', 'quality.production.case.decision')]"/>
+    <field name="domain_force">[(1, '=', 1)] if (user._production_case_legacy_access('quality.production.case.decision', 'read')) or not (user.has_group('quality_vataga.group_quality_production_master') or user.has_group('quality_vataga.group_quality_production_executor')) else [('company_id', 'in', company_ids), '|', ('alert_id.production_master_id', '=', user.id), ('alert_id.production_executor_id', '=', user.id)]</field>
+    <field name="perm_read">1</field>
+    <field name="perm_write">0</field>
+    <field name="perm_create">0</field>
+    <field name="perm_unlink">0</field>
+  </record>
 </odoo>

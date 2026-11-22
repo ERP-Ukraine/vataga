@@ -1,0 +1,140 @@
+2026-11-22 13:31:42,755 17684 INFO ? odoo: Odoo version 17.0
+2026-11-22 13:31:42,755 17684 INFO ? odoo: addons paths: ['C:\\Users\\Vadim\\Desktop\\vataga\\output\\stock-minimum-evidence\\odoo17\\odoo\\addons', 'c:\\users\\vadim\\.codex\\worktrees\\quality-incoming-stage-a\\vataga\\output\\quality-stage-c-review\\odoo-data\\addons\\17.0', 'c:\\users\\vadim\\desktop\\vataga\\output\\stock-minimum-evidence\\odoo17\\addons', 'c:\\users\\vadim\\.codex\\worktrees\\quality-incoming-stage-a\\vataga\\output\\quality-incoming-stage-a-validation\\addons', 'c:\\users\\vadim\\.codex\\worktrees\\quality-incoming-stage-a\\vataga\\output\\quality-stage-c-review\\addons', 'c:\\users\\vadim\\desktop\\vataga\\output\\stock-minimum-evidence\\odoo17\\odoo\\addons']
+2026-11-22 13:31:42,765 17684 INFO ? odoo: database: odoo@127.0.0.1:55529
+2026-11-22 13:31:42,880 17684 INFO ? odoo.addons.base.models.ir_actions_report: You need Wkhtmltopdf to print a pdf version of the reports.
+2026-11-22 13:31:43,126 17684 INFO quality_stage_c_guard_review odoo.modules.loading: loading 1 modules...
+2026-11-22 13:31:43,154 17684 INFO quality_stage_c_guard_review odoo.modules.loading: 1 modules loaded in 0.03s, 0 queries (+0 extra)
+2026-11-22 13:31:43,164 17684 INFO quality_stage_c_guard_review odoo.modules.loading: updating modules list
+2026-11-22 13:31:43,167 17684 INFO quality_stage_c_guard_review odoo.addons.base.models.ir_module: ALLOW access to module.update_list on [] to user __system__ #1 via n/a
+2026-11-22 13:31:43,854 17684 INFO quality_stage_c_guard_review odoo.addons.base.models.ir_module: ALLOW access to module.button_upgrade on ['Disposable C guard review; NOT Enterprise QC', 'Disposable real Stock contracts, Enterprise QC NOT loaded'] to user __system__ #1 via n/a
+2026-11-22 13:31:43,854 17684 INFO quality_stage_c_guard_review odoo.addons.base.models.ir_module: ALLOW access to module.update_list on ['Disposable C guard review; NOT Enterprise QC', 'Disposable real Stock contracts, Enterprise QC NOT loaded'] to user __system__ #1 via n/a
+2026-11-22 13:31:44,142 17684 INFO quality_stage_c_guard_review odoo.addons.base.models.ir_module: ALLOW access to module.button_install on [] to user __system__ #1 via n/a
+2026-11-22 13:31:44,160 17684 INFO quality_stage_c_guard_review odoo.modules.loading: loading 37 modules...
+2026-11-22 13:31:44,367 17684 INFO ? odoo.service.server: HTTP service (werkzeug) running on DESKTOP-N7E7T3D:8069
+2026-11-22 13:31:44,904 17684 INFO quality_stage_c_guard_review odoo.modules.loading: Loading module quality_incoming_stock_contract (35/37)
+2026-11-22 13:31:44,992 17684 INFO quality_stage_c_guard_review odoo.modules.registry: module quality_incoming_stock_contract: creating or updating database tables
+2026-11-22 13:31:45,101 17684 INFO quality_stage_c_guard_review odoo.modules.loading: loading quality_incoming_stock_contract/groups.xml
+2026-11-22 13:31:45,108 17684 INFO quality_stage_c_guard_review odoo.modules.loading: loading quality_incoming_stock_contract/ir.model.access.csv
+2026-11-22 13:31:45,126 17684 INFO quality_stage_c_guard_review odoo.modules.loading: loading quality_incoming_stock_contract/rules.xml
+2026-11-22 13:31:45,160 17684 INFO quality_stage_c_guard_review odoo.modules.loading: Module quality_incoming_stock_contract loaded in 0.26s, 223 queries (+223 other)
+2026-11-22 13:31:45,167 17684 INFO quality_stage_c_guard_review odoo.modules.loading: Loading module quality_c_guard_contract (37/37)
+2026-11-22 13:31:45,256 17684 INFO quality_stage_c_guard_review odoo.modules.registry: module quality_c_guard_contract: creating or updating database tables
+2026-11-22 13:31:45,295 17684 WARNING quality_stage_c_guard_review odoo.modules.loading: The models ['quality.alert'] have no access rules in module quality_c_guard_contract, consider adding some, like:
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+quality_c_guard_contract.access_quality_alert,access_quality_alert,quality_c_guard_contract.model_quality_alert,base.group_user,1,0,0,0
+2026-11-22 13:31:45,297 17684 INFO quality_stage_c_guard_review odoo.modules.loading: Module quality_c_guard_contract loaded in 0.13s, 65 queries (+65 other)
+2026-11-22 13:31:45,297 17684 INFO quality_stage_c_guard_review odoo.modules.loading: 37 modules loaded in 1.14s, 288 queries (+288 extra)
+2026-11-22 13:31:45,462 17684 INFO quality_stage_c_guard_review odoo.modules.registry: verifying fields for every extended model
+2026-11-22 13:31:45,713 17684 INFO quality_stage_c_guard_review odoo.modules.loading: Modules loaded.
+2026-11-22 13:31:45,725 17684 INFO quality_stage_c_guard_review odoo.modules.registry: Registry loaded in 2.635s
+2026-11-22 13:31:45,725 17684 INFO quality_stage_c_guard_review odoo.service.server: Starting post tests
+2026-11-22 13:31:45,727 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_incoming_stock: Starting TestIncomingConcurrency.test_two_users_cannot_double_count_inspected_quantities ...
+2026-11-22 13:31:46,607 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #12 deleted stock.move.line records with IDs: [25]
+2026-11-22 13:31:46,814 17684 ERROR ? odoo.sql_db: bad query: SELECT id FROM quality_incoming_hold WHERE id IN (7) ORDER BY id FOR UPDATE
+ERROR: could not serialize access due to concurrent update
+
+2026-11-22 13:31:46,815 17684 INFO ? odoo.service.model: SERIALIZATION_FAILURE, 4 tries left, try again in 0.2496 sec...
+2026-11-22 13:31:47,080 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_incoming_stock: Starting TestIncomingConcurrency.test_two_users_confirming_same_return_create_one_stock_document ...
+2026-11-22 13:31:47,586 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #14 deleted stock.move.line records with IDs: [27]
+2026-11-22 13:31:47,848 17684 ERROR ? odoo.sql_db: bad query: SELECT id FROM quality_incoming_hold WHERE id IN (8) ORDER BY id FOR UPDATE
+ERROR: could not serialize access due to concurrent update
+
+2026-11-22 13:31:47,850 17684 INFO ? odoo.service.model: SERIALIZATION_FAILURE, 4 tries left, try again in 1.7888 sec...
+2026-11-22 13:31:52,171 17684 INFO quality_stage_c_guard_review odoo.addons.base.models.ir_attachment: filestore gc 4 checked, 0 removed
+2026-11-22 13:31:52,433 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_incoming_stock: Starting TestIncomingStock.test_failed_execution_rolls_back_stock_and_ledger ...
+2026-11-22 13:31:52,500 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [30]
+2026-11-22 13:31:52,564 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_incoming_stock: Starting TestIncomingStock.test_full_control_separates_good_bad_and_return ...
+2026-11-22 13:31:52,603 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [32]
+2026-11-22 13:31:52,760 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_incoming_stock: Starting TestIncomingStock.test_full_fail_cannot_release ...
+2026-11-22 13:31:52,796 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [36]
+2026-11-22 13:31:52,852 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_incoming_stock: Starting TestIncomingStock.test_full_pass_release_and_repeat ...
+2026-11-22 13:31:52,889 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [38]
+2026-11-22 13:31:52,971 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_incoming_stock: Starting TestIncomingStock.test_manual_context_and_negative_stock_do_not_bypass_quarantine ...
+2026-11-22 13:31:53,020 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [41]
+2026-11-22 13:31:53,078 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_incoming_stock: Starting TestIncomingStock.test_manual_defect_without_plan_allows_quick_return ...
+2026-11-22 13:31:53,124 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [43]
+2026-11-22 13:31:53,231 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_incoming_stock: Starting TestIncomingStock.test_old_draft_receipt_is_not_migrated_when_enabling_cab ...
+2026-11-22 13:31:53,686 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_incoming_stock: Starting TestIncomingStock.test_only_explicitly_controlled_products_are_opted_in ...
+2026-11-22 13:31:53,742 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [47]
+2026-11-22 13:31:53,762 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_incoming_stock: Starting TestIncomingStock.test_other_company_user_cannot_read_or_execute_hold ...
+2026-11-22 13:31:53,801 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [49]
+2026-11-22 13:31:54,135 17684 INFO quality_stage_c_guard_review odoo.addons.base.models.ir_rule: Access Denied by record rules for operation: read on record ids: [15], uid: 16, model: quality.incoming.hold
+2026-11-22 13:31:54,145 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_incoming_stock: Starting TestIncomingStock.test_other_warehouse_and_preexisting_receipts_are_unchanged ...
+2026-11-22 13:31:54,302 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [51]
+2026-11-22 13:31:54,328 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_incoming_stock: Starting TestIncomingStock.test_overreceipt_accounts_all_posted_source_lines ...
+2026-11-22 13:31:54,364 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [53]
+2026-11-22 13:31:54,402 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move records with IDs: [53]
+2026-11-22 13:31:54,429 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_incoming_stock: Starting TestIncomingStock.test_owner_and_complete_package_are_preserved ...
+2026-11-22 13:31:54,468 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [55]
+2026-11-22 13:31:54,571 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.quant records with IDs: [28, 27, 54]
+2026-11-22 13:31:54,590 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_incoming_stock: Starting TestIncomingStock.test_partial_inspection_and_return_keep_unchecked_balance ...
+2026-11-22 13:31:54,627 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [58]
+2026-11-22 13:31:54,737 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_incoming_stock: Starting TestIncomingStock.test_partial_receipt_backorder_is_received_to_quarantine_separately ...
+2026-11-22 13:31:54,783 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [61]
+2026-11-22 13:31:54,905 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_incoming_stock: Starting TestIncomingStock.test_quantities_cannot_exceed_source_or_be_fractional_pieces ...
+2026-11-22 13:31:54,946 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [64]
+2026-11-22 13:31:55,012 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_incoming_stock: Starting TestIncomingStock.test_quick_partial_return_without_full_inspection ...
+2026-11-22 13:31:55,046 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [66]
+2026-11-22 13:31:55,134 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_incoming_stock: Starting TestIncomingStock.test_receipt_is_quarantined_and_not_reservable ...
+2026-11-22 13:31:55,170 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [69]
+2026-11-22 13:31:55,214 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_incoming_stock: Starting TestIncomingStock.test_same_lot_two_receipts_are_accounted_independently ...
+2026-11-22 13:31:55,277 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [71]
+2026-11-22 13:31:55,341 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [73]
+2026-11-22 13:31:55,440 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_incoming_stock: Starting TestIncomingStock.test_serial_return_preserves_identity ...
+2026-11-22 13:31:55,503 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [76]
+2026-11-22 13:31:55,600 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_incoming_stock: Starting TestIncomingStock.test_stock_user_cannot_confirm_inspection_or_release ...
+2026-11-22 13:31:55,635 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [79]
+2026-11-22 13:31:55,736 17684 INFO quality_stage_c_guard_review odoo.addons.base.models.ir_attachment: filestore gc 2 checked, 2 removed
+2026-11-22 13:31:55,938 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_production_release_stock: Starting TestProductionReleaseStock.test_excess_or_foreign_source_cannot_move_stock ...
+2026-11-22 13:31:55,972 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [81]
+2026-11-22 13:31:56,027 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_production_release_stock: Starting TestProductionReleaseStock.test_partial_release_preserves_exact_lot ...
+2026-11-22 13:31:56,076 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [83]
+2026-11-22 13:31:56,138 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_production_release_stock: Starting TestProductionReleaseStock.test_three_of_five_moves_exactly_three_and_keeps_original_receipt ...
+2026-11-22 13:31:56,175 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [86]
+2026-11-22 13:31:56,257 17684 INFO quality_stage_c_guard_review odoo.addons.base.models.ir_attachment: filestore gc 0 checked, 0 removed
+2026-11-22 13:31:56,440 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_production_residual_stock: Starting TestProductionResidualStock.test_c_excess_quantity_or_foreign_lot_cannot_consume_released_stock ...
+2026-11-22 13:31:56,476 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [89]
+2026-11-22 13:31:56,555 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_production_residual_stock: Starting TestProductionResidualStock.test_c_full_fail_scraps_exact_five_with_lot ...
+2026-11-22 13:31:56,597 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [92]
+2026-11-22 13:31:56,677 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move records with IDs: [80]
+2026-11-22 13:31:56,694 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_production_residual_stock: Starting TestProductionResidualStock.test_c_multiple_lots_keep_separate_moves_and_unselected_lot ...
+2026-11-22 13:31:56,740 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [95]
+2026-11-22 13:31:56,803 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [97]
+2026-11-22 13:31:56,861 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [99]
+2026-11-22 13:31:56,943 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move records with IDs: [85]
+2026-11-22 13:31:57,001 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move records with IDs: [87]
+2026-11-22 13:31:57,022 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_production_residual_stock: Starting TestProductionResidualStock.test_c_owner_and_package_cannot_be_substituted ...
+2026-11-22 13:31:57,060 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [103]
+2026-11-22 13:31:57,129 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [105]
+2026-11-22 13:31:57,167 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_production_residual_stock: Starting TestProductionResidualStock.test_c_scraps_only_two_and_keeps_released_three ...
+2026-11-22 13:31:57,205 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [107]
+2026-11-22 13:31:57,301 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move records with IDs: [93]
+2026-11-22 13:31:57,330 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_production_residual_stock: Starting TestProductionResidualStock.test_c_serials_are_scrapped_by_confirmed_serial_only ...
+2026-11-22 13:31:57,373 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [111]
+2026-11-22 13:31:57,438 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [113]
+2026-11-22 13:31:57,542 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move records with IDs: [98]
+2026-11-22 13:31:57,559 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_production_residual_stock: Starting TestProductionResidualStock.test_c_shared_quantity_is_rejected_without_rounding_or_clamping ...
+2026-11-22 13:31:57,594 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [117]
+2026-11-22 13:31:57,636 17684 INFO quality_stage_c_guard_review odoo.addons.quality_incoming_stock_contract.tests.test_production_residual_stock: Starting TestProductionResidualStock.test_c_shortage_and_reservation_are_rejected_before_scrap ...
+2026-11-22 13:31:57,673 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [119]
+2026-11-22 13:31:57,764 17684 INFO quality_stage_c_guard_review odoo.addons.base.models.ir_attachment: filestore gc 0 checked, 0 removed
+2026-11-22 13:31:57,971 17684 INFO quality_stage_c_guard_review odoo.addons.quality_c_guard_contract.tests.test_guard_review: Starting TestGuardReview.test_direct_c_mo_links_are_rejected ...
+2026-11-22 13:31:58,006 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [122]
+2026-11-22 13:31:58,158 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move records with IDs: [104]
+2026-11-22 13:31:58,261 17684 INFO quality_stage_c_guard_review odoo.addons.quality_c_guard_contract.tests.test_guard_review: Starting TestGuardReview.test_non_c_standard_manufacture_and_unbuild_still_work ...
+2026-11-22 13:31:58,363 17684 INFO quality_stage_c_guard_review odoo.addons.quality_c_guard_contract.tests.test_guard_review: Starting TestGuardReview.test_non_c_standard_scrap_still_works ...
+2026-11-22 13:31:58,401 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [127]
+2026-11-22 13:31:58,494 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move records with IDs: [110]
+2026-11-22 13:31:58,634 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #19 deleted stock.move records with IDs: [113]
+2026-11-22 13:31:58,659 17684 INFO quality_stage_c_guard_review odoo.addons.quality_c_guard_contract.tests.test_guard_review: Starting TestGuardReview.test_reproduce_workorder_only_c_scrap_consumes_released_stock ...
+2026-11-22 13:31:58,696 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [131]
+2026-11-22 13:31:58,790 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move records with IDs: [116]
+2026-11-22 13:31:58,923 17684 INFO quality_stage_c_guard_review odoo.models.unlink: User #20 deleted stock.move records with IDs: [119]
+2026-11-22 13:31:58,955 17684 INFO quality_stage_c_guard_review odoo.addons.base.models.ir_attachment: filestore gc 1 checked, 1 removed
+2026-11-22 13:31:58,965 17684 INFO quality_stage_c_guard_review odoo.service.server: 37 post-tests in 13.24s, 16882 queries
+2026-11-22 13:31:58,965 17684 INFO quality_stage_c_guard_review odoo.tests.stats: quality_c_guard_contract: 6 tests 1.19s 2248 queries
+2026-11-22 13:31:58,965 17684 INFO quality_stage_c_guard_review odoo.tests.stats: quality_incoming_stock_contract: 41 tests 12.04s 14634 queries
+2026-11-22 13:31:58,965 17684 INFO quality_stage_c_guard_review odoo.tests.result: 0 failed, 0 error(s) of 37 tests when loading database 'quality_stage_c_guard_review'
+2026-11-22 13:31:58,965 17684 INFO quality_stage_c_guard_review odoo.service.server: Initiating shutdown
+2026-11-22 13:31:58,965 17684 INFO quality_stage_c_guard_review odoo.service.server: Hit CTRL-C again or send a second signal to force the shutdown.
+2026-11-22 13:31:59,206 17684 INFO quality_stage_c_guard_review odoo.sql_db: ConnectionPool(used=0/count=0/max=64): Closed 4 connections

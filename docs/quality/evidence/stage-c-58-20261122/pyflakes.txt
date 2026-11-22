@@ -1,0 +1,9 @@
+Date: 2026-11-22
+Tool: Pyflakes 3.4.0
+Final result: PASS; exit code 0; no diagnostics.
+Files:
+extra-addons/quality_vataga/models/production_case_authority.py
+extra-addons/quality_vataga/models/production_case_stock_guards.py
+extra-addons/quality_vataga/models/production_quality_case.py
+extra-addons/quality_vataga/tests/test_quality_check_measurement_matrix.py
+Static check only; full Enterprise registry and browser acceptance BLOCKED.

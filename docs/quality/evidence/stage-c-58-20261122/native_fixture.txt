@@ -1,0 +1,58 @@
+"""Native ORM/Stock authority contracts; declared EE matrix input boundary."""
+from odoo import Command
+from odoo.exceptions import AccessError, UserError
+from odoo.tests import TransactionCase, tagged
+from ..models.stock_quarantine import QUARANTINE_CONTEXT, QUARANTINE_OPERATION
+
+@tagged('post_install', '-at_install', 'c_authority_contract')
+class TestAuthorityContract(TransactionCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.env.user.groups_id = [Command.link(cls.env.ref('quality.group_quality_manager').id),
+                                 Command.link(cls.env.ref('stock.group_stock_manager').id),
+                                 Command.link(cls.env.ref('mrp.group_mrp_user').id)]
+
+    def _stage_c_order(self, *, second_check=False):
+        warehouse = self.env['stock.warehouse'].create({'name': 'C authority CAB', 'code': 'CAB'})
+        warehouse.action_enable_incoming_quality()
+        quarantine = warehouse.quality_incoming_location_id
+        context = {QUARANTINE_CONTEXT: QUARANTINE_OPERATION}
+        warehouse.manu_type_id.with_context(**context).write({'quality_quarantine_location_id': quarantine.id})
+        product = self.env['product.product'].create({
+            'name': 'C authority finished', 'type': 'product', 'tracking': 'lot',
+            'quality_partial_production_control': True, 'quality_production_case_control': True,
+        })
+        lot = self.env['stock.lot'].create({'name': 'C authority lot', 'product_id': product.id, 'company_id': self.env.company.id})
+        production = self.env['mrp.production'].with_context(**context).create({
+            'product_id': product.id, 'product_qty': 5, 'product_uom_id': product.uom_id.id,
+            'picking_type_id': warehouse.manu_type_id.id, 'location_dest_id': quarantine.id,
+            'lot_producing_id': lot.id,
+        })
+        production.action_confirm()
+        production.qty_producing = 5
+        production.button_mark_done()
+        self.assertEqual(production.state, 'done')
+        receipt = production.move_finished_ids
+        self.assertEqual((receipt.quantity, receipt.location_dest_id), (5, quarantine))
+        point = self.env['quality.point'].create({'name': 'Declared QC point'})
+        if second_check:
+            point |= self.env['quality.point'].create({'name': 'Second declared QC point'})
+        workcenter = self.env['mrp.workcenter'].create({'name': 'Native C operation'})
+        workorder = self.env['mrp.workorder'].create({'name': 'C operation', 'production_id': production.id,
+                                                   'workcenter_id': workcenter.id, 'product_uom_id': product.uom_id.id})
+        production.quality_quarantine_point_ids = [Command.set(point.ids)]
+        team = self.env['quality.alert.team'].create({'name': 'Declared QC team'})
+        check = self.env['quality.check'].create([{
+            'production_id': production.id, 'product_id': product.id, 'point_id': item.id,
+            'team_id': team.id, 'automatic_sample_lot_id': lot.id, 'lot_id': lot.id, 'workorder_id': workorder.id,
+            'sample_ids': [Command.create({'sample_number': index + 1}) for index in range(5)],
+        } for item in point])
+        self.env['stock.move'].with_context(**context).create({
+            'name': 'C native pending release', 'product_id': product.id,
+            'product_uom': product.uom_id.id, 'product_uom_qty': 5,
+            'company_id': self.env.company.id, 'picking_type_id': warehouse.int_type_id.id,
+            'location_id': quarantine.id, 'location_dest_id': warehouse.lot_stock_id.id,
+            'quality_held_move_id': receipt.id,
+        })
+        return production, check, quarantine, warehouse.lot_stock_id

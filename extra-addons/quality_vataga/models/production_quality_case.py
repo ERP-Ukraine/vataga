@@ -15,6 +15,8 @@ from .production_residual_stock import (case_context, case_internal, check_resid
 CASE_AUDIT = {'production_case_mo_id', 'production_case_check_ids', 'production_case_evidence',
               'production_residual_approval', 'production_proposed_by_id', 'production_proposed_at',
               'production_d_requested_by_id', 'production_d_requested_at'}
+CASE_READ_GROUPS = ('quality.group_quality_user,quality_vataga.group_quality_production_master,'
+                    'quality_vataga.group_quality_production_executor')
 
 
 class ProductProductionCase(models.Model):
@@ -23,14 +25,15 @@ class ProductProductionCase(models.Model):
     quality_production_case_control = fields.Boolean(
         string='Обробка виробничого браку (етап C)', copy=False,
         groups='quality.group_quality_manager,stock.group_stock_manager',
-        help='Лише нові МО CAB з увімкненим B. Пропозиція → призначена техрада → складське виконання.')
+        help='Лише нові МО CAB з B. Звичайний брак: майстер → окремий склад. Критичний: техрада.')
 
 
 class ProductionQualityCase(models.Model):
     _inherit = 'mrp.production'
 
     quality_production_case_enabled = fields.Boolean(readonly=True, copy=False)
-    quality_production_case_ids = fields.One2many('quality.alert', 'production_case_mo_id', readonly=True)
+    quality_production_case_ids = fields.One2many('quality.alert', 'production_case_mo_id', readonly=True,
+                                                 groups=CASE_READ_GROUPS)
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -173,7 +176,8 @@ class ProductionCaseDisposition(models.Model):
     _inherit = 'quality.production.disposition'
 
     residual_operation_ids = fields.One2many('quality.production.residual.operation', 'disposition_id', readonly=True)
-    production_case_ids = fields.One2many(related='production_id.quality_production_case_ids', readonly=True)
+    production_case_ids = fields.One2many(related='production_id.quality_production_case_ids', readonly=True,
+                                         groups=CASE_READ_GROUPS)
 
     @api.depends('produced_qty', 'release_move_ids.state', 'release_move_ids.quantity',
                  'source_move_ids.quality_production_board_alert_ids.board_executed_at',
@@ -341,7 +345,7 @@ class ProductionCaseAlert(models.Model):
             raise UserError(_('У C доступні списання підтвердженого залишку або заявка розбирання D.'))
         if not (self.decision_reason or '').strip():
             raise UserError(_('Вкажіть підставу пропозиції та передачі технічній раді.'))
-        scopes = self._production_residual_scope()
+        scopes = self.sudo()._production_residual_scope()
         if self.production_residual_approval and self.production_residual_approval != scopes:
             raise UserError(_('Підтверджений залишок змінився після передачі техраді.'))
         return {'production_residual_approval': scopes}
@@ -365,20 +369,27 @@ class ProductionCaseAlert(models.Model):
     def action_execute_board_quarantine(self):
         if not self._case_production():
             return super().action_execute_board_quarantine()
-        production = self._case_lock()
+        self._case_lock()
         if (not self.env.user.has_group(APPROVAL_GROUP) or not self.env.user.has_group('stock.group_stock_user')
                 or not self.is_approved or self.approval_user_id != self.env.user or self.approved_by_id != self.env.user
                 or self.stage_id != self.env.ref(BOARD_STAGE_XMLIDS[2]) or self.company_id not in self.env.companies):
             raise AccessError(_('Виконує лише призначений затверджуючий техради з правами складу після затвердження.'))
         if self.production_residual_operation_ids or self.production_d_requested_at:
             return True
-        scopes = self._production_residual_scope(lock=True)
+        return self._execute_production_residual()
+
+    def _execute_production_residual(self):
+        """Shared private executor; public entry points verify their own authority."""
+        self.ensure_one()
+        production = self.sudo().production_case_mo_id
+        scopes = self.sudo()._production_residual_scope(lock=True)
         if scopes != self.production_residual_approval:
             raise UserError(_('Залишок більше не відповідає затвердженому рішенню.'))
         if self.decision_type == 'unbuild':
-            self.with_context(case_context(self.env)).write({
+            self.sudo().with_context(case_context(self.env)).write({
                 'production_d_requested_at': fields.Datetime.now(), 'production_d_requested_by_id': self.env.uid})
-            self.message_post(body=_('Заявку D підтверджено. Вироби залишаються в карантині; розбирання та рухів компонентів немає.'))
+            self.sudo().message_post(author_id=self.env.user.partner_id.id,
+                                    body=_('Заявку D підтверджено. Вироби залишаються в карантині; розбирання та рухів компонентів немає.'))
             return True
         if self.decision_type != 'scrap':
             raise UserError(_('Це рішення не має складського виконання в C.'))
@@ -393,8 +404,9 @@ class ProductionCaseAlert(models.Model):
             })
         pending = production.move_finished_ids.quality_release_move_ids.filtered(lambda move: move.state == 'draft')
         if pending:
-            pending.with_context(case_context(self.env))._action_cancel()
-        self.message_post(body=_('Списано лише підтверджений залишок: %s шт. Раніше випущені вироби та QC збережено.',
+            pending.with_user(self.env.user).with_context(case_context(self.env))._action_cancel()
+        self.sudo().message_post(author_id=self.env.user.partner_id.id,
+                                body=_('Списано лише підтверджений залишок: %s шт. Раніше випущені вироби та QC збережено.',
                                 sum(scope['quantity'] for scope in scopes)))
         return True
 

@@ -1,0 +1,26 @@
+{
+  "date": "2026-11-22",
+  "version": "17.0.2.58",
+  "status": "PASS",
+  "scope": "local structural checks; NOT Enterprise registry / browser acceptance",
+  "python_ast_files": 53,
+  "xml_files": 18,
+  "manifest_data_files": 17,
+  "residual_acls": "existing 2 read-only ACLs preserved; scoped role access defined in XML",
+  "new_roles": "2 empty groups; no users, implied roles, or automatic assignments",
+  "implicit_many2many_collisions": 0,
+  "c_xpath_matches_exactly_one": {
+    "production_case_product_form": 1,
+    "production_case_mo_form": 2,
+    "production_case_alert_form": 5,
+    "production_case_disposition_form": 1
+  },
+  "view_limits": "Community product/MO bases and owned Alert/disposition fragments only; full EE combined view BLOCKED",
+  "native_adapter_exact_source_sha256": {
+    "models/production_residual_stock.py": "5c86d7cc89013d4fa33145631c884c057d841cd4d5c3699da15dcc9bcc4e18a6",
+    "models/production_release_stock.py": "ed7341ae1b9d188ec3a6e30eaf7bef78ca71610160cf3db04809fbbc6de2ca95",
+    "tests/test_production_residual_stock.py": "4b60620f8631f9c219deb1d59aec213ca5ad955970ecf08f7b6c04eb5f6412eb",
+    "tests/test_production_release_stock.py": "ae26a21df7d7ed5df90b37277babe5e27fc51b1853c591e71fa6cccfeaebb94a"
+  },
+  "pure_tests_passed": 33
+}

@@ -1,0 +1,57 @@
+{
+  "date": "2026-11-22",
+  "candidate_commit": "8df24247b3e15de05ae9791573149c01573fcb79",
+  "candidate_version": "17.0.2.57",
+  "baseline_commit": "c6e2661e",
+  "product_code_unchanged": true,
+  "copied_models_identical_sha256": {
+    "production_case_stock_guards.py": "ef5091b3cbbbe1e072a0e35f34e6516be8cd0a88f5c260a3bdd844ab0a194d93",
+    "production_residual_stock.py": "5c86d7cc89013d4fa33145631c884c057d841cd4d5c3699da15dcc9bcc4e18a6"
+  },
+  "database": "quality_stage_c_guard_review",
+  "database_host": "127.0.0.1:55529",
+  "native_models": [
+    "stock",
+    "mrp"
+  ],
+  "declared_only": [
+    "quality.alert case link",
+    "mrp.production C flag and inverse case link"
+  ],
+  "not_loaded": [
+    "Enterprise quality_control",
+    "Enterprise quality_mrp",
+    "full quality_vataga"
+  ],
+  "pure_plan_tests": {
+    "executed": 33,
+    "errors": 0
+  },
+  "native_runner": {
+    "executed": 37,
+    "runner_failures": 0,
+    "runner_errors": 0,
+    "existing_stock_contracts": 33,
+    "new_diagnostic_tests": 4
+  },
+  "defect_reproduced": {
+    "id": "C-G01",
+    "safety_requirement": "FAIL",
+    "actor": "disposable MRP User + Stock User; no board authority",
+    "scrap_link": "workorder_id -> C-marked MO with case link; production_id=False; no direct C alert link",
+    "before": {
+      "quarantine": 2,
+      "released_stock": 3
+    },
+    "after": {
+      "quarantine": 2,
+      "released_stock": 1,
+      "done_standard_scrap": 2
+    },
+    "note": "The diagnostic asserts observed unsafe behavior; a green runner is NOT acceptance PASS."
+  },
+  "full_enterprise_integration": "BLOCKED",
+  "browser_acceptance": "BLOCKED",
+  "new_rights_implemented": false,
+  "staging_or_production_changes": false
+}

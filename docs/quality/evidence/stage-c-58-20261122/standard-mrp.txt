@@ -1,0 +1,41 @@
+2026-11-22 20:33:04,680 41944 INFO ? odoo: Odoo version 17.0
+2026-11-22 20:33:04,680 41944 INFO ? odoo: addons paths: ['C:\\Users\\Vadim\\Desktop\\vataga\\output\\stock-minimum-evidence\\odoo17\\odoo\\addons', 'c:\\users\\vadim\\.codex\\worktrees\\quality-incoming-stage-a\\vataga\\output\\quality-stage-c-review\\odoo-data\\addons\\17.0', 'c:\\users\\vadim\\desktop\\vataga\\output\\stock-minimum-evidence\\odoo17\\addons', 'c:\\users\\vadim\\.codex\\worktrees\\quality-incoming-stage-a\\vataga\\output\\quality-incoming-stage-a-validation\\addons', 'c:\\users\\vadim\\.codex\\worktrees\\quality-incoming-stage-a\\vataga\\output\\quality-stage-c-review\\addons', 'c:\\users\\vadim\\desktop\\vataga\\output\\stock-minimum-evidence\\odoo17\\odoo\\addons']
+2026-11-22 20:33:04,691 41944 INFO ? odoo: database: odoo@127.0.0.1:55529
+2026-11-22 20:33:04,812 41944 INFO ? odoo.addons.base.models.ir_actions_report: You need Wkhtmltopdf to print a pdf version of the reports.
+2026-11-22 20:33:05,026 41944 INFO ? odoo.service.server: HTTP service (werkzeug) running on DESKTOP-N7E7T3D:8069
+2026-11-22 20:33:05,052 41944 INFO quality_stage_c_guard_review odoo.modules.loading: loading 1 modules...
+2026-11-22 20:33:05,082 41944 INFO quality_stage_c_guard_review odoo.modules.loading: 1 modules loaded in 0.03s, 0 queries (+0 extra)
+2026-11-22 20:33:05,092 41944 INFO quality_stage_c_guard_review odoo.modules.loading: updating modules list
+2026-11-22 20:33:05,094 41944 INFO quality_stage_c_guard_review odoo.addons.base.models.ir_module: ALLOW access to module.update_list on [] to user __system__ #1 via n/a
+2026-11-22 20:33:05,787 41944 INFO quality_stage_c_guard_review odoo.addons.base.models.ir_module: ALLOW access to module.button_upgrade on ['Disposable C guard review; NOT Enterprise QC'] to user __system__ #1 via n/a
+2026-11-22 20:33:05,787 41944 INFO quality_stage_c_guard_review odoo.addons.base.models.ir_module: ALLOW access to module.update_list on ['Disposable C guard review; NOT Enterprise QC'] to user __system__ #1 via n/a
+2026-11-22 20:33:06,108 41944 INFO quality_stage_c_guard_review odoo.addons.base.models.ir_module: ALLOW access to module.button_install on [] to user __system__ #1 via n/a
+2026-11-22 20:33:06,120 41944 INFO quality_stage_c_guard_review odoo.modules.loading: loading 37 modules...
+2026-11-22 20:33:06,825 41944 INFO quality_stage_c_guard_review odoo.modules.loading: Loading module quality_c_guard_contract (37/37)
+2026-11-22 20:33:06,911 41944 INFO quality_stage_c_guard_review odoo.modules.registry: module quality_c_guard_contract: creating or updating database tables
+2026-11-22 20:33:06,973 41944 WARNING quality_stage_c_guard_review odoo.modules.loading: The models ['quality.alert'] have no access rules in module quality_c_guard_contract, consider adding some, like:
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+quality_c_guard_contract.access_quality_alert,access_quality_alert,quality_c_guard_contract.model_quality_alert,base.group_user,1,0,0,0
+2026-11-22 20:33:06,975 41944 INFO quality_stage_c_guard_review odoo.modules.loading: Module quality_c_guard_contract loaded in 0.15s, 82 queries (+82 other)
+2026-11-22 20:33:06,976 41944 INFO quality_stage_c_guard_review odoo.modules.loading: 37 modules loaded in 0.86s, 82 queries (+82 extra)
+2026-11-22 20:33:07,359 41944 INFO quality_stage_c_guard_review odoo.modules.loading: Modules loaded.
+2026-11-22 20:33:07,361 41944 INFO quality_stage_c_guard_review odoo.modules.registry: Registry loaded in 2.340s
+2026-11-22 20:33:07,361 41944 INFO quality_stage_c_guard_review odoo.service.server: Starting post tests
+2026-11-22 20:33:07,563 41944 INFO quality_stage_c_guard_review odoo.addons.quality_c_guard_contract.tests.test_guard_review: Starting TestGuardReview.test_direct_c_mo_links_are_rejected ...
+2026-11-22 20:33:07,611 41944 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [135]
+2026-11-22 20:33:07,721 41944 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move records with IDs: [122]
+2026-11-22 20:33:07,871 41944 INFO quality_stage_c_guard_review odoo.addons.quality_c_guard_contract.tests.test_guard_review: Starting TestGuardReview.test_non_c_standard_manufacture_and_unbuild_still_work ...
+2026-11-22 20:33:07,973 41944 INFO quality_stage_c_guard_review odoo.addons.quality_c_guard_contract.tests.test_guard_review: Starting TestGuardReview.test_non_c_standard_scrap_still_works ...
+2026-11-22 20:33:08,012 41944 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [140]
+2026-11-22 20:33:08,100 41944 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move records with IDs: [128]
+2026-11-22 20:33:08,256 41944 INFO quality_stage_c_guard_review odoo.models.unlink: User #22 deleted stock.move records with IDs: [131]
+2026-11-22 20:33:08,283 41944 INFO quality_stage_c_guard_review odoo.addons.quality_c_guard_contract.tests.test_guard_review: Starting TestGuardReview.test_reproduce_workorder_only_c_scrap_consumes_released_stock ...
+2026-11-22 20:33:08,319 41944 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move.line records with IDs: [144]
+2026-11-22 20:33:08,425 41944 INFO quality_stage_c_guard_review odoo.models.unlink: User #1 deleted stock.move records with IDs: [134]
+2026-11-22 20:33:08,531 41944 INFO quality_stage_c_guard_review odoo.addons.base.models.ir_attachment: filestore gc 1 checked, 1 removed
+2026-11-22 20:33:08,542 41944 INFO quality_stage_c_guard_review odoo.service.server: 4 post-tests in 1.18s, 2103 queries
+2026-11-22 20:33:08,542 41944 INFO quality_stage_c_guard_review odoo.tests.stats: quality_c_guard_contract: 6 tests 1.18s 2103 queries
+2026-11-22 20:33:08,542 41944 INFO quality_stage_c_guard_review odoo.tests.result: 0 failed, 0 error(s) of 4 tests when loading database 'quality_stage_c_guard_review'
+2026-11-22 20:33:08,542 41944 INFO quality_stage_c_guard_review odoo.service.server: Initiating shutdown
+2026-11-22 20:33:08,542 41944 INFO quality_stage_c_guard_review odoo.service.server: Hit CTRL-C again or send a second signal to force the shutdown.
+2026-11-22 20:33:08,576 41944 INFO quality_stage_c_guard_review odoo.sql_db: ConnectionPool(used=0/count=0/max=64): Closed 1 connections
