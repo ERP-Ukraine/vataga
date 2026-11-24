@@ -58,6 +58,24 @@ def request(purchase=True, locked=False, write_allowed=True):
 
 
 class TestOdooContracts(unittest.TestCase):
+    def test_late_erp_period_pair_is_localized_and_locked_with_native_inheritance(self):
+        from odoo.tools.template_inheritance import apply_inheritance_specs
+        source = etree.fromstring(b'<form><group><field name="date_start" readonly="True"/><field name="date_end" readonly="True"/></group><group><field name="date_start"/><field name="date_end"/></group></form>')
+        document = etree.parse(str(ROOT / 'views/approval_request_views.xml'))
+        record = document.xpath("//record[@id='view_approval_request_vataga_late_period_ui']")[0]
+        self.assertEqual(record.xpath("field[@name='inherit_id']/@ref"), ['approvals.approval_request_view_form'])
+        specs = etree.Element('data')
+        from copy import deepcopy
+        for spec in record.xpath("field[@name='arch']/xpath"):
+            specs.append(deepcopy(spec))
+        result = apply_inheritance_specs(source, specs)
+        for name, title in [('date_start', 'Дата початку'), ('date_end', 'Дата закінчення')]:
+            original, late = result.xpath(".//field[@name='%s']" % name)
+            self.assertEqual(original.get('readonly'), 'True')
+            self.assertEqual(late.get('string'), title)
+            self.assertTrue(safe_eval(late.get('readonly'), {'vataga_lines_locked': True}))
+            self.assertFalse(safe_eval(late.get('readonly'), {'vataga_lines_locked': False}))
+
     def test_purchase_products_page_remains_visible_for_native_no_product(self):
         tree = etree.parse(str(ROOT / 'views/approval_request_views.xml'))
         expr = tree.xpath("//xpath[@expr=\"//page[@name='products']\"]/attribute[@name='invisible']/text()")[0]

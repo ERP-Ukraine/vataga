@@ -53,6 +53,25 @@
             </xpath>
         </field>
     </record>
+    <record id="view_approval_request_vataga_late_period_ui" model="ir.ui.view">
+        <field name="name">approval.request.vataga.late.period.ui</field>
+        <field name="model">approval.request</field>
+        <field name="inherit_id" ref="approvals.approval_request_view_form"/>
+        <field name="priority">110</field>
+        <field name="arch" type="xml">
+            <!-- ERP-UA adds another period pair after the purchase branch.
+                 Odoo inheritance changes only the first XPath match, so target
+                 the final pair explicitly after the other root extensions. -->
+            <xpath expr="(//field[@name='date_start'])[last()]" position="attributes">
+                <attribute name="string">Дата початку</attribute>
+                <attribute name="readonly" add="vataga_lines_locked" separator=" or "/>
+            </xpath>
+            <xpath expr="(//field[@name='date_end'])[last()]" position="attributes">
+                <attribute name="string">Дата закінчення</attribute>
+                <attribute name="readonly" add="vataga_lines_locked" separator=" or "/>
+            </xpath>
+        </field>
+    </record>
     <record id="view_approval_product_line_vataga_purchase" model="ir.ui.view">
         <field name="name">approval.product.line.vataga.purchase.tree</field>
         <field name="model">approval.product.line</field>
