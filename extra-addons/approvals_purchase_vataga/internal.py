@@ -21,6 +21,18 @@ def public_result(result):
     return result
 
 
+def product_form_context(context, product_id):
+    """Keep user locale/companies, never carry request defaults into products.
+
+    Defaults such as approval.category's default_category_id have unrelated
+    meanings for product/supplier/partner forms. Active IDs must also identify
+    the opened product, rather than the transient wizard or approval request.
+    """
+    result = {key: context[key] for key in ('lang', 'tz', 'allowed_company_ids') if key in context}
+    result.update(active_model='product.product', active_id=product_id, active_ids=[product_id])
+    return result
+
+
 def refreshable_fields(records):
     """Do not evict fields (or relational inverses) protected by ORM compute."""
     return [field.name for field in records._fields.values()

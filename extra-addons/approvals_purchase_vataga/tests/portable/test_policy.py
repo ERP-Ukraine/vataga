@@ -4,6 +4,17 @@ from support import internal, policy
 
 
 class TestPurchaseValidation(unittest.TestCase):
+    def test_product_form_context_drops_request_defaults_and_wizard_identity(self):
+        context = {'lang': 'uk_UA', 'tz': 'Europe/Kiev', 'allowed_company_ids': [1],
+                   'default_category_id': 12, 'default_line_id': 21, 'default_company_id': 5,
+                   'search_default_product_id': 9, 'active_model': 'approval.product.resolve.vataga',
+                   'active_id': 3, 'active_ids': [3], '_vataga_internal': internal.INTERNAL,
+                   'form_view_ref': 'approvals.approval_request_view_form', 'create': False, 'edit': False}
+        result = internal.product_form_context(context, 42)
+        self.assertEqual(result, {'lang': 'uk_UA', 'tz': 'Europe/Kiev', 'allowed_company_ids': [1],
+                                  'active_model': 'product.product', 'active_id': 42, 'active_ids': [42]})
+        self.assertEqual(context['default_category_id'], 12)
+
     def test_http_urls(self):
         for url in ('https://example.com/item?id=7#specs', 'http://vendor.ua',
                     'HTTPS://example.com/a%20b', 'https://магазин.укр/товар',

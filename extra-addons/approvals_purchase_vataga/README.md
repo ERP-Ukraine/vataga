@@ -1,6 +1,6 @@
 # Закупочні затвердження Vataga
 
-Odoo 17 Enterprise / ERP-UA, версия **17.0.1.0.1**. Зависимости: `approvals`, `approvals_purchase`, `purchase`.
+Odoo 17 Enterprise / ERP-UA, версия **17.0.1.0.2**. Зависимости: `approvals`, `approvals_purchase`, `purchase`.
 
 **Статус: кандидат для проверки в лицензированном Enterprise-окружении. Полная приемка НЕ завершена.** Исходники Enterprise локально недоступны, модуль на staging не установлен. Нельзя считать локальные unit/SQL-проверки подтверждением работы стандартного согласования и создания ЗНКП. См. [отчет и матрицу требований](docs/IMPLEMENTATION_REPORT_RU.md).
 

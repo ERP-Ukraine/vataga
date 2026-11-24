@@ -1,7 +1,7 @@
 from odoo import api, fields, models, _
 from odoo.exceptions import AccessError, ValidationError
 
-from ..internal import clean_defaults
+from ..internal import clean_defaults, product_form_context
 
 
 class ApprovalProductResolve(models.TransientModel):
@@ -74,6 +74,6 @@ class ApprovalProductResolve(models.TransientModel):
 
     def action_apply_open_product(self):
         product = self._apply()
-        return {'type': 'ir.actions.act_window', 'name': _('Товар та постачальники'),
-                'res_model': 'product.product', 'res_id': product.id,
-                'view_mode': 'form', 'target': 'current'}
+        action = product.with_context(product_form_context(self.env.context, product.id)).get_formview_action()
+        action['name'] = _('Товар та постачальники')
+        return action

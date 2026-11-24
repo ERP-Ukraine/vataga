@@ -7,6 +7,21 @@ from .common import PurchaseApprovalCase
 
 @tagged('post_install', '-at_install', 'vataga_purchase')
 class TestPurchaseSecurity(PurchaseApprovalCase):
+    def test_open_product_action_does_not_leak_approval_defaults_to_supplier(self):
+        request = self.approve(self.request([self.line_values(missing=True)], user=self.catalog_buyer))
+        wizard = self.env['approval.product.resolve.vataga'].with_user(self.catalog_buyer).with_context(
+            default_category_id=self.category.id, default_line_id=request.product_line_ids.id).create({
+                'line_id': request.product_line_ids.id, 'mode': 'new',
+                'new_product_name': 'Vataga isolated product context'})
+        action = wizard.action_apply_open_product()
+        self.assertNotIn('default_category_id', action['context'])
+        self.assertNotIn('default_line_id', action['context'])
+        self.assertEqual(action['context']['active_model'], 'product.product')
+        self.assertEqual(action['context']['active_id'], action['res_id'])
+        vendor = self.env['res.partner'].with_user(self.catalog_buyer).with_context(action['context']).create({
+            'name': 'Vataga isolated-context supplier', 'supplier_rank': 1})
+        self.assertFalse(vendor.category_id)
+
     def test_readonly_workflow_fields_cannot_be_injected_on_create(self):
         for values in ({'approval_type': False}, {'approval_minimum': 0}):
             with self.subTest(values=values), self.assertRaises(AccessError):
