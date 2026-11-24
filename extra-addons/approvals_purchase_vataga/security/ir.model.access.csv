@@ -1,0 +1,2 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_approval_product_resolve_purchase,Purchase product resolution,model_approval_product_resolve_vataga,purchase.group_purchase_user,1,1,1,1

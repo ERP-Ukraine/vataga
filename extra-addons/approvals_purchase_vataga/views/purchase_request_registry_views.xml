@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_purchase_registry_tree" model="ir.ui.view">
+        <field name="name">approval.product.line.vataga.registry.tree</field>
+        <field name="model">approval.product.line</field>
+        <field name="arch" type="xml">
+            <tree string="Реєстр заявок на закупівлю" create="0" edit="0" delete="0" default_order="id desc">
+                <button name="action_vataga_open_request" type="object" icon="fa-external-link" string="Відкрити заявку"/>
+                <field name="product_id" string="Товар"/>
+                <field name="description" string="Опис"/>
+                <field name="vataga_product_url" widget="vataga_purchase_url"/>
+                <field name="quantity" string="Кількість"/>
+                <field name="product_uom_id"/>
+                <field name="vataga_request_subject"/>
+                <field name="vataga_request_number"/>
+                <field name="vataga_request_date" optional="show"/>
+                <field name="vataga_date_start" optional="hide"/>
+                <field name="vataga_date_end" optional="hide"/>
+                <field name="vataga_partner_id" optional="hide"/>
+                <field name="vataga_owner_id" optional="show"/>
+                <field name="vataga_initiator_id" optional="show"/>
+                <field name="vataga_recipient_id" optional="show"/>
+                <field name="vataga_category_id"/>
+                <field name="vataga_request_status" widget="badge"/>
+                <field name="vataga_filled_after_approval"/>
+                <field name="vataga_product_created_from_request"/>
+                <field name="vataga_rfq_created" optional="show"/>
+                <field name="company_id" groups="base.group_multi_company" optional="hide"/>
+            </tree>
+        </field>
+    </record>
+    <record id="view_purchase_registry_form" model="ir.ui.view">
+        <field name="name">approval.product.line.vataga.registry.form</field>
+        <field name="model">approval.product.line</field>
+        <field name="arch" type="xml">
+            <form string="Позиція закупочної заявки" create="0" edit="0" delete="0">
+                <header>
+                    <button name="action_vataga_open_request" type="object" string="Відкрити заявку" class="btn-primary"/>
+                </header>
+                <sheet>
+                    <group>
+                        <field name="approval_request_id" readonly="1"/>
+                        <field name="vataga_request_number"/>
+                        <field name="vataga_request_status"/>
+                        <field name="product_id" readonly="1"/>
+                        <field name="description" readonly="1"/>
+                        <field name="vataga_product_url" widget="vataga_purchase_url" readonly="1"/>
+                        <field name="quantity" readonly="1"/>
+                        <field name="product_uom_id" readonly="1"/>
+                        <field name="vataga_filled_after_approval"/>
+                        <field name="vataga_product_created_from_request"/>
+                        <field name="vataga_filled_by_id"/>
+                        <field name="vataga_filled_at"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+    <record id="view_purchase_registry_search" model="ir.ui.view">
+        <field name="name">approval.product.line.vataga.registry.search</field>
+        <field name="model">approval.product.line</field>
+        <field name="arch" type="xml">
+            <search string="Пошук закупочних позицій">
+                <field name="product_id"/>
+                <field name="description"/>
+                <field name="vataga_request_subject"/>
+                <field name="vataga_request_number"/>
+                <field name="vataga_product_url"/>
+                <field name="vataga_category_id"/>
+                <field name="vataga_owner_id"/>
+                <field name="vataga_initiator_id"/>
+                <field name="vataga_recipient_id"/>
+                <separator/>
+                <filter name="my_requests" string="Мої заявки" domain="[('vataga_owner_id', '=', uid)]"/>
+                <separator/>
+                <filter name="pending" string="Очікують погодження" domain="[('vataga_request_status', '=', 'pending')]"/>
+                <filter name="approved" string="Затверджені" domain="[('vataga_request_status', '=', 'approved')]"/>
+                <separator/>
+                <filter name="missing" string="Без вибраного товару" domain="[('product_id', '=', False)]"/>
+                <filter name="filled" string="Заповнені після погодження" domain="[('vataga_filled_after_approval', '=', True)]"/>
+                <filter name="new_product" string="Товар створено із заявки" domain="[('vataga_product_created_from_request', '=', True)]"/>
+                <filter name="rfq_created" string="Створено ЗНКП" domain="['|', ('vataga_rfq_created', '=', True), ('purchase_order_line_id', '!=', False)]"/>
+                <group expand="0" string="Групувати за">
+                    <filter name="group_category" string="Категорія закупівлі" context="{'group_by': 'vataga_category_id'}"/>
+                    <filter name="group_status" string="Статус погодження" context="{'group_by': 'vataga_request_status'}"/>
+                    <filter name="group_owner" string="Власник" context="{'group_by': 'vataga_owner_id'}"/>
+                    <filter name="group_initiator" string="Ініціатор" context="{'group_by': 'vataga_initiator_id'}"/>
+                    <filter name="group_recipient" string="Отримувач" context="{'group_by': 'vataga_recipient_id'}"/>
+                    <filter name="group_filled" string="Заповнено після погодження" context="{'group_by': 'vataga_filled_after_approval'}"/>
+                    <filter name="group_created" string="Товар створено із заявки" context="{'group_by': 'vataga_product_created_from_request'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+    <record id="action_purchase_registry" model="ir.actions.act_window">
+        <field name="name">Реєстр заявок на закупівлю</field>
+        <field name="res_model">approval.product.line</field>
+        <field name="view_mode">tree,form</field>
+        <field name="view_id" ref="view_purchase_registry_tree"/>
+        <field name="search_view_id" ref="view_purchase_registry_search"/>
+        <field name="domain">[('vataga_approval_type', '=', 'purchase')]</field>
+        <field name="context">{'create': False, 'edit': False, 'delete': False}</field>
+    </record>
+    <record id="action_purchase_registry_tree" model="ir.actions.act_window.view">
+        <field name="sequence">1</field>
+        <field name="view_mode">tree</field>
+        <field name="view_id" ref="view_purchase_registry_tree"/>
+        <field name="act_window_id" ref="action_purchase_registry"/>
+    </record>
+    <record id="action_purchase_registry_form" model="ir.actions.act_window.view">
+        <field name="sequence">2</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_purchase_registry_form"/>
+        <field name="act_window_id" ref="action_purchase_registry"/>
+    </record>
+    <menuitem id="menu_purchase_registry" name="Реєстр заявок на закупівлю"
+              parent="approvals.approvals_menu_root" action="action_purchase_registry"
+              sequence="35" groups="base.group_user"/>
+</odoo>

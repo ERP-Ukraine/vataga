@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_approval_product_resolve" model="ir.ui.view">
+        <field name="name">approval.product.resolve.vataga.form</field>
+        <field name="model">approval.product.resolve.vataga</field>
+        <field name="arch" type="xml">
+            <form string="Заповнити товар">
+                <group>
+                    <field name="line_id" invisible="1"/>
+                    <field name="description" string="Погоджений опис"/>
+                    <field name="product_url" string="URL" widget="vataga_purchase_url"/>
+                    <field name="mode" widget="radio"/>
+                    <field name="can_create_product" invisible="1"/>
+                    <field name="can_manage_suppliers" invisible="1"/>
+                    <div class="alert alert-info" colspan="2" invisible="mode != 'new' or can_create_product">
+                        Ваші поточні права не дозволяють створювати товари. Можна вибрати існуючий товар.
+                    </div>
+                    <field name="product_id" invisible="mode != 'existing'" required="mode == 'existing'"
+                           options="{'no_create': True}"/>
+                    <field name="new_product_name" invisible="mode != 'new'" required="mode == 'new'"/>
+                    <div class="alert alert-info" colspan="2" invisible="can_manage_suppliers">
+                        Налаштування постачальників у картці товару потребує окремих чинних прав.
+                    </div>
+                </group>
+                <footer>
+                    <button name="action_apply" type="object" string="Заповнити" class="btn-primary"/>
+                    <button name="action_apply_open_product" type="object" string="Заповнити та відкрити товар"/>
+                    <button string="Скасувати" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>
