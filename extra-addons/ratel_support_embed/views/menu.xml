@@ -9,6 +9,6 @@
               groups="ratel_support_embed.group_user" sequence="90"/>
     <!-- Плитка на головному екрані — одразу після «Служби підтримки» -->
     <record id="menu_root" model="ir.ui.menu">
-        <field name="sequence" eval="obj(ref('helpdesk.menu_helpdesk_root')).sequence + 1"/>
+        <field name="sequence" model="ir.ui.menu" eval="obj(ref('helpdesk.menu_helpdesk_root')).sequence + 1"/>
     </record>
 </odoo>
