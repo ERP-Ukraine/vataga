@@ -1,7 +1,7 @@
 {
     "name": "Ratel Support",
     "summary": "Екран техпідтримки Ratel Support усередині Odoo",
-    "version": "17.0.2.0.0",
+    "version": "17.0.2.1.0",
     "category": "Services",
     "author": "Ratel Robotics",
     "license": "LGPL-3",
@@ -13,6 +13,7 @@
         "views/res_config_settings_views.xml",
         "views/menu.xml",
         "views/helpdesk_ticket_views.xml",
+        "views/ratel_support_reply_views.xml",
     ],
     "assets": {
         "web.assets_backend": [

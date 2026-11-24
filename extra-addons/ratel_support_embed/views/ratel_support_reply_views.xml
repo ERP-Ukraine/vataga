@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="ratel_support_reply_view_form" model="ir.ui.view">
+        <field name="name">ratel.support.reply.form</field>
+        <field name="model">ratel.support.reply</field>
+        <field name="arch" type="xml">
+            <form string="Відповідь користувачу в застосунок">
+                <group>
+                    <field name="ticket_id" invisible="1"/>
+                    <field name="ratel_number" string="Заявка Ratel Support"/>
+                </group>
+                <field name="text" nolabel="1" placeholder="Текст для користувача застосунку"/>
+                <p class="text-muted">
+                    Далі відкриється заявка в Ratel Support із цим текстом. Користувач отримає
+                    відповідь, коли ви перевірите її там і натиснете «Надіслати».
+                </p>
+                <footer>
+                    <button name="action_continue" type="object" string="Далі — перевірити й надіслати"
+                            class="btn-primary"/>
+                    <button string="Скасувати" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

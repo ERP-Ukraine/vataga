@@ -121,6 +121,21 @@ class HelpdeskTicket(models.Model):
             "context": {"ratel_route": f"/t/{self.ratel_ticket_id}"},
         }
 
+    def action_reply_ratel(self):
+        """Написати відповідь користувачу застосунку: текст піде у вбудований екран (ODOO-17)."""
+        self.ensure_one()
+        self._ratel_check()
+        if not self.ratel_ticket_id:
+            raise UserError(_("Цей квиток не пов'язано із заявкою Ratel Support."))
+        return {
+            "type": "ir.actions.act_window",
+            "res_model": "ratel.support.reply",
+            "name": _("Відповідь користувачу в застосунок"),
+            "view_mode": "form",
+            "target": "new",
+            "context": {"default_ticket_id": self.id},
+        }
+
 
 class RatelSupportMessage(models.Model):
     """Які записи листування Ratel уже перенесено у квиток — щоб повтор не дублював."""

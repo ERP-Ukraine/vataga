@@ -1,2 +1,3 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_ratel_support_message_user,ratel.support.message user,model_ratel_support_message,ratel_support_embed.group_user,1,0,0,0
+access_ratel_support_reply_user,ratel.support.reply user,model_ratel_support_reply,ratel_support_embed.group_user,1,1,1,1

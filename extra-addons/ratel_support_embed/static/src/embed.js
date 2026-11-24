@@ -11,6 +11,7 @@ import { FormViewDialog } from "@web/views/view_dialogs/form_view_dialog";
 const MARK = "ratel-odoo:v1";
 const TEAM_KEY = "ratel_support_embed.team";
 const MAX_FILE = 20 * 1024 * 1024;
+const MAX_DRAFT = 4000;
 
 const isId = (v) => Number.isInteger(v) && v > 0;
 const isText = (v, max) => typeof v === "string" && v.length <= max;
@@ -32,6 +33,9 @@ function toBase64(buffer) {
  * фахівець там натискає «Створити квиток в Odoo»: рамка просить цю сторінку відкрити форму
  * квитка служби підтримки й дописати листування — усе від імені поточного користувача Odoo.
  * Запити приймаються тільки від самої рамки й тільки з адреси сервера Ratel.
+ *
+ * «Відповісти в застосунок» у квитку передає сюди лише текст-чернетку: шифрує, підписує й
+ * надсилає його сторінка Ratel, коли фахівець там натисне «Надіслати».
  */
 export class RatelSupportEmbed extends Component {
     static template = "ratel_support_embed.Embed";
@@ -44,6 +48,9 @@ export class RatelSupportEmbed extends Component {
         this.action = useService("action");
         this.frame = useRef("frame");
         this.origin = null;
+        // Відповідь, написана у квитку Odoo: рамка забирає її один раз і показує як чернетку
+        const draft = this.props.action?.context?.ratel_draft;
+        this.draft = draft && isId(draft.ratel_id) && isText(draft.text, MAX_DRAFT) ? draft : null;
         this.state = useState({ src: null, error: null });
         const onMessage = (ev) => this.onMessage(ev);
         onWillStart(() => this.load());
@@ -96,6 +103,8 @@ export class RatelSupportEmbed extends Component {
                 return this.message(p);
             case "open":
                 return this.open(p);
+            case "draft":
+                return this.takeDraft(p);
         }
         throw new Error("Невідомий запит");
     }
@@ -175,6 +184,16 @@ export class RatelSupportEmbed extends Component {
             p.text,
             p.attachment_ids,
         ]);
+    }
+
+    /** Чернетка відповіді для цієї заявки; надсилає її фахівець уже в екрані Ratel. */
+    takeDraft(p) {
+        const draft = this.draft;
+        if (!draft || draft.ratel_id !== p.ratel_id) {
+            return null;
+        }
+        this.draft = null;
+        return { text: draft.text };
     }
 
     async open(p) {
