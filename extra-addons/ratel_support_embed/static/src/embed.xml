@@ -2,7 +2,7 @@
 <templates xml:space="preserve">
     <t t-name="ratel_support_embed.Embed">
         <div class="o_ratel_support_embed">
-            <iframe t-if="state.src" t-att-src="state.src" allow="microphone"
+            <iframe t-if="state.src" t-ref="frame" t-att-src="state.src" allow="microphone"
                     referrerpolicy="no-referrer" title="Ratel Support"/>
             <div t-elif="state.error" class="o_ratel_support_embed_message">
                 <p t-esc="state.error"/>
