@@ -1,11 +1,26 @@
 """Process-local capabilities. JSON/RPC contexts cannot reproduce these objects."""
 from contextvars import ContextVar
 from collections.abc import Mapping
+from copy import deepcopy
 
 INTERNAL = object()
 RFQ = object()
 WORKFLOW = object()
 APPROVAL_SCOPE = ContextVar('vataga_purchase_approval_scope', default=None)
+
+
+def registry_period_arch(arch, source_types):
+    """Format Date projections as calendar dates; leave Datetime native.
+
+    The stored Datetime projections retain their schema and export contract.
+    Only our registry's display changes, using the real source field types.
+    """
+    result = deepcopy(arch)
+    for source, field_type in source_types.items():
+        if field_type == 'date':
+            for node in result.xpath(".//field[@name='vataga_%s']" % source):
+                node.set('widget', 'vataga_calendar_date')
+    return result
 
 
 def clean_defaults(context, names):

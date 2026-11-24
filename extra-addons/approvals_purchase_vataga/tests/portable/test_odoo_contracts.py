@@ -58,6 +58,26 @@ def request(purchase=True, locked=False, write_allowed=True):
 
 
 class TestOdooContracts(unittest.TestCase):
+    def test_purchase_products_page_remains_visible_for_native_no_product(self):
+        tree = etree.parse(str(ROOT / 'views/approval_request_views.xml'))
+        expr = tree.xpath("//xpath[@expr=\"//page[@name='products']\"]/attribute[@name='invisible']/text()")[0]
+        for approval_type, has_product, hidden in (
+            ('purchase', 'no', False), ('purchase', 'required', False),
+            (False, 'no', True), (False, 'optional', False),
+        ):
+            self.assertEqual(safe_eval(expr, {'approval_type': approval_type, 'has_product': has_product}), hidden)
+
+    def test_registry_date_widget_uses_each_real_source_type(self):
+        arch = etree.fromstring(b'<tree><field name="vataga_date_start" optional="hide"/><field name="vataga_date_end"/><field name="vataga_request_date"/></tree>')
+        for start_type, end_type in [('date', 'date'), ('datetime', 'datetime'), ('date', 'datetime')]:
+            result = internal.registry_period_arch(arch, {'date_start': start_type, 'date_end': end_type})
+            for name, kind in [('date_start', start_type), ('date_end', end_type)]:
+                self.assertEqual(result.xpath(".//field[@name='vataga_%s']" % name)[0].get('widget'),
+                                 'vataga_calendar_date' if kind == 'date' else None)
+            self.assertIsNone(result.xpath(".//field[@name='vataga_request_date']")[0].get('widget'))
+            self.assertEqual(result[0].get('optional'), 'hide')
+        self.assertFalse(arch.xpath('.//*[@widget]'), 'Never mutate a shared combined architecture')
+
     def test_purchase_quantity_remains_visible_without_native_header_quantity(self):
         tree = etree.parse(str(ROOT / 'views/approval_request_views.xml'))
         expression = tree.xpath("//record[@id='view_approval_product_line_vataga_purchase']//xpath[@expr=\"//field[@name='quantity']\"]/attribute[@name='column_invisible']/text()")

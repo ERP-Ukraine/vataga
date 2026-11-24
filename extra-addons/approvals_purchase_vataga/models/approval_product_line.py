@@ -5,7 +5,7 @@ from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.osv import expression
 from odoo.tools import SQL
 
-from ..internal import INTERNAL, RFQ, clean_defaults
+from ..internal import INTERNAL, RFQ, clean_defaults, registry_period_arch
 
 
 LINE_AUDIT = frozenset({
@@ -52,6 +52,17 @@ class ApprovalProductLine(models.Model):
     vataga_recipient_id = fields.Many2one(related='approval_request_id.vataga_recipient_id', string='Отримувач закупівлі', store=True, index=True, compute_sudo=False)
     vataga_category_id = fields.Many2one(related='approval_request_id.category_id', string='Категорія закупівлі', store=True, index=True, compute_sudo=False)
     vataga_rfq_created = fields.Boolean(related='approval_request_id.vataga_rfq_created', string='ЗНКП сформовано', store=True, compute_sudo=False)
+
+    @api.model
+    def _get_view(self, view_id=None, view_type='form', **options):
+        arch, view = super()._get_view(view_id, view_type, **options)
+        registry = (self.env.ref('approvals_purchase_vataga.view_purchase_registry_tree', raise_if_not_found=False)
+                    if view.name == 'approval.product.line.vataga.registry.tree' else False)
+        if registry and view.id == registry.id:
+            source = self.env['approval.request']._fields
+            arch = registry_period_arch(arch, {name: source[name].type
+                                               for name in ('date_start', 'date_end')})
+        return arch, view
 
     @api.depends('approval_request_id.date_start')
     def _compute_vataga_date_start(self):

@@ -26,6 +26,9 @@
             <xpath expr="//field[@name='product_line_ids']" position="attributes">
                 <attribute name="readonly" add="vataga_lines_locked" separator=" or "/>
             </xpath>
+            <xpath expr="//page[@name='products']" position="attributes">
+                <attribute name="invisible">approval_type != 'purchase' and has_product == 'no'</attribute>
+            </xpath>
             <xpath expr="//button[@name='action_create_purchase_orders']" position="attributes">
                 <attribute name="string">Створити ЗНКП</attribute>
                 <attribute name="invisible">not vataga_can_create_rfq</attribute>

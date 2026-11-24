@@ -6,6 +6,18 @@ from .common import PurchaseApprovalCase
 
 @tagged('post_install', '-at_install', 'vataga_purchase')
 class TestPurchaseRegistry(PurchaseApprovalCase):
+    def test_registry_period_widget_follows_source_types_only_in_registry(self):
+        from lxml import etree
+        lines = self.env['approval.product.line']
+        view = self.env.ref('approvals_purchase_vataga.view_purchase_registry_tree')
+        arch = etree.fromstring(lines.get_view(view.id, 'tree')['arch'].encode())
+        for source_name in ('date_start', 'date_end'):
+            node = arch.xpath(".//field[@name='vataga_%s']" % source_name)[0]
+            expected = 'vataga_calendar_date' if self.env['approval.request']._fields[source_name].type == 'date' else None
+            self.assertEqual(node.get('widget'), expected)
+        ordinary = self.env.ref('approvals.approval_product_line_view_tree')
+        self.assertNotIn('vataga_calendar_date', lines.get_view(ordinary.id, 'tree')['arch'])
+
     def test_period_fields_match_datetime_without_losing_time(self):
         from datetime import datetime
         request = self.request()

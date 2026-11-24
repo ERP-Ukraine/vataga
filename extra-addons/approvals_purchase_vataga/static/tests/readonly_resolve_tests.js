@@ -2,6 +2,20 @@
 
 import { click, getFixture } from '@web/../tests/helpers/utils';
 import { makeView, setupViewRegistries } from '@web/../tests/views/helpers';
+import { formatDate } from '@web/core/l10n/dates';
+import { calendarDateText } from '@approvals_purchase_vataga/calendar_date_field';
+
+QUnit.module('Vataga: calendar source dates', () => {
+    QUnit.test('calendar date survives negative and positive zones and DST', (assert) => {
+        for (const iso of ['2026-11-24T00:00:00Z', '2026-03-29T00:00:00Z', '2026-10-25T00:00:00Z']) {
+            const utc = luxon.DateTime.fromISO(iso, { zone: 'UTC' });
+            for (const zone of ['Pacific/Honolulu', 'Europe/Kyiv', 'Pacific/Kiritimati']) {
+                assert.strictEqual(calendarDateText(utc.setZone(zone)), formatDate(utc));
+            }
+        }
+        assert.strictEqual(calendarDateText(false), '');
+    });
+});
 
 QUnit.module('Vataga: resolve from readonly purchase lines', (hooks) => {
     hooks.beforeEach(() => setupViewRegistries());

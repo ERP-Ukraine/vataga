@@ -69,6 +69,7 @@
                 <field name="vataga_category_id"/>
                 <field name="vataga_owner_id"/>
                 <field name="vataga_initiator_id"/>
+                <field name="vataga_partner_id"/>
                 <field name="vataga_recipient_id"/>
                 <separator/>
                 <filter name="my_requests" string="Мої заявки" domain="[('vataga_owner_id', '=', uid)]"/>
@@ -86,6 +87,7 @@
                     <filter name="group_owner" string="Власник" context="{'group_by': 'vataga_owner_id'}"/>
                     <filter name="group_initiator" string="Ініціатор" context="{'group_by': 'vataga_initiator_id'}"/>
                     <filter name="group_recipient" string="Отримувач" context="{'group_by': 'vataga_recipient_id'}"/>
+                    <filter name="group_contact" string="Контакт" context="{'group_by': 'vataga_partner_id'}"/>
                     <filter name="group_filled" string="Заповнено після погодження" context="{'group_by': 'vataga_filled_after_approval'}"/>
                     <filter name="group_created" string="Товар створено із заявки" context="{'group_by': 'vataga_product_created_from_request'}"/>
                 </group>

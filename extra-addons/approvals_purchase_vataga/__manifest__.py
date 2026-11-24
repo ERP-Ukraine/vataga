@@ -1,6 +1,6 @@
 {
     'name': 'Закупочні затвердження Vataga',
-    'version': '17.0.1.0.2',
+    'version': '17.0.1.0.3',
     'category': 'Human Resources/Approvals',
     'author': 'ERP Ukraine LLC',
     'website': 'https://erp.co.ua',
@@ -18,6 +18,7 @@
         'web.assets_backend': [
             'approvals_purchase_vataga/static/src/url_policy.js',
             'approvals_purchase_vataga/static/src/url_field.js',
+            'approvals_purchase_vataga/static/src/calendar_date_field.js',
         ],
         'web.qunit_suite_tests': [
             'approvals_purchase_vataga/static/tests/readonly_resolve_tests.js',
