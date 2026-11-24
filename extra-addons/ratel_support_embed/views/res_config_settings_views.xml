@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="res_config_settings_view_form" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.ratel.support.embed</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base_setup.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app string="Ratel Support" name="ratel_support_embed" groups="base.group_system">
+                    <block title="Екран техпідтримки">
+                        <setting string="Сервер Ratel Support"
+                                 help="Адреса сервера, екран якого відкривається в Odoo.">
+                            <field name="ratel_support_url" placeholder="https://support.example.com"/>
+                        </setting>
+                        <setting string="Адреса цієї бази"
+                                 help="Порожньо — береться web.base.url.">
+                            <field name="ratel_support_issuer" placeholder="https://example.odoo.com"/>
+                        </setting>
+                        <setting string="Ключ підпису"
+                                 help="Відкритий ключ передайте адміністратору Ratel Support. Закритий лишається в Odoo.">
+                            <field name="ratel_support_public_key" readonly="1" widget="CopyClipboardChar"/>
+                            <div class="mt8">
+                                <button name="action_ratel_support_new_key" type="object"
+                                        string="Створити новий ключ" class="btn-secondary"
+                                        confirm="Створити новий ключ? Екран не відкриватиметься, доки адміністратор Ratel Support не внесе новий відкритий ключ."/>
+                            </div>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+</odoo>

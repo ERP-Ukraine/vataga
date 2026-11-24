@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="action_embed" model="ir.actions.client">
+        <field name="name">Ratel Support</field>
+        <field name="tag">ratel_support_embed.embed</field>
+    </record>
+    <menuitem id="menu_root" name="Ratel Support" action="action_embed"
+              groups="ratel_support_embed.group_user" sequence="90"/>
+</odoo>

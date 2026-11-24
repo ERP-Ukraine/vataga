@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="module_category_ratel_support" model="ir.module.category">
+        <field name="name">Ratel Support</field>
+    </record>
+    <!-- Група лише показує меню й дозволяє отримати підтвердження особи. Доступ до заявок дає
+         сервер Ratel: відповідність особи й підтверджений браузер. -->
+    <record id="group_user" model="res.groups">
+        <field name="name">Фахівець техпідтримки</field>
+        <field name="category_id" ref="module_category_ratel_support"/>
+    </record>
+</odoo>

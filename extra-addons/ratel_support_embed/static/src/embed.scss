@@ -1,0 +1,16 @@
+.o_ratel_support_embed {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+
+    iframe {
+        flex: 1 1 auto;
+        width: 100%;
+        border: 0;
+    }
+}
+
+.o_ratel_support_embed_message {
+    margin: auto;
+    text-align: center;
+}
