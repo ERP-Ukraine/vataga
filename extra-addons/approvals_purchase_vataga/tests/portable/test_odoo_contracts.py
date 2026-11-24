@@ -129,6 +129,9 @@ class TestOdooContracts(unittest.TestCase):
         self.assertEqual(list(actual.parameters), list(override.parameters))
         self.assertEqual(list(inspect.signature(models.BaseModel._compute_field_value).parameters),
                          list(inspect.signature(line_module.ApprovalProductLine._compute_field_value).parameters))
+        from odoo.addons.base.models.ir_ui_view import Model as ViewProvider
+        self.assertEqual(list(inspect.signature(ViewProvider._get_view).parameters),
+                         list(inspect.signature(line_module.ApprovalProductLine._get_view).parameters))
 
     def test_company_list_context_is_supported_by_odoo_cache(self):
         field = object()

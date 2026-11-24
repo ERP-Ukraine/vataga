@@ -7,10 +7,21 @@ from .common import PurchaseApprovalCase
 
 @tagged('post_install', '-at_install', 'vataga_purchase')
 class TestPurchaseSecurity(PurchaseApprovalCase):
+    def test_native_import_cannot_update_approved_quantity(self):
+        request = self.approve(self.request())
+        line = request.product_line_ids
+        quantity = line.quantity
+        result = line.with_user(self.buyer).load(['.id', 'quantity'], [[str(line.id), '999']])
+        self.assertFalse(result.get('ids'))
+        self.assertTrue(any(message.get('type') == 'error' for message in result['messages']))
+        line.invalidate_recordset()
+        self.assertEqual(line.quantity, quantity)
+
     def test_open_product_action_does_not_leak_approval_defaults_to_supplier(self):
         request = self.approve(self.request([self.line_values(missing=True)], user=self.catalog_buyer))
         wizard = self.env['approval.product.resolve.vataga'].with_user(self.catalog_buyer).with_context(
-            default_category_id=self.category.id, default_line_id=request.product_line_ids.id).create({
+            category_id=self.category.id, default_category_id=self.category.id,
+            default_line_id=request.product_line_ids.id).create({
                 'line_id': request.product_line_ids.id, 'mode': 'new',
                 'new_product_name': 'Vataga isolated product context'})
         action = wizard.action_apply_open_product()
@@ -18,9 +29,18 @@ class TestPurchaseSecurity(PurchaseApprovalCase):
         self.assertNotIn('default_line_id', action['context'])
         self.assertEqual(action['context']['active_model'], 'product.product')
         self.assertEqual(action['context']['active_id'], action['res_id'])
-        vendor = self.env['res.partner'].with_user(self.catalog_buyer).with_context(action['context']).create({
+        context = dict(wizard.env.context, **action['context'])
+        self.assertFalse(context['category_id'])
+        vendor = self.env['res.partner'].with_user(self.catalog_buyer).with_context(context).create({
             'name': 'Vataga isolated-context supplier', 'supplier_rank': 1})
         self.assertFalse(vendor.category_id)
+
+    def test_new_wizard_permission_defaults_match_existing_acl(self):
+        for user in (self.buyer, self.catalog_buyer):
+            wizard = self.env['approval.product.resolve.vataga'].with_user(user)
+            expected = wizard._catalog_permissions()
+            values = wizard.default_get(['can_create_product', 'can_manage_suppliers'])
+            self.assertEqual((values['can_create_product'], values['can_manage_suppliers']), expected)
 
     def test_readonly_workflow_fields_cannot_be_injected_on_create(self):
         for values in ({'approval_type': False}, {'approval_minimum': 0}):

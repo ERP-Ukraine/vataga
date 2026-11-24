@@ -44,7 +44,11 @@ def product_form_context(context, product_id):
     the opened product, rather than the transient wizard or approval request.
     """
     result = {key: context[key] for key in ('lang', 'tz', 'allowed_company_ids') if key in context}
-    result.update(active_model='product.product', active_id=product_id, active_ids=[product_id])
+    # Native action_service.doActionButton re-merges non-default caller keys
+    # after this action is returned. An absent category_id therefore leaks back
+    # from approval.category; res.partner._default_category reads that raw key.
+    # The base approval partner field neutralizes the same key explicitly.
+    result.update(category_id=False, active_model='product.product', active_id=product_id, active_ids=[product_id])
     return result
 
 

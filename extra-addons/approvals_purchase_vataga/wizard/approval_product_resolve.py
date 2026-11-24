@@ -19,12 +19,18 @@ class ApprovalProductResolve(models.TransientModel):
     can_create_product = fields.Boolean(compute='_compute_catalog_permissions')
     can_manage_suppliers = fields.Boolean(compute='_compute_catalog_permissions')
 
-    @api.depends_context('uid')
-    def _compute_catalog_permissions(self):
+    @api.model
+    def _catalog_permissions(self):
         create = (self.env['product.product'].check_access_rights('create', raise_exception=False)
                   and self.env['product.template'].check_access_rights('create', raise_exception=False))
         suppliers = (self.env['product.template'].check_access_rights('write', raise_exception=False)
                      and self.env['product.supplierinfo'].check_access_rights('create', raise_exception=False))
+        return create, suppliers
+
+    @api.depends('line_id')
+    @api.depends_context('uid')
+    def _compute_catalog_permissions(self):
+        create, suppliers = self._catalog_permissions()
         for wizard in self:
             wizard.can_create_product = create
             wizard.can_manage_suppliers = suppliers
@@ -32,6 +38,11 @@ class ApprovalProductResolve(models.TransientModel):
     @api.model
     def default_get(self, names):
         values = super().default_get(names)
+        if {'can_create_product', 'can_manage_suppliers'}.intersection(names):
+            create, suppliers = self._catalog_permissions()
+            for name, allowed in [('can_create_product', create), ('can_manage_suppliers', suppliers)]:
+                if name in names:
+                    values[name] = allowed
         if values.get('line_id'):
             line = self.env['approval.product.line'].browse(values['line_id'])
             line._vataga_assert_can_resolve()
@@ -56,6 +67,7 @@ class ApprovalProductResolve(models.TransientModel):
                 # creation privileges. Standard product ACL/rules still apply.
                 context = {k: v for k, v in clean_defaults(self.env.context, set()).items()
                            if not k.startswith('default_')}
+                context['category_id'] = False
                 product = self.env['product.product'].with_context(context).create({
                     'name': self.new_product_name.strip(), 'purchase_ok': True,
                     'vataga_purchase_url': line.vataga_product_url,
