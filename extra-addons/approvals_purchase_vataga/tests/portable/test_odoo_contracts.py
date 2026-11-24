@@ -16,6 +16,8 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+from lxml import etree
+
 from support import ROOT, internal
 
 if os.environ.get('VATAGA_ODOO_SOURCE'):
@@ -25,6 +27,7 @@ try:
     from odoo.exceptions import AccessError, UserError
     from odoo.modules.module import initialize_sys_path
     from odoo.tools import config
+    from odoo.tools.safe_eval import safe_eval
 except ImportError as error:
     raise unittest.SkipTest('Odoo 17 Python runtime required for these contract tests') from error
 
@@ -55,6 +58,18 @@ def request(purchase=True, locked=False, write_allowed=True):
 
 
 class TestOdooContracts(unittest.TestCase):
+    def test_purchase_quantity_remains_visible_without_native_header_quantity(self):
+        tree = etree.parse(str(ROOT / 'views/approval_request_views.xml'))
+        expression = tree.xpath("//record[@id='view_approval_product_line_vataga_purchase']//xpath[@expr=\"//field[@name='quantity']\"]/attribute[@name='column_invisible']/text()")
+        self.assertEqual(len(expression), 1)
+        for approval_type, has_quantity, hidden in (
+            ('purchase', 'no', False), ('purchase', 'required', False),
+            (False, 'no', True), (False, 'optional', False),
+        ):
+            with self.subTest(approval_type=approval_type, has_quantity=has_quantity):
+                parent = SimpleNamespace(approval_type=approval_type, has_quantity=has_quantity)
+                self.assertEqual(safe_eval(expression[0], {'parent': parent}), hidden)
+
     def test_old_date_related_fails_against_datetime_source(self):
         link = fields.Many2one()
         link.comodel_name = 'approval.request'

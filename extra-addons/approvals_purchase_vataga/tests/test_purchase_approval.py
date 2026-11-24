@@ -7,6 +7,16 @@ from .common import PurchaseApprovalCase
 
 @tagged('post_install', '-at_install', 'vataga_purchase')
 class TestPurchaseApproval(PurchaseApprovalCase):
+    def test_combined_tree_shows_purchase_quantity_with_native_header_disabled(self):
+        from types import SimpleNamespace
+        from lxml import etree
+        from odoo.tools.safe_eval import safe_eval
+        tree_id = self.env.ref('approvals.approval_product_line_view_tree').id
+        view = self.env['approval.product.line'].get_view(tree_id, 'tree')
+        quantity = etree.fromstring(view['arch']).xpath("//field[@name='quantity']")[0]
+        parent = SimpleNamespace(approval_type='purchase', has_quantity='no')
+        self.assertFalse(safe_eval(quantity.get('column_invisible', 'False'), {'parent': parent}))
+
     def test_existing_product_without_url(self):
         self.approve(self.request())
 

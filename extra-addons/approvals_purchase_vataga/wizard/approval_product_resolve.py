@@ -12,7 +12,7 @@ class ApprovalProductResolve(models.TransientModel):
     description = fields.Char(related='line_id.description', readonly=True, compute_sudo=False)
     product_url = fields.Char(related='line_id.vataga_product_url', readonly=True, compute_sudo=False)
     mode = fields.Selection([('existing', 'Вибрати існуючий товар'),
-                             ('new', 'Створити новий товар')], default='existing', required=True)
+                             ('new', 'Створити новий товар')], string='Спосіб заповнення', default='existing', required=True)
     product_id = fields.Many2one('product.product', string='Товар',
                                 domain="[('purchase_ok', '=', True)]")
     new_product_name = fields.Char(string='Назва нового товару')

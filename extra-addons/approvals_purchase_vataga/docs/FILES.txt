@@ -2,6 +2,7 @@ extra-addons/approvals_purchase_vataga/README.md
 extra-addons/approvals_purchase_vataga/__init__.py
 extra-addons/approvals_purchase_vataga/__manifest__.py
 extra-addons/approvals_purchase_vataga/data/ir_sequence.xml
+extra-addons/approvals_purchase_vataga/docs/BROWSER_ACCEPTANCE_RU.md
 extra-addons/approvals_purchase_vataga/docs/CODE_REVIEW_RU.md
 extra-addons/approvals_purchase_vataga/docs/FILES.txt
 extra-addons/approvals_purchase_vataga/docs/IMPLEMENTATION_REPORT_RU.md

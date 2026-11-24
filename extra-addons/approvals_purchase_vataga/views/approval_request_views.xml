@@ -48,6 +48,9 @@
             <xpath expr="//field[@name='description']" position="after">
                 <field name="vataga_product_url" widget="vataga_purchase_url" column_invisible="parent.approval_type != 'purchase'"/>
             </xpath>
+            <xpath expr="//field[@name='quantity']" position="attributes">
+                <attribute name="column_invisible">parent.approval_type != 'purchase' and parent.has_quantity == 'no'</attribute>
+            </xpath>
             <xpath expr="//tree" position="inside">
                 <field name="vataga_can_resolve" column_invisible="True"/>
                 <field name="vataga_filled_after_approval" column_invisible="parent.approval_type != 'purchase'" optional="hide"/>
