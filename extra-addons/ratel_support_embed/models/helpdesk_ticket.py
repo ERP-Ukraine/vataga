@@ -5,11 +5,13 @@ from odoo import _, api, fields, models
 from odoo.exceptions import AccessError, UserError
 from odoo.tools.mail import plaintext2html
 
+from .res_config_settings import TAG_INIT_PARAM, TAG_NAME, TAG_PARAM, TEAM_PARAM
+
 GROUP = "ratel_support_embed.group_user"
 # Ключ запису листування Ratel: літера джерела й номер повідомлення
 KEY = re.compile(r"[a-z][0-9]{1,15}")
 NUMBER = re.compile(r"[A-Za-z0-9-]{1,40}")
-MAX_HEADER, MAX_TEXT, MAX_FILES = 300, 50000, 20
+MAX_HEADER, MAX_TEXT, MAX_FILES, MAX_STATUS = 300, 50000, 20, 60
 
 
 class HelpdeskTicket(models.Model):
@@ -25,6 +27,9 @@ class HelpdeskTicket(models.Model):
     ratel_ticket_id = fields.Integer("ID заявки Ratel Support", copy=False, readonly=True)
     ratel_number = fields.Char("Заявка Ratel Support", copy=False, readonly=True, index=True)
     ratel_message_ids = fields.One2many("ratel.support.message", "ticket_id")
+    # Стан заявки, яким його бачив вбудований екран, коли картку востаннє відкривали
+    ratel_status = fields.Char("Стан у Ratel Support", copy=False, readonly=True)
+    ratel_status_at = fields.Datetime("Стан у Ratel Support на", copy=False, readonly=True)
 
     _sql_constraints = [
         (
@@ -54,7 +59,59 @@ class HelpdeskTicket(models.Model):
             "id": ticket.id,
             "name": ticket.display_name,
             "keys": ticket.sudo().ratel_message_ids.mapped("key"),
+            "status": ticket.ratel_status or "",
         }
+
+    @api.model
+    def ratel_defaults(self):
+        """Команда й мітка з налаштувань модуля для нового квитка із заявки."""
+        self._ratel_check()
+        params = self.env["ir.config_parameter"].sudo()
+
+        def record(model, param):
+            value = params.get_param(param) or ""
+            found = self.env[model].sudo().browse(int(value)).exists() if value.isdigit() else None
+            return found.id if found else False
+
+        return {
+            "team_id": record("helpdesk.team", TEAM_PARAM),
+            "tag_id": record("helpdesk.tag", TAG_PARAM),
+        }
+
+    @api.model
+    def _ratel_setup_tag(self):
+        """Раз, під час встановлення чи оновлення: мітка «Застосунок» для квитків із заявок.
+
+        Далі її міняють або прибирають у Налаштуваннях — оновлення модуля вибору не чіпає.
+        """
+        params = self.env["ir.config_parameter"].sudo()
+        if params.get_param(TAG_INIT_PARAM):
+            return
+        if not params.get_param(TAG_PARAM):
+            tags = self.env["helpdesk.tag"].sudo()
+            tag = tags.search([("name", "=ilike", TAG_NAME)], limit=1) or tags.create(
+                {"name": TAG_NAME}
+            )
+            params.set_param(TAG_PARAM, str(tag.id))
+        params.set_param(TAG_INIT_PARAM, "1")
+
+    def ratel_set_status(self, status):
+        """Записати стан заявки Ratel, яким його щойно показав вбудований екран.
+
+        Стан квитка Odoo (етап) не міняється: це лише довідка для того, хто читає квиток.
+        """
+        self.ensure_one()
+        self._ratel_check()
+        self.check_access_rights("write")
+        self.check_access_rule("write")
+        if not self.ratel_number:
+            raise UserError(_("Цей квиток не пов'язано із заявкою Ratel Support."))
+        if not isinstance(status, str) or not status.strip() or len(status) > MAX_STATUS:
+            raise UserError(_("Некоректний стан із Ratel Support."))
+        status = status.strip()
+        if self.ratel_status != status:
+            self.write({"ratel_status": status, "ratel_status_at": fields.Datetime.now()})
+        return {"status": status}
 
     def ratel_add_message(self, key, header, text, attachment_ids=None):
         """Дописати запис листування Ratel внутрішньою приміткою (листів підписникам немає).

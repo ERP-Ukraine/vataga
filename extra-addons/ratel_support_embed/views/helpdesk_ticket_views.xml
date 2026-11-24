@@ -16,6 +16,8 @@
             <xpath expr="//sheet//field[@name='tag_ids']" position="after">
                 <field name="ratel_ticket_id" invisible="1"/>
                 <field name="ratel_number" invisible="not ratel_number"/>
+                <field name="ratel_status" invisible="not ratel_status"/>
+                <field name="ratel_status_at" invisible="not ratel_status_at"/>
             </xpath>
         </field>
     </record>

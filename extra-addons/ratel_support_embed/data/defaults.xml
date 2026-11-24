@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Мітка «Застосунок» для квитків із заявок: створюється раз, далі — у Налаштуваннях -->
+    <function model="helpdesk.ticket" name="_ratel_setup_tag"/>
+</odoo>

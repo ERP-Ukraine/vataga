@@ -26,6 +26,16 @@
                             </div>
                         </setting>
                     </block>
+                    <block title="Квитки із заявок">
+                        <setting string="Команда"
+                                 help="Підставляється у форму нового квитка із заявки. Порожньо — остання обрана людиною.">
+                            <field name="ratel_support_team_id"/>
+                        </setting>
+                        <setting string="Мітка"
+                                 help="Ставиться на кожен квиток, створений із заявки застосунку. Порожньо — без мітки.">
+                            <field name="ratel_support_tag_id"/>
+                        </setting>
+                    </block>
                 </app>
             </xpath>
         </field>

@@ -12,6 +12,8 @@ const MARK = "ratel-odoo:v1";
 const TEAM_KEY = "ratel_support_embed.team";
 const MAX_FILE = 20 * 1024 * 1024;
 const MAX_DRAFT = 4000;
+// Номер автора заявки: лише знак «+», цифри й пробіли
+const PHONE = /^\+?[0-9][0-9 ]{4,24}$/;
 
 const isId = (v) => Number.isInteger(v) && v > 0;
 const isText = (v, max) => typeof v === "string" && v.length <= max;
@@ -105,6 +107,8 @@ export class RatelSupportEmbed extends Component {
                 return this.open(p);
             case "draft":
                 return this.takeDraft(p);
+            case "status":
+                return this.status(p);
         }
         throw new Error("Невідомий запит");
     }
@@ -114,8 +118,11 @@ export class RatelSupportEmbed extends Component {
         return found || null;
     }
 
-    /** Звична форма нового квитка: команду, виконавця, пріоритет і мітки обирає людина. */
-    create(p) {
+    /**
+     * Звична форма нового квитка: усе підставлене людина може змінити. Команда й мітка —
+     * з налаштувань модуля; без команди там — та, яку людина обрала минулого разу.
+     */
+    async create(p) {
         if (!isId(p.ratel_id) || !isText(p.number, 40) || !isText(p.title, 200) || !isText(p.description, 50000)) {
             throw new Error("Некоректні дані заявки");
         }
@@ -129,9 +136,16 @@ export class RatelSupportEmbed extends Component {
         if (["0", "1", "2", "3"].includes(p.priority)) {
             context.default_priority = p.priority;
         }
-        const team = Number(browser.localStorage.getItem(TEAM_KEY));
+        if (typeof p.phone === "string" && PHONE.test(p.phone)) {
+            context.default_partner_phone = p.phone;
+        }
+        const defaults = await this.orm.call("helpdesk.ticket", "ratel_defaults", []);
+        const team = isId(defaults.team_id) ? defaults.team_id : Number(browser.localStorage.getItem(TEAM_KEY));
         if (isId(team)) {
             context.default_team_id = team;
+        }
+        if (isId(defaults.tag_id)) {
+            context.default_tag_ids = [[6, 0, [defaults.tag_id]]];
         }
         return new Promise((resolve) => {
             let saved = null;
@@ -184,6 +198,15 @@ export class RatelSupportEmbed extends Component {
             p.text,
             p.attachment_ids,
         ]);
+    }
+
+    /** Стан заявки Ratel — довідкою у квитку; етап квитка Odoo не міняється. */
+    async status(p) {
+        if (!isId(p.odoo_id) || !isText(p.status, 60)) {
+            throw new Error("Некоректний стан");
+        }
+        await this.orm.call("helpdesk.ticket", "ratel_set_status", [[p.odoo_id], p.status]);
+        return null;
     }
 
     /** Чернетка відповіді для цієї заявки; надсилає її фахівець уже в екрані Ratel. */

@@ -9,6 +9,11 @@ URL_PARAM = "ratel_support_embed.url"
 ISSUER_PARAM = "ratel_support_embed.issuer"
 # Закритий ключ: параметр системи читають лише адміністратори Odoo й серверний код модуля
 KEY_PARAM = "ratel_support_embed.private_key"
+# Нові квитки із заявок: команда й мітка, які форма підставляє сама
+TEAM_PARAM = "ratel_support_embed.team_id"
+TAG_PARAM = "ratel_support_embed.tag_id"
+TAG_INIT_PARAM = "ratel_support_embed.tag_init"
+TAG_NAME = "Застосунок"
 
 ORIGIN = re.compile(r"https://[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:\d{1,5})?")
 LOCAL = re.compile(r"http://(localhost|127\.0\.0\.1)(:\d{1,5})?")
@@ -33,6 +38,18 @@ class ResConfigSettings(models.TransientModel):
         config_parameter=ISSUER_PARAM,
         help="Як її бачать користувачі в браузері. Порожньо — береться web.base.url. "
         "Ту саму адресу вносять у RATEL_ODOO_EMBED_ORIGINS на сервері Ratel.",
+    )
+    ratel_support_team_id = fields.Many2one(
+        "helpdesk.team",
+        string="Команда для квитків із заявок",
+        config_parameter=TEAM_PARAM,
+        help="Порожньо — форма пам'ятає команду, яку людина обрала минулого разу.",
+    )
+    ratel_support_tag_id = fields.Many2one(
+        "helpdesk.tag",
+        string="Мітка для квитків із заявок",
+        config_parameter=TAG_PARAM,
+        help="Ставиться на кожен квиток, створений із заявки застосунку. Порожньо — без мітки.",
     )
     ratel_support_public_key = fields.Char(
         string="Відкритий ключ",
