@@ -3,8 +3,10 @@ extra-addons/approvals_purchase_vataga/__init__.py
 extra-addons/approvals_purchase_vataga/__manifest__.py
 extra-addons/approvals_purchase_vataga/data/ir_sequence.xml
 extra-addons/approvals_purchase_vataga/docs/BROWSER_ACCEPTANCE_RU.md
+extra-addons/approvals_purchase_vataga/docs/BUSINESS_DECISIONS_RU.md
 extra-addons/approvals_purchase_vataga/docs/CODE_REVIEW_RU.md
 extra-addons/approvals_purchase_vataga/docs/FILES.txt
+extra-addons/approvals_purchase_vataga/docs/FOLLOWUP_ACCEPTANCE_RU.md
 extra-addons/approvals_purchase_vataga/docs/IMPLEMENTATION_REPORT_RU.md
 extra-addons/approvals_purchase_vataga/i18n/uk.po
 extra-addons/approvals_purchase_vataga/internal.py
@@ -21,6 +23,7 @@ extra-addons/approvals_purchase_vataga/scripts/test_lock_protocol.py
 extra-addons/approvals_purchase_vataga/scripts/test_rfq_rpc_concurrency.py
 extra-addons/approvals_purchase_vataga/scripts/validate_local.py
 extra-addons/approvals_purchase_vataga/security/ir.model.access.csv
+extra-addons/approvals_purchase_vataga/static/src/calendar_date_field.js
 extra-addons/approvals_purchase_vataga/static/src/url_field.js
 extra-addons/approvals_purchase_vataga/static/src/url_policy.js
 extra-addons/approvals_purchase_vataga/static/tests/readonly_resolve_tests.js
