@@ -42,6 +42,9 @@ class TestRegistryLayout(unittest.TestCase):
         from odoo.tools.safe_eval import test_expr, _SAFE_OPCODES, safe_eval
         from odoo.exceptions import UserError
         script = (ROOT / 'scripts/production_safe_eval_diagnostic.py').read_text(encoding='utf8')
+        self.assertIn("('id', 'not in', linked_ids)", script)
+        self.assertNotIn("('product_line_ids.purchase_order_line_id', '=', False)", script,
+                         'Mixed sibling links must not also count as no retained link')
         test_expr(script, _SAFE_OPCODES, mode='exec')
         tree = ast.parse(script)
         forbidden = {'create','write','unlink','sudo','execute','commit','rollback','log',

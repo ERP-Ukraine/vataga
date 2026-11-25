@@ -34,6 +34,14 @@ class TestPurchaseRegistry(PurchaseApprovalCase):
         with self.assertRaises(UserError):
             request.action_create_purchase_orders()
         self.assertFalse(request.vataga_rfq_created, 'Display/read/group/export must never backfill audit')
+        from pathlib import Path
+        from odoo.tools.safe_eval import safe_eval
+        script = (Path(__file__).resolve().parents[1] / 'scripts/production_safe_eval_diagnostic.py').read_text(encoding='utf8')
+        approved = self.env['approval.request'].search([('approval_type','=','purchase'),('request_status','=','approved')])
+        missing_count = len(approved.filtered(lambda r: not r.product_line_ids.purchase_order_line_id))
+        with self.assertRaises(UserError) as raised:
+            safe_eval(script, {'env':self.env,'UserError':UserError}, mode='exec', nocopy=True)
+        self.assertIn('Approved without retained RFQ link: %s' % missing_count, str(raised.exception))
 
     def test_rfq_display_keeps_tombstone_but_does_not_guess_missing_history(self):
         request = self.request()

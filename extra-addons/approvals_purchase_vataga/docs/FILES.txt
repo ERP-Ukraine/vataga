@@ -26,6 +26,7 @@ extra-addons/approvals_purchase_vataga/docs/screenshots/studio-final-category.jp
 extra-addons/approvals_purchase_vataga/docs/screenshots/v5-form-employees.jpg
 extra-addons/approvals_purchase_vataga/docs/screenshots/v5-registry-employees.jpg
 extra-addons/approvals_purchase_vataga/docs/screenshots/v5-registry-left.jpg
+extra-addons/approvals_purchase_vataga/docs/screenshots/v6-rfq-history-registry.jpg
 extra-addons/approvals_purchase_vataga/i18n/uk.po
 extra-addons/approvals_purchase_vataga/internal.py
 extra-addons/approvals_purchase_vataga/models/__init__.py

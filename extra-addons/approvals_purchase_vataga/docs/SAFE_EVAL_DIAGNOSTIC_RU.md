@@ -8,6 +8,8 @@
 
 Вывод: база; статус/установленная и доступная версии addon и approvals/approvals_purchase/purchase/hr; metadata двух Studio-полей; Studio views approval.request (включая inactive); возможные vataga_* schema ownership конфликты; число purchase requests/items, статусы, заявки с сохраненными purchase_order_line_id, approved без текущей связи и старые manual-number requests. Старые = vataga_purchase_managed=False, если поле уже есть; иначе все существующие purchase-заявки. Это критерий происхождения workflow, не восстановленная дата установки. Отсутствие FK не доказывает, что закупки никогда не было.
 
+Для approved без связи исключается множество родительских IDs с ANY закупочной FK. Прямой dotted One2many `FK=False` здесь неверен: он может включить partial-link заявку по ее другому пустому sibling. Исправление проверено на реальном TEST partial-link наборе, counts9 linked/2 approved-without не пересекаются. Внутренние IDs не выводятся, содержимое документов не читается в отчет.
+
 Проверено реальной текущей сессией staging через отдельное TEST server action без контекстной привязки. Поля, версии, metadata и все агрегаты получены штатно. На production с отсутствующим addon запуск еще должен выполнить пользователь; staging не является его копией.
 
 ## Границы без shell/отдельного лицензированного runtime

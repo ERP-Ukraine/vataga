@@ -49,8 +49,14 @@ counts = [
     ('Purchase requests', 'approval.request', purchase),
     ('Purchase item lines', 'approval.product.line', [('approval_request_id.approval_type', '=', 'purchase')]),
     ('Requests with retained RFQ link', 'approval.request', purchase + [('product_line_ids.purchase_order_line_id', '!=', False)]),
-    ('Approved without retained RFQ link', 'approval.request', purchase + [('request_status', '=', 'approved'), ('product_line_ids.purchase_order_line_id', '=', False)]),
 ]
+try:
+    linked_ids = env['approval.request'].with_context(active_test=False).search(
+        purchase + [('product_line_ids.purchase_order_line_id', '!=', False)]).ids
+    counts.append(('Approved without retained RFQ link', 'approval.request',
+        purchase + [('request_status', '=', 'approved'), ('id', 'not in', linked_ids)]))
+except Exception:
+    report.append('Approved without retained RFQ link: BLOCKED (access/model contract)')
 try:
     request_model = env['approval.request']
     old = purchase + [('automated_sequence', '=', False)]
