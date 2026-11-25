@@ -37,3 +37,10 @@ class TestRegistryLayout(unittest.TestCase):
     def test_diagnostic_compiles_in_native_safe_eval(self):
         from odoo.tools.safe_eval import test_expr, _SAFE_OPCODES
         test_expr((ROOT / 'scripts/production_field_diagnostic.py').read_text(encoding='utf-8'), _SAFE_OPCODES, mode='exec')
+
+    def test_diagnostic_uses_native_field_dependency_api(self):
+        from odoo import fields
+        self.assertEqual(fields.Char().get_depends(None), ((), ()))
+        tree = ast.parse((ROOT / 'scripts/production_field_diagnostic.py').read_text(encoding='utf-8'))
+        self.assertFalse(any(isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+                             and node.value.id == 'field' and node.attr == 'depends' for node in ast.walk(tree)))

@@ -17,13 +17,15 @@ for model_name in ['approval.request', 'approval.product.line']:
             continue
         field = model._fields[meta.name]
         spec = specs.get(meta.name, {})
+        dependency_info = field.get_depends(model)
         report.append(str({
             'name': meta.name, 'label': spec.get('string', meta.field_description),
             'model': model_name, 'type': meta.ttype,
             'relation': meta.relation, 'related': field.related,
             'store': field.store, 'readonly': field.readonly,
             'required': field.required, 'compute': str(field.compute),
-            'depends': str(field.depends), 'metadata_depends': meta.depends,
+            'depends': str(dependency_info[0]), 'depends_context': str(dependency_info[1]),
+            'metadata_depends': meta.depends,
             'state': meta.state, 'modules': meta.modules,
             'xml_id': meta.get_external_id().get(meta.id),
             'groups': field.groups,

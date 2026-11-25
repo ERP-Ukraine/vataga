@@ -1,5 +1,6 @@
 // Scoped to this registry. Keep Odoo typography and horizontal scrolling.
 .o_vataga_purchase_registry .o_list_renderer .o_list_table {
+    min-width: 1640px;
     td[name="product_id"], td[name="description"], td[name="vataga_category_id"],
     td[name="vataga_request_number"] {
         white-space: normal !important;
@@ -17,5 +18,10 @@
     td[name="description"] { min-width: 280px; max-width: 380px; }
     td[name="vataga_category_id"] { min-width: 150px; max-width: 190px; }
     td[name="vataga_request_number"] { min-width: 120px; }
+    th[data-name="product_id"] { width: 240px !important; max-width: none !important; }
+    th[data-name="description"] { width: 280px !important; max-width: none !important; }
+    th[data-name="vataga_category_id"] { width: 150px !important; max-width: none !important; }
+    th[data-name="vataga_product_url"] { width: 45px !important; min-width: 45px !important; max-width: 45px !important; }
+    th[data-name="quantity"], th[data-name="product_uom_id"] { width: 85px !important; max-width: 85px !important; }
     td[name="vataga_product_url"] { text-align: center; }
 }
