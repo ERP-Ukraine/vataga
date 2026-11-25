@@ -145,10 +145,21 @@ class ApprovalProductLine(models.Model):
         return result
 
     @api.model
+    def _vataga_registry_owner_only(self):
+        # This context only NARROWS the registry path. It grants no rights:
+        # removing it restores native document access, including a specifically
+        # assigned approver's authorized request outside the general registry.
+        return (self.env.context.get('vataga_purchase_registry')
+                and not self.env.user.has_group('approvals.group_approval_user'))
+
+    @api.model
     def _search(self, domain, offset=0, limit=None, order=None, access_rights_uid=None):
         if not self.env.su:
             requests = self.env['approval.request']
-            visible = (requests._search(['|', ('company_id', '=', False), ('company_id', 'in', self.env.companies.ids)])
+            parent_domain = ['|', ('company_id', '=', False), ('company_id', 'in', self.env.companies.ids)]
+            if self._vataga_registry_owner_only():
+                parent_domain = expression.AND([parent_domain, [('request_owner_id', '=', self.env.uid)]])
+            visible = (requests._search(parent_domain)
                        if requests.check_access_rights('read', raise_exception=False) else [])
             restriction = expression.OR([
                 [('vataga_approval_type', '!=', 'purchase')],
@@ -178,6 +189,9 @@ class ApprovalProductLine(models.Model):
             requests = self.env['approval.request'].browse([row[0] for row in self.env.cr.fetchall()])
             if requests:
                 requests._vataga_check_access('read' if operation == 'read' else 'write')
+                if (self._vataga_registry_owner_only()
+                        and any(r.request_owner_id.id != self.env.uid for r in requests)):
+                    raise AccessError(_('У загальному реєстрі доступні лише власні заявки.'))
         return result
 
     @api.model_create_multi

@@ -68,6 +68,25 @@ class TestPurchaseRegistry(PurchaseApprovalCase):
         with self.assertRaises(AccessError):
             lines.browse(request.product_line_ids.ids).export_data(['description', 'vataga_product_url'])
 
+    def test_registry_owner_scope_is_distinct_from_native_approver_document_access(self):
+        request = self.request([self.line_values(missing=True)])
+        native = self.registry(self.approver)
+        domain = [('approval_request_id', '=', request.id)]
+        self.assertEqual(native.search_count(domain), 1)
+        registry = native.with_context(vataga_purchase_registry=True)
+        self.assertFalse(registry.search(domain))
+        self.assertFalse(registry.read_group(domain, ['quantity:sum'], ['vataga_category_id']))
+        with self.assertRaises(AccessError):
+            registry.browse(request.product_line_ids.ids).read(['description'])
+        with self.assertRaises(AccessError):
+            registry.browse(request.product_line_ids.ids).export_data(['description'])
+        with self.assertRaises(AccessError):
+            registry.browse(request.product_line_ids.ids).action_vataga_open_request()
+        # Leaving the registry context does not grant any new access. The
+        # assigned approver retains their pre-existing native document access.
+        self.assertEqual(native.browse(request.product_line_ids.ids).read(['description'])[0]['id'], request.product_line_ids.id)
+        self.assertEqual(self.registry(self.owner).with_context(vataga_purchase_registry=True).search_count(domain), 1)
+
     def test_link_to_request_checks_parent_access(self):
         request = self.request()
         action = request.product_line_ids.action_vataga_open_request()
@@ -99,5 +118,5 @@ class TestPurchaseRegistry(PurchaseApprovalCase):
                                 groups='base.group_user,approvals.group_approval_user')
         first = self.request()
         second = self.request(user=self.stranger)
-        lines = self.registry(manager).search([('approval_request_id', 'in', (first | second).ids)])
+        lines = self.registry(manager).with_context(vataga_purchase_registry=True).search([('approval_request_id', 'in', (first | second).ids)])
         self.assertEqual(len(lines), 2)

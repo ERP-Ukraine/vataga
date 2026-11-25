@@ -106,7 +106,7 @@
         <field name="view_id" ref="view_purchase_registry_tree"/>
         <field name="search_view_id" ref="view_purchase_registry_search"/>
         <field name="domain">[('vataga_approval_type', '=', 'purchase')]</field>
-        <field name="context">{'create': False, 'edit': False, 'delete': False}</field>
+        <field name="context">{'create': False, 'edit': False, 'delete': False, 'vataga_purchase_registry': True}</field>
     </record>
     <record id="action_purchase_registry_tree" model="ir.actions.act_window.view">
         <field name="sequence">1</field>
