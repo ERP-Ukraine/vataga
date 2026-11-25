@@ -336,7 +336,8 @@ class ApprovalProductLine(models.Model):
         self.check_access_rule('read')
         self.approval_request_id._vataga_check_access()
         return {'type': 'ir.actions.act_window', 'res_model': 'approval.request',
-                'res_id': self.approval_request_id.id, 'view_mode': 'form', 'target': 'current'}
+                'res_id': self.approval_request_id.id, 'view_mode': 'form',
+                'views': [(False, 'form')], 'target': 'current'}
 
     def _vataga_seller(self):
         self.ensure_one()

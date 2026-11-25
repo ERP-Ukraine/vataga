@@ -73,6 +73,9 @@ class TestPurchaseRegistry(PurchaseApprovalCase):
         action = request.product_line_ids.action_vataga_open_request()
         self.assertEqual(action['res_id'], request.id)
         self.assertEqual(action['res_model'], 'approval.request')
+        # Direct ORM field-widget calls do not pass through call_button's
+        # clean_action(). The native action service requires explicit views.
+        self.assertEqual(action['views'], [(False, 'form')])
         with self.assertRaises(AccessError):
             request.product_line_ids.with_user(self.stranger).action_vataga_open_request()
 

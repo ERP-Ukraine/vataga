@@ -38,7 +38,8 @@ QUnit.module('Vataga: compact registry', (hooks) => {
                 if (args.method === 'action_vataga_open_request') {
                     assert.deepEqual(args.args, [[1]]);
                     opened++;
-                    return { type: 'ir.actions.act_window', res_model: 'approval.request', res_id: 20 };
+                    return { type: 'ir.actions.act_window', res_model: 'approval.request', res_id: 20,
+                        views: [[false, 'form']] };
                 }
             },
         });
@@ -52,8 +53,9 @@ QUnit.module('Vataga: compact registry', (hooks) => {
         assert.containsNone(target, 'a[href^="javascript:"]');
         let returned;
         view.env.services.action.doAction = async (action) => { returned = action; };
-        await click(target, '.o_vataga_request_link');
+        await click(target, '.o_vataga_request_link[title="APPR00009"]');
         assert.strictEqual(opened, 1);
         assert.strictEqual(returned.res_id, 20);
+        assert.deepEqual(returned.views, [[false, 'form']]);
     });
 });
