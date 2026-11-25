@@ -2,12 +2,20 @@
 .o_vataga_purchase_registry .o_list_renderer .o_list_table {
     td[name="product_id"], td[name="description"], td[name="vataga_category_id"],
     td[name="vataga_request_number"] {
-        white-space: normal;
+        white-space: normal !important;
+        text-overflow: clip;
         overflow-wrap: anywhere;
         .o_field_widget, .o_field_many2one, span {
-            white-space: normal;
+            white-space: normal !important;
+            text-overflow: clip;
             overflow-wrap: anywhere;
         }
     }
+    // Native autosizing may squeeze even a field with width="260px" to 92px.
+    // Keep the two business text columns readable; narrower screens scroll.
+    td[name="product_id"] { min-width: 240px; max-width: 320px; }
+    td[name="description"] { min-width: 280px; max-width: 380px; }
+    td[name="vataga_category_id"] { min-width: 150px; max-width: 190px; }
+    td[name="vataga_request_number"] { min-width: 120px; }
     td[name="vataga_product_url"] { text-align: center; }
 }

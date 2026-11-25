@@ -6,7 +6,7 @@
         <field name="arch" type="xml">
             <tree string="Реєстр заявок на закупівлю" class="o_vataga_purchase_registry" create="0" edit="0" delete="0" default_order="id desc">
                 <field name="vataga_request_number" widget="vataga_request_link" width="125px"/>
-                <field name="vataga_request_date" options="{'show_time': False}" width="110px"/>
+                <field name="vataga_request_date" widget="datetime" options="{'show_time': False}" width="110px"/>
                 <field name="vataga_category_id" width="170px"/>
                 <field name="product_id" string="Товар" width="260px"/>
                 <field name="description" string="Опис" width="290px"/>

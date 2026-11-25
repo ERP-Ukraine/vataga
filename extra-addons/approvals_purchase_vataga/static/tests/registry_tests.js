@@ -6,6 +6,24 @@ import { makeView, setupViewRegistries } from '@web/../tests/views/helpers';
 QUnit.module('Vataga: compact registry', (hooks) => {
     hooks.beforeEach(() => setupViewRegistries());
 
+    QUnit.test('fresh list hides optional data and formats datetime without changing it', async (assert) => {
+        const view = await makeView({
+            type: 'list', resModel: 'vataga.registry.display.test',
+            serverData: { models: { 'vataga.registry.display.test': {
+                fields: { created: { type: 'datetime' }, quantity: { type: 'float' }, extra: { type: 'char' } },
+                records: [{ id: 1, created: '2026-11-25 14:35:47', quantity: 1.25, extra: 'Hidden by default' }],
+            } } },
+            arch: `<tree create="0" edit="0"><field name="created" widget="datetime" options="{'show_time': False}"/>
+                <field name="quantity"/><field name="extra" optional="hide"/></tree>`,
+        });
+        const target = getFixture();
+        assert.containsNone(target, 'td[name="extra"]');
+        assert.containsNone(target, '.o_data_cell input');
+        assert.notOk(target.querySelector('td[name="created"]').textContent.includes(':'));
+        assert.strictEqual(view.model.root.records[0].data.created.second, 47);
+        assert.strictEqual(view.model.root.records[0].data.quantity, 1.25);
+    });
+
     QUnit.test('number delegates to checked server action; URL stays safe and external', async (assert) => {
         let opened = 0;
         const view = await makeView({
