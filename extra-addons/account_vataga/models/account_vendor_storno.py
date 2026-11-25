@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 from odoo import _, api, fields, models
 from odoo.exceptions import ValidationError
 
@@ -14,14 +16,28 @@ _SECOND_HOP_MOVES = tuple(
     for move in _FIRST_HOP_MOVES
     for edge in _RECONCILED_LINES
 )
+_PARTIAL_AMOUNT_FIELDS = ('amount', 'debit_amount_currency', 'credit_amount_currency')
+_PARTIAL_PATHS = tuple(
+    f'line_ids.{name}' for name in ('matched_debit_ids', 'matched_credit_ids')
+)
 _BANK_EVIDENCE_DEPS = (
-    'line_ids.account_id.account_type',
+    'line_ids.account_id.account_type', 'line_ids.currency_id',
+    *(f'{path}.{field}' for path in _PARTIAL_PATHS for field in _PARTIAL_AMOUNT_FIELDS),
     *(f'{move}.{field}' for move in _FIRST_HOP_MOVES for field in ('payment_id', 'line_ids.account_id')),
+    *(f'{move}.{path}.{field}' for move in _FIRST_HOP_MOVES
+      for path in _PARTIAL_PATHS for field in _PARTIAL_AMOUNT_FIELDS),
     *(f'{move}.{field}' for move in (*_FIRST_HOP_MOVES, *_SECOND_HOP_MOVES)
-      for field in ('state', 'company_id', 'journal_id.type', 'statement_line_id.amount')),
+      for field in (
+          'state', 'company_id', 'journal_id.type', 'journal_id.default_account_id',
+          'statement_line_id.amount', 'line_ids.balance',
+          'line_ids.amount_currency', 'line_ids.currency_id',
+      )),
 )
 _STORNO_DEPS = (
     'move_type', 'state', 'payment_state', 'company_id', 'commercial_partner_id',
+    'amount_total', 'currency_id', 'date', 'invoice_date',
+    'currency_id.rounding', 'currency_id.rate_ids.rate', 'currency_id.rate_ids.name',
+    'currency_id.rate_ids.company_id',
     'invoice_line_ids.purchase_line_id.order_id', *_BANK_EVIDENCE_DEPS,
 )
 _STORNO_LINE_COMMANDS = ('invoice_line_ids', 'line_ids')
@@ -145,56 +161,137 @@ class AccountMove(models.Model):
             move.move_type == 'in_invoice' and move.state == 'posted' and move.payment_state == 'paid'
         ))
         refunds = bills.vataga_storno_refund_ids.filtered(lambda move: (
-            move.state == 'posted' and move.payment_state == 'paid' and move._vataga_has_valid_storno_bill()
+            move.state == 'posted' and move.payment_state == 'paid'
+            and move.amount_total > 0 and move._vataga_has_valid_storno_bill()
         ))
-        matched = (refunds.vataga_storno_bill_id | refunds)._vataga_bank_matched_moves()
-        storno_bills = (refunds & matched).vataga_storno_bill_id & matched
-        for move in self:
-            move.vataga_storno_payment_display = 'storno' if move in storno_bills else move.payment_state
-
-    def _vataga_bank_matched_moves(self):
-        """Follow current partial reconciliations in batches, at most via one payment."""
-        def counterparts(lines):
-            return lines.matched_debit_ids.debit_move_id | lines.matched_credit_ids.credit_move_id
-
-        def is_bank_match(bank_move, invoice):
-            return (
-                bank_move.state == 'posted'
-                and bank_move.company_id == invoice.company_id
-                and bank_move.journal_id.type == 'bank'
-                and bank_move.statement_line_id
-                and (bank_move.statement_line_id.amount < 0 if invoice.move_type == 'in_invoice'
-                     else bank_move.statement_line_id.amount > 0)
+        bank_amounts = (refunds.vataga_storno_bill_id | refunds)._vataga_bank_confirmed_amounts()
+        returned = defaultdict(float)
+        for refund in refunds:
+            bill = refund.vataga_storno_bill_id
+            # Preserve nominal amounts when the documents share a currency.
+            # Cross-currency credit notes use their accounting date's rate.
+            returned[bill.id] += refund.currency_id._convert(
+                min(refund.amount_total, bank_amounts.get(refund.id, 0.0)),
+                bill.currency_id, bill.company_id, refund.date, round=False,
             )
+        storno_ids = {
+            bill.id for bill in bills
+            if bill.amount_total > 0
+            and bill.currency_id.compare_amounts(bank_amounts.get(bill.id, 0.0), bill.amount_total) >= 0
+            and bill.currency_id.compare_amounts(returned[bill.id], bill.amount_total) >= 0
+        }
+        for move in self:
+            move.vataga_storno_payment_display = 'storno' if move.id in storno_ids else move.payment_state
 
+    def _vataga_bank_confirmed_amounts(self):
+        """Amounts in each document's currency, backed by current bank reconciliations.
+
+        A shared payment's confirmed fraction applies to all its allocations.
+        This avoids crediting each invoice with the full amount of one payment.
+        Bank fees and other opposite-side lines share the actual cash amount
+        proportionally, so a gross reconciliation cannot overstate cash returned.
+        """
         terms = self.line_ids.filtered(lambda line: line.account_id.account_type == 'liability_payable')
-        first_hop = counterparts(terms).move_id
-        payments = first_hop.filtered(lambda move: move.state == 'posted').payment_id
-        # Prime the shared line prefetch before classifying individual payments.
+        partials = terms.matched_debit_ids | terms.matched_credit_ids
+        endpoints = partials.debit_move_id | partials.credit_move_id
+        first_hop = (endpoints - terms).move_id
+        payments = first_hop.filtered(
+            lambda move: move.state == 'posted' and move.journal_id.type == 'bank'
+        ).payment_id
         payment_lines = payments.move_id.line_ids
         payment_lines.account_id.fetch(['account_type'])
         liquidity_by_payment = {payment.id: payment._seek_for_lines()[0] for payment in payments}
         liquidity = payment_lines.browse().union(*liquidity_by_payment.values())
-        bank_moves = counterparts(liquidity).move_id | first_hop
+        funding_partials = liquidity.matched_debit_ids | liquidity.matched_credit_ids
+        funding_endpoints = funding_partials.debit_move_id | funding_partials.credit_move_id
+        bank_moves = (first_hop | funding_endpoints.move_id).filtered('statement_line_id')
         bank_moves.statement_line_id.fetch(['amount'])
-        bank_moves_by_payment = {
-            payment_id: counterparts(lines).move_id.with_prefetch(bank_moves.ids)
-            for payment_id, lines in liquidity_by_payment.items()
-        }
-        matched_ids = set()
-        for term in terms:
-            invoice = term.move_id
-            for move in counterparts(term).move_id.with_prefetch(bank_moves.ids):
-                if is_bank_match(move, invoice):
-                    matched_ids.add(invoice.id)
-                    break
-                if move.state != 'posted' or move.company_id != invoice.company_id:
+        bank_lines = bank_moves.line_ids
+        bank_lines.account_id.fetch(['account_type'])
+        bank_fractions = {}
+        for move in bank_moves:
+            if move.state != 'posted' or move.journal_id.type != 'bank':
+                continue
+            cash_lines = move.statement_line_id._seek_for_lines()[0]
+            cash = sum(cash_lines.mapped('balance'))
+            statement_amount = move.statement_line_id.amount
+            if not cash or not statement_amount or cash * statement_amount <= 0:
+                continue
+            # Consider all allocations of the statement, including other invoices.
+            opposite = (move.line_ids - cash_lines).filtered(lambda line: line.balance * cash < 0)
+            allocated = sum(abs(line.balance) for line in opposite)
+            fraction = min(1.0, abs(cash) / allocated) if allocated else 0.0
+            for line in opposite:
+                bank_fractions[line.id] = fraction
+
+        def bank_fraction(line, document):
+            bank = line.move_id
+            if bank.company_id != document.company_id:
+                return 0.0
+            amount = bank.statement_line_id.amount
+            right_direction = amount < 0 if document.move_type == 'in_invoice' else amount > 0
+            return bank_fractions.get(line.id, 0.0) if right_direction else 0.0
+
+        def line_amount(partial, line):
+            # These are the matched amounts in the endpoint's own currency,
+            # including FX settlements whose company-currency amounts differ.
+            return (partial.debit_amount_currency if partial.debit_move_id == line
+                    else partial.credit_amount_currency)
+
+        # Prefetch both hops once before processing per-document allocations.
+        all_lines = terms | endpoints | payment_lines | funding_endpoints | bank_lines
+        all_lines.fetch(['balance', 'amount_currency', 'currency_id', 'move_id'])
+        all_partials = partials | funding_partials
+        all_partials.fetch(['debit_move_id', 'credit_move_id', *_PARTIAL_AMOUNT_FIELDS])
+        covered_liquidity = defaultdict(float)
+        for partial in funding_partials:
+            for line, other in (
+                (partial.debit_move_id, partial.credit_move_id),
+                (partial.credit_move_id, partial.debit_move_id),
+            ):
+                if line not in liquidity or line.move_id.company_id != other.move_id.company_id:
                     continue
-                candidates = bank_moves_by_payment.get(move.payment_id.id)
-                if candidates and any(is_bank_match(bank, invoice) for bank in candidates):
-                    matched_ids.add(invoice.id)
-                    break
-        return self.browse(matched_ids)
+                # The funding direction follows the payment's payable line.
+                bank = other.move_id
+                amount = bank.statement_line_id.amount
+                correct_direction = amount > 0 if line.balance > 0 else amount < 0
+                if correct_direction:
+                    covered_liquidity[line.id] += line_amount(partial, line) * bank_fractions.get(other.id, 0.0)
+
+        payment_fractions = {}
+        for payment in payments:
+            lines = liquidity_by_payment[payment.id]
+            total = sum(abs(line.balance) for line in lines)
+            covered = 0.0
+            for line in lines:
+                denominator = abs(line.amount_currency)
+                fraction = min(1.0, covered_liquidity[line.id] / denominator) if denominator else 0.0
+                covered += abs(line.balance) * fraction
+            payment_fractions[payment.id] = min(1.0, covered / total) if total else 0.0
+
+        term_ids = set(terms.ids)
+        confirmed = defaultdict(float)
+        for partial in partials:
+            for term, counterpart in (
+                (partial.debit_move_id, partial.credit_move_id),
+                (partial.credit_move_id, partial.debit_move_id),
+            ):
+                if term.id not in term_ids or term.move_id.company_id != counterpart.move_id.company_id:
+                    continue
+                invoice = term.move_id
+                if invoice.state != 'posted':
+                    continue
+                fraction = bank_fraction(counterpart, invoice)
+                payment = counterpart.move_id.payment_id
+                if payment and counterpart.move_id.state == 'posted':
+                    expected_type = 'outbound' if invoice.move_type == 'in_invoice' else 'inbound'
+                    if payment.payment_type == expected_type and payment.partner_type == 'supplier':
+                        fraction = payment_fractions.get(payment.id, 0.0)
+                confirmed[invoice.id] += line_amount(partial, term) * fraction
+        return {
+            move.id: min(move.amount_total, confirmed[move.id])
+            for move in self
+        }
 
 
 class AccountMoveLine(models.Model):
