@@ -53,7 +53,9 @@ class ApprovalProductLine(models.Model):
     vataga_employee_initiator_id = fields.Many2one(related='approval_request_id.x_studio_iniciation', string='Ініціатор закупівлі', store=True, index=True, compute_sudo=False)
     vataga_employee_recipient_id = fields.Many2one(related='approval_request_id.x_studio_who_recived', string='Отримувач', store=True, index=True, compute_sudo=False)
     vataga_category_id = fields.Many2one(related='approval_request_id.category_id', string='Категорія закупівлі', store=True, index=True, compute_sudo=False)
-    vataga_rfq_created = fields.Boolean(related='approval_request_id.vataga_rfq_created', string='ЗНКП сформовано', store=True, compute_sudo=False)
+    vataga_rfq_created = fields.Boolean(related='approval_request_id.vataga_rfq_created', string='Технічна відмітка ЗНКП', store=True, compute_sudo=False)
+    vataga_rfq_exists = fields.Boolean(related='approval_request_id.vataga_rfq_exists', string='ЗНКП сформовано',
+                                      store=True, index=True, compute_sudo=False)
 
     @api.model
     def _get_view(self, view_id=None, view_type='form', **options):

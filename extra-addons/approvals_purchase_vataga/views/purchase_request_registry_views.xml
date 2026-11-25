@@ -20,7 +20,7 @@
                        decoration-warning="vataga_request_status == 'pending'"
                        decoration-success="vataga_request_status == 'approved'"
                        decoration-danger="vataga_request_status == 'refused'"/>
-                <field name="vataga_rfq_created" width="135px"/>
+                <field name="vataga_rfq_exists" width="135px"/>
                 <field name="vataga_request_subject" optional="hide"/>
                 <field name="vataga_owner_id" optional="hide"/>
                 <field name="vataga_date_start" optional="hide"/>
@@ -83,7 +83,7 @@
                 <filter name="missing" string="Без вибраного товару" domain="[('product_id', '=', False)]"/>
                 <filter name="filled" string="Заповнені після погодження" domain="[('vataga_filled_after_approval', '=', True)]"/>
                 <filter name="new_product" string="Товар створено із заявки" domain="[('vataga_product_created_from_request', '=', True)]"/>
-                <filter name="rfq_created" string="Створено ЗНКП" domain="['|', ('vataga_rfq_created', '=', True), ('purchase_order_line_id', '!=', False)]"/>
+                <filter name="rfq_created" string="Створено ЗНКП" domain="[('vataga_rfq_exists', '=', True)]"/>
                 <group expand="0" string="Групувати за">
                     <filter name="group_category" string="Категорія закупівлі" context="{'group_by': 'vataga_category_id'}"/>
                     <filter name="group_status" string="Статус погодження" context="{'group_by': 'vataga_request_status'}"/>
@@ -91,6 +91,7 @@
                     <filter name="group_initiator" string="Ініціатор закупівлі" context="{'group_by': 'vataga_employee_initiator_id'}"/>
                     <filter name="group_recipient" string="Отримувач" context="{'group_by': 'vataga_employee_recipient_id'}"/>
                     <filter name="group_contact" string="Контакт" context="{'group_by': 'vataga_partner_id'}"/>
+                    <filter name="group_rfq" string="ЗНКП сформовано" context="{'group_by': 'vataga_rfq_exists'}"/>
                     <filter name="group_filled" string="Заповнено після погодження" context="{'group_by': 'vataga_filled_after_approval'}"/>
                     <filter name="group_created" string="Товар створено із заявки" context="{'group_by': 'vataga_product_created_from_request'}"/>
                 </group>

@@ -55,7 +55,8 @@ def main():
     loader = unittest.TestLoader()
     count = sum(loader.loadTestsFromModule(getattr(tests, name)).countTestCases()
                 for name in ('test_purchase_approval', 'test_purchase_security',
-                             'test_purchase_rfq', 'test_purchase_registry', 'test_purchase_rpc', 'test_purchase_studio'))
+                             'test_purchase_rfq', 'test_purchase_registry', 'test_purchase_rpc', 'test_purchase_studio',
+                             'test_production_studio'))
     print('PASS: real Odoo', odoo.release.version, 'model/wizard definitions imported;', count, 'ORM tests collected')
     missing = [name for name in ('approvals', 'approvals_purchase')
                if not get_module_path(name, display_warning=False)]

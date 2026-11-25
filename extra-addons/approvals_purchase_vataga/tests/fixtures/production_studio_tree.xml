@@ -1,0 +1,12 @@
+<data>
+  <xpath expr="//tree[1]/field[@name='name']" position="after">
+    <field name="create_date" optional="show"/>
+    <field name="date_start" optional="show"/>
+    <field name="date_end" optional="show"/>
+    <field name="partner_id" optional="show"/>
+  </xpath>
+  <xpath expr="//field[@name='request_owner_id']" position="after">
+    <field name="x_studio_who_recived" optional="show"/>
+    <field name="x_studio_iniciation" optional="hide"/>
+  </xpath>
+</data>

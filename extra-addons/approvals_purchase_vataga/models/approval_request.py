@@ -33,6 +33,8 @@ class ApprovalRequest(models.Model):
     vataga_approved_once = fields.Boolean(readonly=True, copy=False)
     vataga_legacy_locked = fields.Boolean(readonly=True, copy=False)
     vataga_rfq_created = fields.Boolean(string='ЗНКП сформовано', readonly=True, copy=False)
+    vataga_rfq_exists = fields.Boolean(string='Наявність ЗНКП для реєстру', compute='_compute_vataga_rfq_exists',
+                                      store=True, index=True, compute_sudo=False)
     vataga_rfq_created_at = fields.Datetime(readonly=True, copy=False)
     vataga_rfq_created_by_id = fields.Many2one('res.users', readonly=True, copy=False)
     vataga_can_create_rfq = fields.Boolean(compute='_compute_vataga_rfq')
@@ -86,6 +88,14 @@ class ApprovalRequest(models.Model):
     def _vataga_is_processed(self):
         self.ensure_one()
         return self.vataga_rfq_created or bool(self.product_line_ids.purchase_order_line_id)
+
+    @api.depends('vataga_rfq_created', 'product_line_ids.purchase_order_line_id')
+    def _compute_vataga_rfq_exists(self):
+        # Display evidence for the WHOLE request. Do not backfill audit flags,
+        # dates or authors, and do not substitute this projection for RFQ guards.
+        for request in self:
+            request.vataga_rfq_exists = bool(
+                request.vataga_rfq_created or request.product_line_ids.purchase_order_line_id)
 
     def _vataga_is_locked(self):
         self.ensure_one()

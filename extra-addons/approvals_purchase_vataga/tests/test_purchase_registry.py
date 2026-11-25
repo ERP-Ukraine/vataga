@@ -1,4 +1,4 @@
-from odoo.exceptions import AccessError
+from odoo.exceptions import AccessError, UserError
 from odoo.tests import tagged
 
 from .common import PurchaseApprovalCase
@@ -6,6 +6,44 @@ from .common import PurchaseApprovalCase
 
 @tagged('post_install', '-at_install', 'vataga_purchase')
 class TestPurchaseRegistry(PurchaseApprovalCase):
+    def test_historical_rfq_links_project_to_every_sibling_without_changing_audit(self):
+        self.add_vendor()
+        request = self.approve(self.request([self.line_values(), self.line_values()])).with_user(self.buyer)
+        request.action_create_purchase_orders()
+        lines = request.product_line_ids
+        # Isolated fixture only: represent flags absent before first install,
+        # and a partial native link. Never run this suite on shared staging.
+        request.flush_recordset()
+        lines.flush_recordset()
+        self.env.cr.execute('UPDATE approval_request SET vataga_rfq_created=FALSE, vataga_rfq_created_at=NULL, vataga_rfq_created_by_id=NULL WHERE id=%s', [request.id])
+        self.env.cr.execute('UPDATE approval_product_line SET purchase_order_line_id=NULL WHERE id=%s', [lines[-1].id])
+        request.invalidate_recordset(['vataga_rfq_created','vataga_rfq_created_at','vataga_rfq_created_by_id'])
+        lines.invalidate_recordset(['purchase_order_line_id'])
+        request.modified(['vataga_rfq_created'])
+        lines.modified(['purchase_order_line_id'])
+        self.assertFalse(request.vataga_rfq_created)
+        self.assertFalse(request.vataga_rfq_created_at)
+        self.assertFalse(request.vataga_rfq_created_by_id)
+        self.assertTrue(all(lines.mapped('vataga_rfq_exists')))
+        domain = [('approval_request_id','=',request.id), ('vataga_rfq_exists','=',True)]
+        self.assertEqual(self.registry(self.buyer).search(domain), lines)
+        groups = self.registry(self.buyer).read_group(domain, ['quantity:sum'], ['vataga_rfq_exists'])
+        self.assertEqual(len(groups), 1)
+        self.assertTrue(groups[0]['vataga_rfq_exists'])
+        self.assertTrue(all(row[0] for row in lines.export_data(['vataga_rfq_exists'])['datas']))
+        with self.assertRaises(UserError):
+            request.action_create_purchase_orders()
+        self.assertFalse(request.vataga_rfq_created, 'Display/read/group/export must never backfill audit')
+
+    def test_rfq_display_keeps_tombstone_but_does_not_guess_missing_history(self):
+        request = self.request()
+        self.assertFalse(request.vataga_rfq_exists)
+        self.assertFalse(request.product_line_ids.vataga_rfq_exists)
+        from ..internal import INTERNAL
+        request.with_context(_vataga_internal=INTERNAL).write({'vataga_rfq_created':True})
+        self.assertTrue(request.product_line_ids.vataga_rfq_exists)
+        self.assertFalse(request.product_line_ids.purchase_order_line_id)
+
     def test_registry_period_widget_follows_source_types_only_in_registry(self):
         from lxml import etree
         lines = self.env['approval.product.line']

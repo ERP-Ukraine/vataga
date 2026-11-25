@@ -58,6 +58,68 @@ def request(purchase=True, locked=False, write_allowed=True):
 
 
 class TestOdooContracts(unittest.TestCase):
+    def test_existing_purchase_lock_and_rfq_links_do_not_need_new_install_flags(self):
+        # Isolated method contract, not a first-install database simulation.
+        # All new flags are False, as for records predating the addon.
+        class Legacy:
+            approval_type = 'purchase'
+            vataga_purchase_managed = False
+            vataga_approved_once = False
+            vataga_legacy_locked = False
+            vataga_rfq_created = False
+            request_status = 'new'
+            product_line_ids = SimpleNamespace(purchase_order_line_id=False)
+            ensure_one = lambda self: None
+            _vataga_is_purchase = request_module.ApprovalRequest._vataga_is_purchase
+            _vataga_is_processed = request_module.ApprovalRequest._vataga_is_processed
+            _vataga_is_locked = request_module.ApprovalRequest._vataga_is_locked
+        old = Legacy()
+        self.assertFalse(old._vataga_is_locked())
+        for status in ('pending', 'approved', 'refused', 'cancel'):
+            old.request_status = status
+            self.assertTrue(old._vataga_is_locked())
+        old.request_status = 'new'
+        old.product_line_ids = SimpleNamespace(purchase_order_line_id=object())
+        self.assertTrue(old._vataga_is_locked())
+        old.request_status = 'approved'
+        with patch.object(request_module, '_', lambda value: value):
+            self.assertEqual(request_module.ApprovalRequest._vataga_rfq_reason(old), 'ЗНКП вже сформовано.')
+
+    def test_first_projection_of_existing_identity_never_assigns_new_sequence(self):
+        for automatic, name, expected in ((True, 'APPR-EXISTING', 'APPR-EXISTING'),
+                                           (False, 'Existing manual subject', False)):
+            old = SimpleNamespace(automated_sequence=automatic, name=name,
+                                  vataga_number=False, vataga_purchase_subject=False)
+            request_module.ApprovalRequest._compute_vataga_identity([old])
+            self.assertEqual(old.vataga_display_number, expected)
+            self.assertEqual(old.name, name)
+            self.assertFalse(old.vataga_number)
+
+    def test_native_related_setup_uses_manual_employee_comodel_without_replacing_source(self):
+        from copy import copy
+        link = fields.Many2one('approval.request')
+        link._setup_attrs(SimpleNamespace(_name='approval.product.line', _inherits={}), 'approval_request_id')
+        link._setup_done = True
+        for projection, source_name in [('vataga_employee_initiator_id', 'x_studio_iniciation'),
+                                        ('vataga_employee_recipient_id', 'x_studio_who_recived')]:
+            source = fields.Many2one('hr.employee')
+            source._setup_attrs(SimpleNamespace(_name='approval.request', _inherits={}), source_name)
+            source.manual, source._setup_done = True, True
+            related = copy(getattr(line_module.ApprovalProductLine, projection))
+            related._setup_attrs(SimpleNamespace(_name='approval.product.line', _inherits={}), projection)
+            model = SimpleNamespace(pool={
+                'approval.product.line': SimpleNamespace(_fields={'approval_request_id': link}),
+                'approval.request': SimpleNamespace(_fields={source_name: source}),
+            })
+            related.setup_related(model)
+            self.assertEqual(related.type, 'many2one')
+            self.assertEqual(related.comodel_name, 'hr.employee')
+            self.assertTrue(related.store)
+            self.assertFalse(related.compute_sudo)
+            self.assertIs(related.related_field, source)
+            self.assertTrue(source.manual)
+            self.assertEqual(source.comodel_name, 'hr.employee')
+
     def test_late_erp_period_pair_is_localized_and_locked_with_native_inheritance(self):
         from odoo.tools.template_inheritance import apply_inheritance_specs
         source = etree.fromstring(b'<form><group><field name="date_start" readonly="True"/><field name="date_end" readonly="True"/></group><group><field name="date_start"/><field name="date_end"/></group></form>')

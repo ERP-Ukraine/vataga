@@ -1,0 +1,6 @@
+<data>
+  <xpath expr="//field[@name='category_id']" position="after">
+    <field name="x_studio_iniciation" string="Ініціатор закупівлі" invisible="category_id not in [9, 12]"/>
+    <field name="x_studio_who_recived" string="Отримувач" invisible="category_id not in [9, 12]"/>
+  </xpath>
+</data>
