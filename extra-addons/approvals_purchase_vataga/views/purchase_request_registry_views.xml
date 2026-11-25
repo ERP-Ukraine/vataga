@@ -4,27 +4,32 @@
         <field name="name">approval.product.line.vataga.registry.tree</field>
         <field name="model">approval.product.line</field>
         <field name="arch" type="xml">
-            <tree string="Реєстр заявок на закупівлю" create="0" edit="0" delete="0" default_order="id desc">
-                <button name="action_vataga_open_request" type="object" icon="fa-external-link" string="Відкрити заявку"/>
-                <field name="product_id" string="Товар"/>
-                <field name="description" string="Опис"/>
-                <field name="vataga_product_url" widget="vataga_purchase_url"/>
-                <field name="quantity" string="Кількість"/>
-                <field name="product_uom_id"/>
-                <field name="vataga_request_subject"/>
-                <field name="vataga_request_number"/>
-                <field name="vataga_request_date" optional="show"/>
+            <tree string="Реєстр заявок на закупівлю" class="o_vataga_purchase_registry" create="0" edit="0" delete="0" default_order="id desc">
+                <field name="vataga_request_number" widget="vataga_request_link" width="125px"/>
+                <field name="vataga_request_date" options="{'show_time': False}" width="110px"/>
+                <field name="vataga_category_id" width="170px"/>
+                <field name="product_id" string="Товар" width="260px"/>
+                <field name="description" string="Опис" width="290px"/>
+                <field name="vataga_product_url" widget="vataga_registry_url" width="45px"/>
+                <field name="quantity" string="Кількість" width="85px"/>
+                <field name="product_uom_id" string="Од. вимір." width="85px"/>
+                <field name="vataga_initiator_id" string="Ініціатор закупівлі" width="155px"
+                       help="Тимчасова проєкція автора (create_uid). Відповідність бізнес-ініціатору очікує перевірки полів production."/>
+                <field name="vataga_recipient_id" string="Отримувач" width="155px"
+                       help="Збережене контактне поле попередньої версії. Модель співробітника очікує перевірки полів production."/>
+                <field name="vataga_request_status" widget="badge" width="130px"
+                       decoration-muted="vataga_request_status in ('new', 'cancel')"
+                       decoration-warning="vataga_request_status == 'pending'"
+                       decoration-success="vataga_request_status == 'approved'"
+                       decoration-danger="vataga_request_status == 'refused'"/>
+                <field name="vataga_rfq_created" width="135px"/>
+                <field name="vataga_request_subject" optional="hide"/>
+                <field name="vataga_owner_id" optional="hide"/>
                 <field name="vataga_date_start" optional="hide"/>
                 <field name="vataga_date_end" optional="hide"/>
                 <field name="vataga_partner_id" optional="hide"/>
-                <field name="vataga_owner_id" optional="show"/>
-                <field name="vataga_initiator_id" optional="show"/>
-                <field name="vataga_recipient_id" optional="show"/>
-                <field name="vataga_category_id"/>
-                <field name="vataga_request_status" widget="badge"/>
-                <field name="vataga_filled_after_approval"/>
-                <field name="vataga_product_created_from_request"/>
-                <field name="vataga_rfq_created" optional="show"/>
+                <field name="vataga_filled_after_approval" optional="hide"/>
+                <field name="vataga_product_created_from_request" optional="hide"/>
                 <field name="company_id" groups="base.group_multi_company" optional="hide"/>
             </tree>
         </field>

@@ -1,0 +1,13 @@
+// Scoped to this registry. Keep Odoo typography and horizontal scrolling.
+.o_vataga_purchase_registry .o_list_renderer .o_list_table {
+    td[name="product_id"], td[name="description"], td[name="vataga_category_id"],
+    td[name="vataga_request_number"] {
+        white-space: normal;
+        overflow-wrap: anywhere;
+        .o_field_widget, .o_field_many2one, span {
+            white-space: normal;
+            overflow-wrap: anywhere;
+        }
+    }
+    td[name="vataga_product_url"] { text-align: center; }
+}

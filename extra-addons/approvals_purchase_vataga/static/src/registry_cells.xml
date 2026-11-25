@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="approvals_purchase_vataga.RequestLink">
+        <a href="#" t-on-click.stop.prevent="openRequest"
+           t-att-title="props.record.data[props.name] || 'Відкрити заявку'"
+           class="o_vataga_request_link">
+            <t t-esc="props.record.data[props.name] || 'Відкрити заявку'"/>
+        </a>
+    </t>
+    <t t-name="approvals_purchase_vataga.RegistryUrl">
+        <a t-if="formattedHref" t-att-href="formattedHref"
+           t-att-title="props.record.data[props.name]" aria-label="Відкрити URL"
+           target="_blank" rel="noopener noreferrer" t-on-click.stop="">
+            <i class="fa fa-external-link" aria-hidden="true"/>
+        </a>
+        <span t-elif="props.record.data[props.name]" t-att-title="props.record.data[props.name]"
+              class="text-muted" aria-label="Некоректний URL">—</span>
+    </t>
+</templates>
