@@ -1,12 +1,12 @@
 # Закупочні затвердження Vataga
 
-Odoo 17 Enterprise / ERP-UA, версия **17.0.1.0.4**. Зависимости: `approvals`, `approvals_purchase`, `purchase`.
+Odoo 17 Enterprise / ERP-UA, версия **17.0.1.0.5**. Зависимости: `approvals`, `approvals_purchase`, `purchase`, `hr`.
 
-**Статус: 17.0.1.0.4 установлена на staging; контролируемая демонстрационная UAT возможна, окончательная приемка BLOCKED.** Основная матрица 82 сохраняет **73 PASS / 0 FAIL / 9 BLOCKED**. В новом этапе 18 сценариев: **17 PASS /0 FAIL /1 BLOCKED**; вместе 100:90 PASS/0 FAIL/10 BLOCKED. Предыдущие PASS целиком не повторялись. [Актуальный отчет и скриншоты .4](docs/UAT_17_0_1_0_4_RU.md), [заключительное review](docs/FINAL_REVIEW_17_0_1_0_4_RU.md), [інструкція замовнику](docs/USER_GUIDE_UK.md), [чекліст ролей](docs/UAT_ROLES_UK.md). Исторические [82 сценария](docs/BROWSER_ACCEPTANCE_RU.md) и [этап .3](docs/FOLLOWUP_ACCEPTANCE_RU.md) сохраняются с исходными доказательствами.
+**Статус:17.0.1.0.5 установлена на staging, два Apps Upgrade успешны.** Новый этап **17 PASS /0 FAIL /2 BLOCKED**. Ранее принятые90 PASS целиком не повторялись; прежний U15 заменен новой приемкой без двойного учета. Свод118: **107 PASS /0 FAIL /11 BLOCKED**. Окончательная ролевая/production-приемка BLOCKED. [Актуальный отчет и скриншоты .5](docs/UAT_17_0_1_0_5_RU.md), [Studio-интеграция и обязательный порядок deployment](docs/STUDIO_INTEGRATION_17_0_1_0_5_RU.md), [інструкція замовнику](docs/USER_GUIDE_UK.md), [чекліст ролей](docs/UAT_ROLES_UK.md). Исторические [82 сценария](docs/BROWSER_ACCEPTANCE_RU.md), [этап .3](docs/FOLLOWUP_ACCEPTANCE_RU.md), [этап .4](docs/UAT_17_0_1_0_4_RU.md) сохраняются с исходными доказательствами.
 
-Локально:50 portable Python,16 URL-сценариев и статические проверки PASS;64 Enterprise ORM/HTTP-теста только собраны. Новый реальный QUnit:15/17 assertions PASS,2 внешних teardown FAIL (neutralize banner/Cloudflare); все 15 функциональных проверок PASS. Общий QUnit не объявлен зеленым. Роли, сложные маршруты и детерминированное перекрытие native RPC/SQL не подтверждены. TransactionCase/HttpCase на общей staging не запускались. `main` и production не изменялись.
+Локально:55 portable Python,16 URL-сценариев и статические проверки PASS;70 Enterprise ORM/HTTP-тестов только собраны. Реальный QUnit всего модуля:35/37 assertions PASS,2 внешних teardown FAIL (neutralize banner/Cloudflare); все35 функциональных проверок PASS. Общий QUnit не объявлен зеленым. Роли, сложные маршруты и детерминированное перекрытие native RPC/SQL не подтверждены. TransactionCase/HttpCase на общей staging не запускались. `main` и production не изменялись.
 
-**Поля людей требуют production metadata.** Legacy `vataga_initiator_id=create_uid` и получатель `res.partner` сохранены без потери данных; они не доказывают уточненный смысл независимых сотрудников. Новых дублей/HR-прав нет. Подготовлен [ручной read-only safe_eval diagnostic](scripts/production_field_diagnostic.py); production агентом не посещается. В staging проверены 101 поле заявки,42 поля строки, Studio tree и metadata/ACL/rule `hr.employee.public`.
+**До размещения кода .5 оба source-поля должны уже существовать.** `x_studio_iniciation` и `x_studio_who_recived` — optional editable stored Many2one(`hr.employee`), подтвержденные пользователем поля production. Модуль использует их без переобъявления Python/manual metadata; зависимости `studio_customization` нет. На staging только эти два отсутствующих поля созданы штатно до deployment. [Read-only preflight](scripts/studio_preflight.py) запускается со старым кодом; создание полей в post_init/Apps Upgrade слишком поздно для related registry. Legacy `vataga_initiator_id`/res.users и `vataga_recipient_id`/res.partner сохранены для аудита без конвертации ID и автоматического присвоения сотрудников. В актуальном UI они заменены source-полями, в реестре — новыми hr.employee-проекциями. Отрицательная HR-role приемка и полный production Studio XML остаются BLOCKED.
 
 Исторический дополнительный review и 11 самостоятельно принятых бизнес-решений: [CODE_REVIEW_RU.md](docs/CODE_REVIEW_RU.md). Результаты последующей staging-приемки имеют приоритет над прежними статусами установки и тестов в исторических отчетах.
 
@@ -61,13 +61,13 @@ Odoo 17 Enterprise / ERP-UA, версия **17.0.1.0.4**. Зависимости
 | Область | Основные поля / реализация |
 |---|---|
 | Идентичность | `vataga_number`, `vataga_display_number`, `vataga_purchase_subject`, `vataga_display_subject`; стандартный `name` сохраняет свой смысл |
-| Люди | неизменяемый `request_owner_id`; `vataga_initiator_id` = фактический `create_uid`; `vataga_recipient_id` = отдельный контакт получателя |
+| Люди | неизменяемый `request_owner_id`; необязательные `x_studio_iniciation` и `x_studio_who_recived` = независимые сотрудники; старые `vataga_initiator_id`/`vataga_recipient_id` сохранены как legacy |
 | Защита | `vataga_purchase_managed`, `vataga_approved_once`, `vataga_legacy_locked`, `vataga_lock_revision` |
 | ЗНКП | `vataga_rfq_created`, `vataga_rfq_created_at`, `vataga_rfq_created_by_id`, `vataga_can_create_rfq`, `vataga_rfq_block_reason` |
 | URL | строка `vataga_product_url`; карточка `vataga_purchase_url`; совместимый безопасный URL-виджет на базе штатного |
 | История строки | `vataga_approval_recorded`, `vataga_product_missing_at_approval`, `vataga_filled_after_approval`, `vataga_product_created_from_request`, `vataga_filled_by_id`, `vataga_filled_at` |
 | Снимок | `vataga_approved_product_id`, `vataga_approved_description`, `vataga_approved_url`, `vataga_approved_quantity`, `vataga_approved_uom_id` |
-| Реестр | сохраняемые связанные `vataga_request_*`, `vataga_partner_id`, `vataga_owner_id`, `vataga_initiator_id`, `vataga_recipient_id`, `vataga_category_id`, `vataga_rfq_created`; периоды `vataga_date_*` — отдельные вычисляемые Datetime-проекции |
+| Реестр | сохраняемые связанные `vataga_request_*`, `vataga_partner_id`, `vataga_owner_id`, `vataga_employee_initiator_id`, `vataga_employee_recipient_id`, `vataga_category_id`, `vataga_rfq_created`; периоды `vataga_date_*` — отдельные вычисляемые Datetime-проекции |
 
 Стандартные Datetime-периоды сохраняют время и штатное отображение. Для ERP-UA Date-источника в .3 собственный календарный widget восстанавливает исходный UTC-день перед локальным форматированием: период 24–30.11.2026 показывается как календарные даты без времени и сдвига. Выбор widget ограничен собственным реестром и фактическим типом каждого source-поля. SQL-типы проекций и машинный Datetime-экспорт сохранены, исходные данные не мигрируются. Группы доступа исходных периодов переносятся на проекции при setup модели.
 
@@ -77,7 +77,7 @@ Odoo 17 Enterprise / ERP-UA, версия **17.0.1.0.4**. Зависимости
 
 ## Установка и проверки
 
-1. До установки прочитать отчет, выполнить read-only preflight в **лицензированной тестовой** среде и сопоставить MRO, поля, XML ID, права и supplier helper. Скрипт ничего не устанавливает:
+1. До размещения нового кода выполнить [Studio prerequisite preflight](docs/STUDIO_INTEGRATION_17_0_1_0_5_RU.md) на старом коде. Оба manual-поля обязаны существовать до registry; на production подтвержденные существующие поля не пересоздавать. Затем выполнить read-only runtime preflight в **лицензированной тестовой** среде и сопоставить MRO, поля, XML ID, права и supplier helper. Скрипт ничего не устанавливает:
 
    ```sh
    odoo shell -c /etc/odoo/odoo.conf -d VATAGA_ENTERPRISE_TEST --no-http < extra-addons/approvals_purchase_vataga/scripts/odoo_preflight.py
