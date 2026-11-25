@@ -189,7 +189,7 @@ class TestVendorStorno(AccountTestInvoicingCommon):
         self.assertFalse(no_purchase.vataga_storno_purchase_ids)
         self.assertEqual(no_purchase.vataga_storno_bill_id, bill)
 
-    def test_one_qualifying_partial_amount_refund_is_enough(self):
+    def test_partial_refund_does_not_reverse_full_bill(self):
         bill = self._vendor_move()
         first = self._vendor_move('in_refund', vataga_storno_bill_id=bill.id)
         second = self._vendor_move('in_refund', vataga_storno_bill_id=bill.id)
@@ -198,6 +198,296 @@ class TestVendorStorno(AccountTestInvoicingCommon):
         self._bank_match(self._payable_lines(bill), -100)
         self._bank_match(self._payable_lines(first), 40)
         self._assert_states(second, 'not_paid')
+        self._assert_states(bill, 'paid')
+        self.assertEqual(first.vataga_storno_bill_id, bill)
+        self.assertEqual(first.payment_state, 'paid')
+
+    def test_multiple_paid_refunds_cover_bill_and_unreconcile(self):
+        bill = self._vendor_move()
+        first = self._vendor_move('in_refund', vataga_storno_bill_id=bill.id)
+        second = self._vendor_move('in_refund', vataga_storno_bill_id=bill.id)
+        first.invoice_line_ids.price_unit = 40
+        second.invoice_line_ids.price_unit = 60
+        (bill | first | second).action_post()
+        self._bank_match(self._payable_lines(bill), -100)
+        self._bank_match(self._payable_lines(first), 40)
+        self._assert_states(bill, 'paid')
+        bank = self._bank_match(self._payable_lines(second), 60)
+        self._assert_states(bill, 'paid', 'storno')
+        self.env.invalidate_all()
+        self._assert_states(bill, 'paid', 'storno')
+        bank.remove_move_reconcile()
+        self._assert_states(bill, 'paid')
+        (bank | self._payable_lines(second)).reconcile()
+        self._assert_states(bill, 'paid', 'storno')
+        second.button_draft()
+        second.button_cancel()
+        self._assert_states(bill, 'paid')
+        self.assertEqual(second.vataga_storno_bill_id, bill)
+
+    def test_paid_refund_with_only_partial_bank_confirmation(self):
+        bill = self._vendor_move()
+        refund = self._vendor_move('in_refund', vataga_storno_bill_id=bill.id)
+        (bill | refund).action_post()
+        self._bank_match(self._payable_lines(bill), -100)
+        payment = self._register_payment(refund)
+        liquidity = payment._seek_for_lines()[0]
+        self._bank_match(liquidity, 40)
+        # With the outstanding account Community can already report paid.
+        self.assertIn(refund.payment_state, ('paid', 'in_payment'))
+        self.assertEqual(bill.vataga_storno_payment_display, 'paid')
+        bank = self._bank_match(liquidity, 60)
+        self._assert_states(refund, 'paid')
+        self._assert_states(bill, 'paid', 'storno')
+        bank.remove_move_reconcile()
+        self._assert_states(bill, 'paid')
+
+    def _settle_without_bank(self, document, amount):
+        term = self._payable_lines(document)
+        inbound = document.move_type == 'in_refund'
+        balance = -amount if inbound else amount
+        entry = self.env['account.move'].create({
+            'move_type': 'entry',
+            'journal_id': self.company_data['default_journal_misc'].id,
+            'line_ids': [
+                Command.create({
+                    'name': 'Non-bank settlement', 'partner_id': document.partner_id.id,
+                    'account_id': term.account_id.id, 'balance': balance,
+                }),
+                Command.create({
+                    'name': 'Settlement counterpart',
+                    'account_id': self.company_data['default_account_expense'].id,
+                    'balance': -balance,
+                }),
+            ],
+        })
+        entry.action_post()
+        (term | entry.line_ids.filtered(lambda line: line.account_id == term.account_id)).reconcile()
+
+    def test_only_actual_bank_portion_of_paid_credit_note_counts(self):
+        bill = self._vendor_move()
+        refund = self._vendor_move('in_refund', vataga_storno_bill_id=bill.id)
+        (bill | refund).action_post()
+        self._bank_match(self._payable_lines(bill), -100)
+        bank = self._bank_match(self._payable_lines(refund), 40)
+        self._settle_without_bank(refund, 60)
+        self._assert_states(refund, 'paid')
+        self._assert_states(bill, 'paid')
+        self.assertAlmostEqual(refund._vataga_bank_confirmed_amounts()[refund.id], 40)
+        second = self._vendor_move('in_refund', vataga_storno_bill_id=bill.id)
+        second.invoice_line_ids.price_unit = 60
+        second.action_post()
+        self._bank_match(self._payable_lines(second), 60)
+        self._assert_states(bill, 'paid', 'storno')
+        bank.remove_move_reconcile()
+        self.env.invalidate_all()
+        self._assert_states(bill, 'paid')
+
+    def test_shared_payment_has_only_proportional_bank_coverage(self):
+        bill_a = self._vendor_move()
+        bill_b = self._vendor_move()
+        first = self._vendor_move('in_refund', vataga_storno_bill_id=bill_a.id)
+        second = self._vendor_move('in_refund', vataga_storno_bill_id=bill_b.id)
+        (bill_a | bill_b | first | second).action_post()
+        self._bank_match(self._payable_lines(bill_a), -100)
+        self._bank_match(self._payable_lines(bill_b), -100)
+        payment = self.env['account.payment'].create({
+            'journal_id': self.company_data['default_journal_bank'].id,
+            'partner_id': self.partner_a.id, 'partner_type': 'supplier',
+            'payment_type': 'inbound', 'amount': 200,
+        })
+        payment.action_post()
+        liquidity, counterpart, _ = payment._seek_for_lines()
+        (counterpart | self._payable_lines(first) | self._payable_lines(second)).reconcile()
+        self._bank_match(liquidity, 100)
+        coverage = (first | second)._vataga_bank_confirmed_amounts()
+        self.assertEqual(coverage, {first.id: 50, second.id: 50})
+        self._assert_states(bill_a, 'paid')
+        self._assert_states(bill_b, 'paid')
+        bank = self._bank_match(liquidity, 100)
+        self._assert_states(bill_a, 'paid', 'storno')
+        self._assert_states(bill_b, 'paid', 'storno')
+        bank.remove_move_reconcile()
+        self._assert_states(bill_a, 'paid')
+        self._assert_states(bill_b, 'paid')
+
+    def test_full_refund_requires_full_bank_payment_of_bill(self):
+        bill = self._vendor_move()
+        refund = self._vendor_move('in_refund', vataga_storno_bill_id=bill.id)
+        (bill | refund).action_post()
+        self._bank_match(self._payable_lines(bill), -40)
+        self._settle_without_bank(bill, 60)
+        self._bank_match(self._payable_lines(refund), 100)
+        self._assert_states(bill, 'paid')
+
+    def test_unlinked_and_unpaid_refunds_do_not_cover_bill(self):
+        bill = self._vendor_move()
+        partial = self._vendor_move('in_refund', vataga_storno_bill_id=bill.id)
+        unlinked = self._vendor_move('in_refund')
+        unpaid = self._vendor_move('in_refund', vataga_storno_bill_id=bill.id)
+        partial.invoice_line_ids.price_unit = 40
+        (bill | partial | unlinked | unpaid).action_post()
+        self._bank_match(self._payable_lines(bill), -100)
+        self._bank_match(self._payable_lines(partial), 40)
+        self._bank_match(self._payable_lines(unlinked), 100)
+        self._bank_match(self._payable_lines(unpaid), 60)
+        self._assert_states(unpaid, 'partial')
+        self._assert_states(bill, 'paid')
+
+    def test_bank_fee_does_not_count_as_money_returned(self):
+        bill = self._vendor_move()
+        refund = self._vendor_move('in_refund', vataga_storno_bill_id=bill.id)
+        (bill | refund).action_post()
+        self._bank_match(self._payable_lines(bill), -100)
+        statement = self.env['account.bank.statement.line'].create({
+            'journal_id': self.company_data['default_journal_bank'].id,
+            'partner_id': self.partner_a.id, 'amount': 90, 'payment_ref': 'Refund with fee',
+        })
+        _, suspense, _ = statement._seek_for_lines()
+        statement.move_id.with_context(skip_account_move_synchronization=True).write({'line_ids': [
+            Command.update(suspense.id, {
+                'account_id': self._payable_lines(refund).account_id.id,
+                'balance': -100, 'amount_currency': -100,
+            }),
+            Command.create({
+                'name': 'Bank fee', 'balance': 10,
+                'account_id': self.company_data['default_account_expense'].id,
+            }),
+        ]})
+        (suspense | self._payable_lines(refund)).reconcile()
+        self._assert_states(refund, 'paid')
+        self.assertAlmostEqual(refund._vataga_bank_confirmed_amounts()[refund.id], 90)
+        self._assert_states(bill, 'paid')
+
+    def test_currency_rounding_and_several_small_refunds(self):
+        bill = self._vendor_move()
+        bill.invoice_line_ids.price_unit = 0.30
+        first = self._vendor_move('in_refund', vataga_storno_bill_id=bill.id)
+        second = self._vendor_move('in_refund', vataga_storno_bill_id=bill.id)
+        first.invoice_line_ids.price_unit = 0.10
+        second.invoice_line_ids.price_unit = 0.20
+        (bill | first | second).action_post()
+        self._bank_match(self._payable_lines(bill), -0.30)
+        self._bank_match(self._payable_lines(first), 0.10)
+        self._assert_states(bill, 'paid')
+        self._bank_match(self._payable_lines(second), 0.20)
+        self._assert_states(bill, 'paid', 'storno')
+
+    def test_cross_currency_refunds_use_document_date_rate(self):
+        foreign = self.currency_data['currency']
+        # Stable explicit rates in the isolated test company.
+        self.env['res.currency.rate'].create({
+            'currency_id': foreign.id, 'company_id': self.env.company.id,
+            'name': fields.Date.today(), 'rate': 2,
+        })
+        bill = self._vendor_move()
+        refund = self._vendor_move('in_refund', currency_id=foreign.id, vataga_storno_bill_id=bill.id)
+        refund.invoice_line_ids.price_unit = 80  # 40 in company/bill currency.
+        (bill | refund).action_post()
+        self._bank_match(self._payable_lines(bill), -100)
+        self._bank_match(self._payable_lines(refund), 40)
+        self._assert_states(refund, 'paid')
+        self.assertAlmostEqual(refund._vataga_bank_confirmed_amounts()[refund.id], 80)
+        self._assert_states(bill, 'paid')
+        second = self._vendor_move('in_refund', currency_id=foreign.id, vataga_storno_bill_id=bill.id)
+        second.invoice_line_ids.price_unit = 120
+        second.action_post()
+        self._bank_match(self._payable_lines(second), 60)
+        self._assert_states(bill, 'paid', 'storno')
+
+    def test_foreign_currency_payment_uses_matched_foreign_amount(self):
+        foreign = self.currency_data['currency']
+        bill = self._vendor_move(currency_id=foreign.id)
+        refund = self._vendor_move('in_refund', currency_id=foreign.id, vataga_storno_bill_id=bill.id)
+        (bill | refund).action_post()
+        # The invoice and credit note each have 100 foreign units = 50 company units.
+        self._bank_match(self._payable_lines(bill), -50)
+        payment = self._register_payment(refund)
+        liquidity = payment._seek_for_lines()[0]
+        self._bank_match(liquidity, 20)
+        amounts = refund._vataga_bank_confirmed_amounts()
+        self.assertAlmostEqual(amounts[refund.id], 40)
+        self._assert_states(bill, 'paid')
+        last_bank = self._bank_match(liquidity, 30)
+        self._assert_states(bill, 'paid', 'storno')
+        last_bank.remove_move_reconcile()
+        self.env.invalidate_all()
+        self._assert_states(bill, 'paid')
+
+    def test_cash_and_bank_split_does_not_prove_full_refund(self):
+        bill = self._vendor_move()
+        refund = self._vendor_move('in_refund', vataga_storno_bill_id=bill.id)
+        (bill | refund).action_post()
+        self._bank_match(self._payable_lines(bill), -100)
+        self._bank_match(self._payable_lines(refund), 40)
+        cash = self.env['account.journal'].create({'name': 'Cash split', 'type': 'cash', 'code': 'SPLCS'})
+        self._bank_match(self._payable_lines(refund), 60, journal=cash)
+        self._assert_states(refund, 'paid')
+        self._assert_states(bill, 'paid')
+
+    def test_shared_bank_transaction_cannot_cover_more_than_its_cash(self):
+        bill = self._vendor_move()
+        first = self._vendor_move('in_refund', vataga_storno_bill_id=bill.id)
+        second = self._vendor_move('in_refund', vataga_storno_bill_id=bill.id)
+        first.invoice_line_ids.price_unit = 40
+        second.invoice_line_ids.price_unit = 60
+        (bill | first | second).action_post()
+        self._bank_match(self._payable_lines(bill), -100)
+        self._bank_match(self._payable_lines(first) | self._payable_lines(second), 100)
+        self._assert_states(bill, 'paid', 'storno')
+        amounts = (first | second)._vataga_bank_confirmed_amounts()
+        self.assertEqual(amounts, {first.id: 40, second.id: 60})
+
+    def test_one_cent_short_of_full_return_is_not_storno(self):
+        bill = self._vendor_move()
+        refund = self._vendor_move('in_refund', vataga_storno_bill_id=bill.id)
+        refund.invoice_line_ids.price_unit = 99.99
+        (bill | refund).action_post()
+        self._bank_match(self._payable_lines(bill), -100)
+        self._bank_match(self._payable_lines(refund), 99.99)
+        self._assert_states(bill, 'paid')
+
+    def test_same_foreign_currency_across_different_exchange_rates(self):
+        foreign = self.currency_data['currency']
+        bill = self._vendor_move(currency_id=foreign.id)
+        bill.action_post()
+        self._bank_match(self._payable_lines(bill), -50)
+        self.env['res.currency.rate'].create({
+            'currency_id': foreign.id, 'company_id': self.env.company.id,
+            'name': fields.Date.today(), 'rate': 4,
+        })
+        refund = self._vendor_move('in_refund', currency_id=foreign.id, vataga_storno_bill_id=bill.id)
+        refund.action_post()
+        self._bank_match(self._payable_lines(refund), 25)
+        # The nominal amount returned is 100 foreign units in both documents.
+        self._assert_states(bill, 'paid', 'storno')
+
+    def test_currency_conversion_keeps_rounding_until_refunds_are_summed(self):
+        foreign = self.currency_data['currency']
+        self.env['res.currency.rate'].create({
+            'currency_id': foreign.id, 'company_id': self.env.company.id,
+            'name': fields.Date.today(), 'rate': 3,
+        })
+        bill = self._vendor_move()
+        bill.invoice_line_ids.price_unit = 1
+        refunds = self.env['account.move']
+        for _ in range(3):
+            refund = self._vendor_move('in_refund', currency_id=foreign.id, vataga_storno_bill_id=bill.id)
+            refund.invoice_line_ids.price_unit = 1
+            refunds |= refund
+        (bill | refunds).action_post()
+        self._bank_match(self._payable_lines(bill), -1)
+        for refund in refunds:
+            # Settle the foreign units in a foreign-currency bank journal.
+            bank = self.env['account.bank.statement.line'].create({
+                'journal_id': self.company_data['default_journal_bank'].id,
+                'partner_id': self.partner_a.id, 'amount': 0.33,
+                'foreign_currency_id': foreign.id, 'amount_currency': 1,
+                'payment_ref': 'Foreign rounding',
+            })
+            _, suspense, _ = bank._seek_for_lines()
+            suspense.with_context(skip_account_move_synchronization=True).account_id = self._payable_lines(refund).account_id
+            (suspense | self._payable_lines(refund)).reconcile()
         self._assert_states(bill, 'paid', 'storno')
 
     def test_form_domain_tracks_vendor_and_purchase_lines(self):
