@@ -13,11 +13,9 @@
                 <field name="vataga_product_url" widget="vataga_registry_url" width="45px"/>
                 <field name="quantity" string="Кількість" width="85px"/>
                 <field name="product_uom_id" string="Од. вимір." width="85px"/>
-                <field name="vataga_initiator_id" string="Ініціатор закупівлі" width="155px"
-                       help="Тимчасова проєкція автора (create_uid). Відповідність бізнес-ініціатору очікує перевірки полів production."/>
-                <field name="vataga_recipient_id" string="Отримувач" width="155px"
-                       help="Збережене контактне поле попередньої версії. Модель співробітника очікує перевірки полів production."/>
-                <field name="vataga_request_status" widget="badge" width="130px"
+                <field name="vataga_employee_initiator_id" string="Ініціатор закупівлі" width="155px"/>
+                <field name="vataga_employee_recipient_id" string="Отримувач" width="155px"/>
+                <field name="vataga_request_status" widget="vataga_registry_status" width="130px"
                        decoration-muted="vataga_request_status in ('new', 'cancel')"
                        decoration-warning="vataga_request_status == 'pending'"
                        decoration-success="vataga_request_status == 'approved'"
@@ -73,9 +71,9 @@
                 <field name="vataga_product_url"/>
                 <field name="vataga_category_id"/>
                 <field name="vataga_owner_id"/>
-                <field name="vataga_initiator_id"/>
+                <field name="vataga_employee_initiator_id"/>
                 <field name="vataga_partner_id"/>
-                <field name="vataga_recipient_id"/>
+                <field name="vataga_employee_recipient_id"/>
                 <separator/>
                 <filter name="my_requests" string="Мої заявки" domain="[('vataga_owner_id', '=', uid)]"/>
                 <separator/>
@@ -90,8 +88,8 @@
                     <filter name="group_category" string="Категорія закупівлі" context="{'group_by': 'vataga_category_id'}"/>
                     <filter name="group_status" string="Статус погодження" context="{'group_by': 'vataga_request_status'}"/>
                     <filter name="group_owner" string="Власник" context="{'group_by': 'vataga_owner_id'}"/>
-                    <filter name="group_initiator" string="Ініціатор" context="{'group_by': 'vataga_initiator_id'}"/>
-                    <filter name="group_recipient" string="Отримувач" context="{'group_by': 'vataga_recipient_id'}"/>
+                    <filter name="group_initiator" string="Ініціатор закупівлі" context="{'group_by': 'vataga_employee_initiator_id'}"/>
+                    <filter name="group_recipient" string="Отримувач" context="{'group_by': 'vataga_employee_recipient_id'}"/>
                     <filter name="group_contact" string="Контакт" context="{'group_by': 'vataga_partner_id'}"/>
                     <filter name="group_filled" string="Заповнено після погодження" context="{'group_by': 'vataga_filled_after_approval'}"/>
                     <filter name="group_created" string="Товар створено із заявки" context="{'group_by': 'vataga_product_created_from_request'}"/>

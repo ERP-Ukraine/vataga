@@ -4,6 +4,7 @@ from odoo.tools import SQL
 
 from ..internal import INTERNAL, RFQ, WORKFLOW, clean_defaults, public_result, refreshable_fields
 from ..policy import line_errors
+from ..studio_fields import EMPLOYEE_FIELDS, employee_form_arch, validate_employee_fields
 
 
 REQUEST_AUDIT = frozenset({
@@ -13,7 +14,7 @@ REQUEST_AUDIT = frozenset({
     'vataga_lock_revision',
     'vataga_legacy_locked',
 })
-REQUEST_INPUT = frozenset({'vataga_recipient_id', 'vataga_purchase_subject'})
+REQUEST_INPUT = frozenset({'vataga_purchase_subject'})
 
 
 class ApprovalRequest(models.Model):
@@ -24,9 +25,9 @@ class ApprovalRequest(models.Model):
     vataga_display_subject = fields.Char(string='Тема заявки', compute='_compute_vataga_identity', store=True)
     vataga_display_number = fields.Char(string='Номер заявки', compute='_compute_vataga_identity', store=True)
     vataga_initiator_id = fields.Many2one(
-        related='create_uid', string='Ініціатор', store=True, readonly=True, compute_sudo=False)
-    vataga_recipient_id = fields.Many2one('res.partner', string='Отримувач закупівлі',
-                                         check_company=True, copy=False)
+        related='create_uid', string='Автор запису (legacy)', store=True, readonly=True, compute_sudo=False)
+    vataga_recipient_id = fields.Many2one('res.partner', string='Отримувач-контакт (legacy)',
+                                         check_company=True, copy=False, readonly=True)
     vataga_purchase_managed = fields.Boolean(readonly=True, copy=False)
     vataga_lock_revision = fields.Integer(readonly=True, copy=False, default=0)
     vataga_approved_once = fields.Boolean(readonly=True, copy=False)
@@ -37,6 +38,31 @@ class ApprovalRequest(models.Model):
     vataga_can_create_rfq = fields.Boolean(compute='_compute_vataga_rfq')
     vataga_rfq_block_reason = fields.Char(string='Готовність до закупівлі', compute='_compute_vataga_rfq')
     vataga_lines_locked = fields.Boolean(compute='_compute_vataga_lines_locked')
+
+    @api.model
+    def _setup_complete(self):
+        result = super()._setup_complete()
+        validate_employee_fields(self._fields)
+        return result
+
+    @api.model
+    def _get_view(self, view_id=None, view_type='form', **options):
+        arch, view = super()._get_view(view_id, view_type, **options)
+        return (employee_form_arch(arch, {name: self._fields[name].domain for name in EMPLOYEE_FIELDS})
+                if view_type == 'form' else arch), view
+
+    @api.model
+    def _vataga_validate_employee_input(self, vals, company):
+        # Only public identity/company/active data; no HR ACL grants or sudo.
+        # Do not infer employees from legacy user/partner IDs.
+        for name in EMPLOYEE_FIELDS:
+            if vals.get(name):
+                domain = [('id', '=', vals[name]), ('active', '=', True)]
+                if company:
+                    domain.append(('company_id', 'in', [False, company.id]))
+                employee = self.env['hr.employee.public'].with_context(active_test=False).search(domain, limit=1)
+                if not employee:
+                    raise ValidationError(_('Виберіть доступного активного співробітника компанії заявки.'))
 
     @api.depends('name', 'automated_sequence', 'vataga_number', 'vataga_purchase_subject')
     def _compute_vataga_identity(self):
@@ -116,6 +142,9 @@ class ApprovalRequest(models.Model):
             vals = dict(vals)
             category = self.env['approval.category'].browse(vals.get('category_id', category_default))
             if category and category.approval_type == 'purchase':
+                employee_values = {name: clean.env.context.get('default_' + name) for name in EMPLOYEE_FIELDS}
+                employee_values.update(vals)
+                self._vataga_validate_employee_input(employee_values, category.company_id)
                 supplied = {key: value for key, value in vals.items() if key != 'request_status'}
                 supplied.update({key[8:]: value for key, value in clean.env.context.items()
                                  if key.startswith('default_') and key != 'default_request_status'})
@@ -152,6 +181,10 @@ class ApprovalRequest(models.Model):
             if not internal and self.env.context.get('_vataga_workflow') is not WORKFLOW:
                 self._vataga_check_derived_input(vals)
             for request in purchases:
+                if any(name in vals for name in (*EMPLOYEE_FIELDS, 'category_id', 'company_id')):
+                    employee_values = {name: request[name].id for name in EMPLOYEE_FIELDS}
+                    employee_values.update(vals)
+                    self._vataga_validate_employee_input(employee_values, (incoming or request.category_id).company_id)
                 if incoming and (request.approval_type != 'purchase' or incoming.approval_type != 'purchase'):
                     raise UserError(_('Для зміни типу створіть нову заявку. Закупочні дані не можна переносити між типами.'))
                 if incoming and incoming.automated_sequence != request.automated_sequence:
@@ -165,6 +198,7 @@ class ApprovalRequest(models.Model):
                 if request._vataga_is_locked() and set(vals).intersection({
                     'category_id', 'company_id', 'vataga_recipient_id', 'vataga_purchase_subject', 'name', 'reference',
                     'partner_id', 'date_start', 'date_end',
+                    *EMPLOYEE_FIELDS,
                 }):
                     raise UserError(_('Реквізити надісланої або обробленої закупочної заявки захищено.'))
         return super().write(vals)

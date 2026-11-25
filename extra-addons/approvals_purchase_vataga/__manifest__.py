@@ -1,11 +1,11 @@
 {
     'name': 'Закупочні затвердження Vataga',
-    'version': '17.0.1.0.4',
+    'version': '17.0.1.0.5',
     'category': 'Human Resources/Approvals',
     'author': 'ERP Ukraine LLC',
     'website': 'https://erp.co.ua',
     'license': 'LGPL-3',
-    'depends': ['approvals', 'approvals_purchase', 'purchase'],
+    'depends': ['approvals', 'approvals_purchase', 'purchase', 'hr'],
     'data': [
         'security/ir.model.access.csv',
         'data/ir_sequence.xml',

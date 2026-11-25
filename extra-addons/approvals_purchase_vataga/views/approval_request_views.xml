@@ -34,8 +34,6 @@
                 <field name="vataga_display_number" invisible="approval_type != 'purchase'" readonly="1"/>
                 <field name="vataga_purchase_subject" invisible="approval_type != 'purchase' or not automated_sequence"
                        readonly="vataga_lines_locked" placeholder="Коротко опишіть потребу в закупівлі"/>
-                <field name="vataga_initiator_id" invisible="approval_type != 'purchase'" readonly="1"/>
-                <field name="vataga_recipient_id" invisible="approval_type != 'purchase'" readonly="vataga_lines_locked"/>
             </xpath>
             <xpath expr="//field[@name='product_line_ids']" position="attributes">
                 <attribute name="readonly" add="vataga_lines_locked" separator=" or "/>

@@ -5,6 +5,14 @@ import { useService } from '@web/core/utils/hooks';
 import { CharField, charField } from '@web/views/fields/char/char_field';
 import { UrlField, urlField } from '@web/views/fields/url/url_field';
 import { safePurchaseHref } from './url_policy';
+import { BadgeField, badgeField } from '@web/views/fields/badge/badge_field';
+import { _t } from '@web/core/l10n/translation';
+
+export class RegistryStatusField extends BadgeField {
+    get formattedValue() {
+        return this.props.record.data[this.props.name] === 'cancel' ? _t('Скасовано') : super.formattedValue;
+    }
+}
 
 export class RequestLinkField extends CharField {
     static template = 'approvals_purchase_vataga.RequestLink';
@@ -34,3 +42,4 @@ export class RegistryUrlField extends UrlField {
 
 registry.category('fields').add('vataga_request_link', { ...charField, component: RequestLinkField });
 registry.category('fields').add('vataga_registry_url', { ...urlField, component: RegistryUrlField });
+registry.category('fields').add('vataga_registry_status', { ...badgeField, component: RegistryStatusField });

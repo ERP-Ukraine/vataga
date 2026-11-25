@@ -6,6 +6,22 @@ import { makeView, setupViewRegistries } from '@web/../tests/views/helpers';
 QUnit.module('Vataga: compact registry', (hooks) => {
     hooks.beforeEach(() => setupViewRegistries());
 
+    QUnit.test('cancel caption is local to registry badge', async (assert) => {
+        await makeView({
+            type: 'list', resModel: 'vataga.status.test',
+            serverData: { models: { 'vataga.status.test': {
+                fields: { status: { type: 'selection', selection: [['cancel', 'Скасувати']] },
+                          native: { type: 'selection', selection: [['cancel', 'Скасувати']] } },
+                records: [{ id: 1, status: 'cancel', native: 'cancel' }],
+            } } },
+            arch: '<tree><field name="status" widget="vataga_registry_status" decoration-muted="status == \'cancel\'"/><field name="native" widget="badge"/></tree>',
+        });
+        const target = getFixture();
+        assert.strictEqual(target.querySelector('[name="status"]').textContent.trim(), 'Скасовано');
+        assert.strictEqual(target.querySelector('[name="native"]').textContent.trim(), 'Скасувати');
+        assert.containsOnce(target, '[name="status"] .text-bg-muted');
+    });
+
     QUnit.test('fresh list hides optional data and formats datetime without changing it', async (assert) => {
         const view = await makeView({
             type: 'list', resModel: 'vataga.registry.display.test',

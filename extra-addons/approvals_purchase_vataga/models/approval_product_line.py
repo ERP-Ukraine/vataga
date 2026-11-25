@@ -48,8 +48,10 @@ class ApprovalProductLine(models.Model):
     vataga_date_end = fields.Datetime(string='Дата закінчення', compute='_compute_vataga_date_end', store=True, compute_sudo=False)
     vataga_partner_id = fields.Many2one(related='approval_request_id.partner_id', string='Контакт', store=True, compute_sudo=False)
     vataga_owner_id = fields.Many2one(related='approval_request_id.request_owner_id', string='Власник заявки', store=True, index=True, compute_sudo=False)
-    vataga_initiator_id = fields.Many2one(related='approval_request_id.vataga_initiator_id', string='Ініціатор', store=True, index=True, compute_sudo=False)
-    vataga_recipient_id = fields.Many2one(related='approval_request_id.vataga_recipient_id', string='Отримувач закупівлі', store=True, index=True, compute_sudo=False)
+    vataga_initiator_id = fields.Many2one(related='approval_request_id.vataga_initiator_id', string='Автор запису (legacy)', store=True, index=True, compute_sudo=False)
+    vataga_recipient_id = fields.Many2one(related='approval_request_id.vataga_recipient_id', string='Отримувач-контакт (legacy)', store=True, index=True, compute_sudo=False)
+    vataga_employee_initiator_id = fields.Many2one(related='approval_request_id.x_studio_iniciation', string='Ініціатор закупівлі', store=True, index=True, compute_sudo=False)
+    vataga_employee_recipient_id = fields.Many2one(related='approval_request_id.x_studio_who_recived', string='Отримувач', store=True, index=True, compute_sudo=False)
     vataga_category_id = fields.Many2one(related='approval_request_id.category_id', string='Категорія закупівлі', store=True, index=True, compute_sudo=False)
     vataga_rfq_created = fields.Boolean(related='approval_request_id.vataga_rfq_created', string='ЗНКП сформовано', store=True, compute_sudo=False)
 
