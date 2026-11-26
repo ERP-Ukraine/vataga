@@ -7,7 +7,7 @@ class ResCompany(models.Model):
 
     vataga_default_supplier_id = fields.Many2one(
         'res.partner', string='Довільний постачальник для нових товарів Vataga',
-        domain="[('active', '=', True), ('supplier_rank', '>', 0), ('company_id', 'in', [False, id])]",
+        domain="[('active', '=', True), ('company_id', 'in', [False, id])]",
         check_company=True, copy=False, help='Існуючий контрагент «довільний постачальник». Лише для майстра закупочної заявки.')
 
     def _vataga_default_supplier(self):
@@ -17,7 +17,9 @@ class ResCompany(models.Model):
             raise ValidationError(_('Налаштуйте для компанії поле «Довільний постачальник для нових товарів Vataga»: виберіть існуючого контрагента «довільний постачальник».'))
         partner.check_access_rights('read')
         partner.check_access_rule('read')
-        if (not partner.active or partner.supplier_rank <= 0
+        # supplier_rank is a usage counter, not a native permission to purchase.
+        # Do not demand that an existing partner has already had a purchase.
+        if (not partner.active
                 or partner.company_id and partner.company_id != self
                 or partner.name.strip().casefold() != 'довільний постачальник'):
             raise ValidationError(_('Налаштований «довільний постачальник» має бути активним постачальником, доступним компанії заявки.'))

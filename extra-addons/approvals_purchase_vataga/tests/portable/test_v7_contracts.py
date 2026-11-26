@@ -129,6 +129,14 @@ class TestV7OdooContracts(unittest.TestCase):
         with patch.object(company_module, '_', lambda value: value), self.assertRaises(ValidationError):
             company_module.ResCompany._vataga_default_supplier(company)
 
+    def test_vendor_usage_rank_does_not_become_a_new_permission_requirement(self):
+        partner = SimpleNamespace(active=True, supplier_rank=0, company_id=False,
+                                  name='довільний постачальник',
+                                  check_access_rights=lambda mode: None,
+                                  check_access_rule=lambda mode: None)
+        company = SimpleNamespace(ensure_one=lambda: None, vataga_default_supplier_id=partner)
+        self.assertIs(company_module.ResCompany._vataga_default_supplier(company), partner)
+
 
 if __name__ == '__main__':
     unittest.main()
