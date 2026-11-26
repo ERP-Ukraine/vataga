@@ -126,13 +126,13 @@ class TestPurchaseApproval(PurchaseApprovalCase):
         self.assertEqual(request.request_owner_id, self.owner)
 
     def test_automatic_number_keeps_subject_separate(self):
-        category = self.category.copy({'name': 'Auto-numbered purchase', 'automated_sequence': True})
+        category = self.category.copy({'name': 'Auto-numbered purchase', 'automated_sequence': True, 'sequence_code': 'TESTAUTO'})
         request = self.request(category=category, vataga_purchase_subject='A separate purchase topic')
         self.assertEqual(request.vataga_display_number, request.name)
         self.assertEqual(request.vataga_display_subject, 'A separate purchase topic')
 
     def test_empty_subject_can_be_created_imported_and_approved(self):
-        category = self.category.copy({'name': 'Optional topic auto purchase', 'automated_sequence': True})
+        category = self.category.copy({'name': 'Optional topic auto purchase', 'automated_sequence': True, 'sequence_code': 'TESTOPTIONAL'})
         request = self.request(category=category, vataga_purchase_subject=False)
         number = request.name
         request.write({'vataga_purchase_subject': 'Temporary'})

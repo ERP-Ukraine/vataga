@@ -57,10 +57,34 @@ except ImportError:
 
 @unittest.skipIf(company_module is None, 'Odoo contract runtime unavailable')
 class TestV7OdooContracts(unittest.TestCase):
-    def test_purchase_search_signature_matches_real_17(self):
-        import inspect
-        self.assertEqual(list(inspect.signature(models.BaseModel._search).parameters),
-                         list(inspect.signature(order_module.PurchaseOrder._search).parameters))
+    def test_purchase_search_is_not_overridden_globally(self):
+        self.assertNotIn('_search', order_module.PurchaseOrder.__dict__)
+
+    def test_native_approval_domain_is_extended_only_inside_private_scope(self):
+        import ast
+        from odoo.osv import expression
+        runtime_scope = importlib.import_module('odoo.addons.approvals_purchase_vataga.rfq_scope')
+        tree = ast.parse((ROOT / 'models/approval_product_line.py').read_text(encoding='utf-8'))
+        cls = next(n for n in tree.body if isinstance(n, ast.ClassDef))
+        method = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == '_get_purchase_orders_domain')
+        class Base:
+            def _get_purchase_orders_domain(self, partner):
+                return [('partner_id', '=', partner), ('picking_type_id', '=', 311)]
+        definition = ast.ClassDef(name=cls.name, bases=[ast.Name(id='Base', ctx=ast.Load())],
+                                 keywords=[], body=[method], decorator_list=[])
+        namespace = {'Base': Base, 'expression': expression, 'current_scope': runtime_scope.current_scope}
+        exec(compile(ast.fix_missing_locations(ast.Module(body=[definition], type_ignores=[])),
+                     'actual-domain-adapter', 'exec'), namespace)
+        record = namespace[cls.name]()
+        record.env = SimpleNamespace(cr=object())
+        native = record._get_purchase_orders_domain(42)
+        self.assertEqual(native, [('partner_id', '=', 42), ('picking_type_id', '=', 311)])
+        with runtime_scope.new_rfq_scope(record.env.cr) as scope:
+            result = record._get_purchase_orders_domain(42)
+            self.assertIn(('vataga_rfq_origin_key', '=', scope.key), result)
+            for term in native:
+                self.assertIn(term, result)
+        self.assertEqual(record._get_purchase_orders_domain(42), native)
 
     def test_empty_automatic_subject_is_not_a_submission_error(self):
         line = SimpleNamespace(product_id=True, description='Valid', vataga_product_url=False,

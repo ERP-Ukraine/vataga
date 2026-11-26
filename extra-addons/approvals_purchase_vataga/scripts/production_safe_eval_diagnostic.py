@@ -36,7 +36,7 @@ except Exception:
     report.append('Studio views: BLOCKED (access/metadata)')
 try:
     fields_meta = env['ir.model.fields'].search([
-        ('model', 'in', ['approval.request', 'approval.product.line', 'product.template'])])
+        ('model', 'in', ['approval.request', 'approval.product.line', 'product.template', 'purchase.order', 'res.company'])])
     possible = fields_meta.filtered(lambda f: f.name.startswith('vataga_'))
     report.append('Existing vataga_* fields (review ownership against module status): ' + str(len(possible)))
     for item in possible:

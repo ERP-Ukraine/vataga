@@ -6,6 +6,7 @@ from odoo.osv import expression
 from odoo.tools import SQL
 
 from ..internal import INTERNAL, RFQ, clean_defaults, registry_period_arch
+from ..rfq_scope import current_scope
 
 
 LINE_AUDIT = frozenset({
@@ -19,6 +20,16 @@ LINE_AUDIT = frozenset({
 
 class ApprovalProductLine(models.Model):
     _inherit = 'approval.product.line'
+
+    def _get_purchase_orders_domain(self, *args, **kwargs):
+        # Verified on actual Odoo17 approvals_purchase + approvals_purchase_stock:
+        # company/partner/draft plus warehouse picking_type. Preserve all native
+        # and ERP-UA predicates; only isolate reuse to this request's new RFQs.
+        domain = super()._get_purchase_orders_domain(*args, **kwargs)
+        scope = current_scope(self.env.cr)
+        if scope is not None:
+            return expression.AND([domain, [('vataga_rfq_origin_key', '=', scope.key)]])
+        return domain
 
     # SQL NOT NULL cannot depend on the parent's approval type. The conditional
     # ORM constraint below restores the original rule for every other type.

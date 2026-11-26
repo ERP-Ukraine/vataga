@@ -72,7 +72,7 @@ def production_install_diagnostic(env, max_records=50000):
     report['all_installed_modules'] = env['ir.module.module'].search([
         ('state','=','installed')], order='name').read(['name','latest_version'], load=None)
     namespace = env['ir.model.fields'].search([
-        ('model','in',['approval.request','approval.product.line','product.template']),
+        ('model','in',['approval.request','approval.product.line','product.template','purchase.order','res.company']),
         ('name','=like','vataga_%')], order='model,name')
     report['existing_vataga_namespace'] = namespace.read(
         ['model','name','ttype','relation','state','modules'], load=None)

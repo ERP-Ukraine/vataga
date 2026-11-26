@@ -1,6 +1,5 @@
 from odoo import api, fields, models, _
 from odoo.exceptions import AccessError, UserError
-from odoo.osv import expression
 
 from ..rfq_scope import current_scope
 
@@ -9,16 +8,6 @@ class PurchaseOrder(models.Model):
     _inherit = 'purchase.order'
 
     vataga_rfq_origin_key = fields.Char(readonly=True, copy=False, index=True)
-
-    @api.model
-    def _search(self, domain, offset=0, limit=None, order=None, access_rights_uid=None):
-        scope = current_scope(self.env.cr)
-        if scope is not None:
-            # Initially empty; subsequent searches may reuse only orders just
-            # created for this request, preserving native within-request grouping.
-            domain = expression.AND([domain, [('vataga_rfq_origin_key', '=', scope.key)]])
-        return super()._search(domain, offset=offset, limit=limit, order=order,
-                               access_rights_uid=access_rights_uid)
 
     @api.model_create_multi
     def create(self, vals_list):

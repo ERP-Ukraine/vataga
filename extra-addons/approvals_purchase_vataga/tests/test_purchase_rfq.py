@@ -9,6 +9,15 @@ from .common import PurchaseApprovalCase
 
 @tagged('post_install', '-at_install', 'vataga_purchase')
 class TestPurchaseRFQ(PurchaseApprovalCase):
+    def test_rpc_cannot_forge_or_change_new_order_key(self):
+        with self.assertRaises(AccessError):
+            self.env['purchase.order'].create({'partner_id': self.vendor.id, 'vataga_rfq_origin_key': 'forged'})
+        with self.assertRaises(AccessError):
+            self.env['purchase.order'].with_context(default_vataga_rfq_origin_key='forged').create({'partner_id': self.vendor.id})
+        order = self.env['purchase.order'].create({'partner_id': self.vendor.id})
+        with self.assertRaises(AccessError):
+            order.write({'vataga_rfq_origin_key': 'forged'})
+
     def test_missing_product_blocks_rfq(self):
         request = self.approve(self.request([self.line_values(missing=True)]))
         with self.assertRaises(UserError):
@@ -57,6 +66,9 @@ class TestPurchaseRFQ(PurchaseApprovalCase):
         before = existing_orders.order_line.read(['product_id', 'product_qty', 'price_unit', 'taxes_id'])
         self.assertEqual(existing_orders.state, 'draft')
         second = self.approve(self.request()).with_user(self.buyer)
+        domain = second.product_line_ids._get_purchase_orders_domain(self.vendor)
+        self.assertTrue(existing_orders & self.env['purchase.order'].search(domain),
+                        'The existing draft must really match the native ERP-UA grouping domain')
         second.action_create_purchase_orders()
         self.assertFalse(existing_orders & second.product_line_ids.purchase_order_line_id.order_id)
         self.assertEqual(existing_orders.order_line.read(['product_id', 'product_qty', 'price_unit', 'taxes_id']), before)

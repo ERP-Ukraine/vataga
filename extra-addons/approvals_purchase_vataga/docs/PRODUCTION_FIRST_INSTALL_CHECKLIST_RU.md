@@ -1,6 +1,6 @@
-# До main: production preflight, первая установка и откат / 17.0.1.0.6
+# До main: production preflight, первая установка и откат / 17.0.1.0.7
 
-Актуализация .6: собственный реестр использует `vataga_rfq_exists` = audit marker OR any native RFQ link, без backfill исходного аудита. Исторический display-limit .5 устранен; неизвестная удаленная до Install история не восстанавливается. Дополнительно доступен [safe_eval report](SAFE_EVAL_DIAGNOSTIC_RU.md) без shell; он не заменяет Install/rollback/runtime proof. Указанные ниже preflight и первая Install относятся к текущей17.0.1.0.6.
+Актуализация .6: собственный реестр использует `vataga_rfq_exists` = audit marker OR any native RFQ link, без backfill исходного аудита. Исторический display-limit .5 устранен; неизвестная удаленная до Install история не восстанавливается. Дополнительно доступен [safe_eval report](SAFE_EVAL_DIAGNOSTIC_RU.md) без shell; он не заменяет Install/rollback/runtime proof. Указанные ниже preflight и первая Install относятся к текущей17.0.1.0.7.
 
 **Это план будущих действий администратора, не разрешение публикации в main/production.** На production `odoo17-vataga` модуль NOT FOUND: нужен **Apps Install** либо штатный `-i approvals_purchase_vataga`, а не Upgrade/`-u`. На staging он уже установлен: Upgrade проверяет иной путь и не доказывает первой установки. База staging давно не синхронизировалась с production; все данные, конфигурация, прочие addons, Studio и права проверяются отдельно. Базу production на staging не переносить.
 
@@ -57,3 +57,10 @@ odoo shell -c /etc/odoo/odoo.conf -d odoo17-vataga --no-http < production_instal
 - Возвращать доступ к writers только после совпадения исходных fingerprints/counts/Studio metadata, нормального старого workflow и разрешения ответственного администратора. Сам rollback и восстановление на production в этой задаче не выполнялись.
 
 До закрытия отдельного first-install runtime/production preflight/ролей модуль готов для контролируемой демонстрации на staging; **рабочая production-приемка не подтверждена**.
+
+
+## Дополнения .7
+
+- До main сверить фактический native `approval.product.line._get_purchase_orders_domain(partner)` и цепочку approvals_purchase_stock/ERP-UA; общий PO search модулем не меняется. Новый технический ключ purchase.order добавляет колонку и индекс при Install; namespace preflight теперь также проверяет purchase.order/res.company. Существующие закупки не переписываются. Полный Enterprise/конкурентный прогон остается BLOCKED.
+- До Install определить существующего «довільний постачальник»: XML ID при наличии, active/supplier_rank/company и однозначную идентичность. Не копировать ID2951 из staging. **После первой Install, до создания товаров мастером** выбрать этого партнера в компании → «Закупочні заявки Vataga». Поле res.company.vataga_default_supplier_id не заполнится автоматически и до установки не существует. При одноименных дублях нужен осознанный выбор ответственного администратора. Не создавать нового контрагента и не расширять права.
+- Проверить стандартный supplierinfo default цены на production (стандарт17:0), валюту и последующее формирование draft RFQ. Нулевая цена не является подтвержденной ценой поставщика. Проверить возможность редактирования в стандартной модальной карточке под фактическими правами.
