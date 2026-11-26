@@ -1,6 +1,6 @@
 {
     'name': 'Закупочні затвердження Vataga',
-    'version': '17.0.1.0.6',
+    'version': '17.0.1.0.7',
     'category': 'Human Resources/Approvals',
     'author': 'ERP Ukraine LLC',
     'website': 'https://erp.co.ua',
@@ -13,6 +13,7 @@
         'views/approval_request_views.xml',
         'views/purchase_request_registry_views.xml',
         'views/product_template_views.xml',
+        'views/res_company_views.xml',
     ],
     'assets': {
         'web.assets_backend': [

@@ -25,6 +25,7 @@ class TestPurchaseSecurity(PurchaseApprovalCase):
                 'line_id': request.product_line_ids.id, 'mode': 'new',
                 'new_product_name': 'Vataga isolated product context'})
         action = wizard.action_apply_open_product()
+        self.assertEqual(action['target'], 'new')
         self.assertNotIn('default_category_id', action['context'])
         self.assertNotIn('default_line_id', action['context'])
         self.assertEqual(action['context']['active_model'], 'product.product')
@@ -34,6 +35,48 @@ class TestPurchaseSecurity(PurchaseApprovalCase):
         vendor = self.env['res.partner'].with_user(self.catalog_buyer).with_context(context).create({
             'name': 'Vataga isolated-context supplier', 'supplier_rank': 1})
         self.assertFalse(vendor.category_id)
+
+    def test_both_new_product_buttons_add_default_supplier_once(self):
+        for open_product in (False, True):
+            request = self.approve(self.request([self.line_values(missing=True)], user=self.catalog_buyer))
+            wizard = self.env['approval.product.resolve.vataga'].with_user(self.catalog_buyer).create({
+                'line_id': request.product_line_ids.id, 'mode': 'new', 'new_product_name': 'TEST wizard vendor'})
+            result = wizard.action_apply_open_product() if open_product else wizard.action_apply()
+            sellers = request.product_line_ids.product_id.seller_ids
+            self.assertEqual(sellers.partner_id, self.default_vendor)
+            self.assertEqual(len(sellers), 1)
+            self.assertEqual(sellers.price, 0)
+            self.assertEqual(result['type'], 'ir.actions.act_window' if open_product else 'ir.actions.act_window_close')
+            with self.assertRaises(UserError):
+                wizard.action_apply()
+            self.assertEqual(len(sellers), 1)
+
+    def test_missing_default_supplier_rolls_back_and_existing_is_untouched(self):
+        self.company.vataga_default_supplier_id = False
+        request = self.approve(self.request([self.line_values(missing=True)], user=self.catalog_buyer))
+        wizard = self.env['approval.product.resolve.vataga'].with_user(self.catalog_buyer).create({
+            'line_id': request.product_line_ids.id, 'mode': 'new', 'new_product_name': 'TEST must roll back'})
+        before = self.env['product.product'].search_count([])
+        with self.assertRaises(ValidationError):
+            wizard.action_apply()
+        self.assertEqual(self.env['product.product'].search_count([]), before)
+        self.assertFalse(request.product_line_ids.product_id)
+        sellers = self.product.seller_ids.ids
+        wizard.write({'mode': 'existing', 'product_id': self.product.id})
+        wizard.action_apply()
+        self.assertEqual(self.product.seller_ids.ids, sellers)
+
+    def test_supplier_creation_failure_rolls_back_new_product_and_line(self):
+        from unittest.mock import patch
+        request = self.approve(self.request([self.line_values(missing=True)], user=self.catalog_buyer))
+        wizard = self.env['approval.product.resolve.vataga'].with_user(self.catalog_buyer).create({
+            'line_id': request.product_line_ids.id, 'mode': 'new', 'new_product_name': 'TEST atomic supplier'})
+        before = self.env['product.product'].search_count([])
+        with patch.object(type(self.env['product.supplierinfo']), 'create', side_effect=AccessError('Denied')):
+            with self.assertRaises(AccessError):
+                wizard.action_apply()
+        self.assertEqual(self.env['product.product'].search_count([]), before)
+        self.assertFalse(request.product_line_ids.product_id)
 
     def test_new_wizard_permission_defaults_match_existing_acl(self):
         for user in (self.buyer, self.catalog_buyer):

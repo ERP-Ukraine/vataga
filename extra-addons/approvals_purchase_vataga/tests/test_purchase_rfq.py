@@ -49,20 +49,54 @@ class TestPurchaseRFQ(PurchaseApprovalCase):
             request.action_create_purchase_orders()
         self.assertEqual(po_line.product_qty, quantity)
 
-    def test_existing_draft_reuse_preserves_native_totals(self):
+    def test_existing_draft_is_never_reused_for_another_request(self):
         self.add_vendor()
         first = self.approve(self.request()).with_user(self.buyer)
         first.action_create_purchase_orders()
         existing_orders = first.product_line_ids.purchase_order_line_id.order_id
+        before = existing_orders.order_line.read(['product_id', 'product_qty', 'price_unit', 'taxes_id'])
         self.assertEqual(existing_orders.state, 'draft')
         second = self.approve(self.request()).with_user(self.buyer)
         second.action_create_purchase_orders()
-        # ERP-UA may extend the native grouping domain. Both reuse and a new
-        # eligible draft are valid; this module must not force either policy.
+        self.assertFalse(existing_orders & second.product_line_ids.purchase_order_line_id.order_id)
+        self.assertEqual(existing_orders.order_line.read(['product_id', 'product_qty', 'price_unit', 'taxes_id']), before)
         orders = existing_orders | second.product_line_ids.purchase_order_line_id.order_id
         lines = orders.order_line.filtered(lambda l: l.product_id == self.product)
         self.assertEqual(sum(lines.mapped('product_qty')), 4)
         self.assertTrue(first.vataga_rfq_created and second.vataga_rfq_created)
+
+    def test_same_vendor_groups_only_within_current_request(self):
+        self.add_vendor()
+        request = self.approve(self.request([self.line_values(), self.line_values(quantity=3)])).with_user(self.buyer)
+        request.action_create_purchase_orders()
+        orders = request.product_line_ids.purchase_order_line_id.order_id
+        self.assertEqual(len(orders), 1)
+        self.assertEqual(sum(orders.order_line.mapped('product_qty')), 5)
+
+    def test_native_failure_on_second_order_rolls_back_first(self):
+        other = self.env['product.product'].create({'name': 'Rollback second product', 'purchase_ok': True})
+        vendor = self.env['res.partner'].create({'name': 'Rollback second vendor', 'supplier_rank': 1})
+        self.add_vendor()
+        self.add_vendor(product=other, partner=vendor)
+        request = self.approve(self.request([self.line_values(), self.line_values(
+            product_id=other.id, product_uom_id=other.uom_id.id)])).with_user(self.buyer)
+        before = self.env['purchase.order'].search([]).ids
+        model = type(self.env['purchase.order.line'])
+        original = model.create
+        calls = []
+        def fail_second(records, values):
+            calls.append(True)
+            if len(calls) == 2:
+                raise UserError('Injected second vendor failure')
+            return original(records, values)
+        with patch.object(model, 'create', fail_second):
+            with self.assertRaises(UserError):
+                request.action_create_purchase_orders()
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(self.env['purchase.order'].search([]).ids, before)
+        request.invalidate_recordset()
+        self.assertFalse(request.vataga_rfq_created)
+        self.assertFalse(request.product_line_ids.purchase_order_line_id)
 
     def test_multiple_vendors_keep_native_grouping(self):
         second_product = self.env['product.product'].create({'name': 'Second product', 'purchase_ok': True})

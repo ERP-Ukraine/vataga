@@ -24,6 +24,8 @@ class PurchaseApprovalCase(TransactionCase):
         })
         cls.product = cls.env['product.product'].create({'name': 'Vataga existing', 'purchase_ok': True})
         cls.vendor = cls.env['res.partner'].create({'name': 'Vataga supplier', 'supplier_rank': 1})
+        cls.default_vendor = cls.env['res.partner'].create({'name': 'довільний постачальник', 'supplier_rank': 1})
+        cls.company.vataga_default_supplier_id = cls.default_vendor
 
     def line_values(self, missing=False, **extra):
         values = {'description': 'Agreed purchase description', 'quantity': 2}

@@ -224,8 +224,6 @@ class ApprovalRequest(models.Model):
     def _vataga_validate_lines(self):
         errors = []
         for request in self.filtered(lambda r: r.approval_type == 'purchase'):
-            if request.vataga_purchase_managed and request.automated_sequence and not (request.vataga_purchase_subject or '').strip():
-                errors.append(_('%s: укажіть тему закупівлі окремо від автоматичного номера.', request.display_name))
             if not request.product_line_ids:
                 errors.append(_('%s: додайте хоча б одну товарну позицію.', request.display_name))
             for number, line in enumerate(request.product_line_ids, 1):
@@ -377,8 +375,17 @@ class ApprovalRequest(models.Model):
             if reason:
                 raise UserError(reason)
         with self.env.cr.savepoint():
-            result = super(ApprovalRequest, self.with_context(_vataga_rfq=RFQ)).action_create_purchase_orders()
+            from ..rfq_scope import new_rfq_scope
+            result = False
             for request in purchases:
+                # A separate scope for EACH request, even in a multi-record call.
+                # Keep the complete native MRO, grouping and value preparation.
+                with new_rfq_scope(self.env.cr) as scope:
+                    result = super(ApprovalRequest, request.with_context(
+                        _vataga_rfq=RFQ)).action_create_purchase_orders()
+                    orders = request.product_line_ids.purchase_order_line_id.order_id
+                    if not orders or not set(orders.ids) <= scope.order_ids:
+                        raise UserError(_('ЗНКП має бути створено окремо для цієї заявки. Операцію скасовано.'))
                 if any(not line.purchase_order_line_id for line in request.product_line_ids):
                     raise UserError(_('Стандартне створення ЗНКП не встановило всі зв’язки з позиціями.'))
                 request.with_context(_vataga_internal=INTERNAL).write({
@@ -386,6 +393,9 @@ class ApprovalRequest(models.Model):
                     'vataga_rfq_created_at': fields.Datetime.now(),
                     'vataga_rfq_created_by_id': self.env.uid,
                 })
+            others = self - purchases
+            if others:
+                result = super(ApprovalRequest, others).action_create_purchase_orders()
             return public_result(result)
 
     def _register_hook(self):

@@ -31,7 +31,6 @@
                 <attribute name="readonly" add="vataga_lines_locked" separator=" or "/>
             </xpath>
             <xpath expr="//field[@name='request_owner_id']" position="after">
-                <field name="vataga_display_number" invisible="approval_type != 'purchase'" readonly="1"/>
                 <field name="vataga_purchase_subject" invisible="approval_type != 'purchase' or not automated_sequence"
                        readonly="vataga_lines_locked" placeholder="Коротко опишіть потребу в закупівлі"/>
             </xpath>
@@ -44,10 +43,6 @@
             <xpath expr="//button[@name='action_create_purchase_orders']" position="attributes">
                 <attribute name="string">Створити ЗНКП</attribute>
                 <attribute name="invisible">not vataga_can_create_rfq</attribute>
-            </xpath>
-            <xpath expr="//group[@name='request_details']" position="inside">
-                <field name="vataga_rfq_block_reason" readonly="1" nolabel="1"
-                       invisible="approval_type != 'purchase' or vataga_can_create_rfq"/>
             </xpath>
         </field>
     </record>

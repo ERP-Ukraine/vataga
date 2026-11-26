@@ -1,4 +1,4 @@
-from odoo import models
+from odoo import api, models
 
 from ..internal import INTERNAL
 
@@ -6,7 +6,22 @@ from ..internal import INTERNAL
 class PurchaseOrderLine(models.Model):
     _inherit = 'purchase.order.line'
 
+    @api.model_create_multi
+    def create(self, vals_list):
+        # Fail closed if an extension bypasses native PO searches via browse.
+        order_ids = [vals.get('order_id') or self.env.context.get('default_order_id')
+                     for vals in vals_list]
+        self.env['purchase.order'].browse([oid for oid in order_ids if oid])._vataga_assert_new_order_scope()
+        return super().create(vals_list)
+
+    def write(self, vals):
+        self.order_id._vataga_assert_new_order_scope()
+        if vals.get('order_id'):
+            self.env['purchase.order'].browse(vals['order_id'])._vataga_assert_new_order_scope()
+        return super().write(vals)
+
     def unlink(self):
+        self.order_id._vataga_assert_new_order_scope()
         self.check_access_rights('unlink')
         self.check_access_rule('unlink')
         # Limited elevation for a denial/audit invariant only. This neither

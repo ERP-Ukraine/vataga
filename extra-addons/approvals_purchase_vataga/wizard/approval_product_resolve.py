@@ -63,6 +63,9 @@ class ApprovalProductResolve(models.TransientModel):
                     raise AccessError(_('Поточні права дозволяють вибрати існуючий товар, але не створити новий.'))
                 if not (self.new_product_name or '').strip():
                     raise ValidationError(_('Укажіть назву нового товару.'))
+                company = line.approval_request_id.company_id
+                supplier = company._vataga_default_supplier()
+                self.env['product.supplierinfo'].check_access_rights('create')
                 # Drop caller-supplied product defaults; do not elevate product
                 # creation privileges. Standard product ACL/rules still apply.
                 context = {k: v for k, v in clean_defaults(self.env.context, set()).items()
@@ -73,6 +76,19 @@ class ApprovalProductResolve(models.TransientModel):
                     'vataga_purchase_url': line.vataga_product_url,
                     'company_id': line.approval_request_id.company_id.id,
                 })
+                sellers = self.env['product.supplierinfo'].with_context(context).search([
+                    ('product_tmpl_id', '=', product.product_tmpl_id.id),
+                    ('partner_id', '=', supplier.id),
+                    ('product_id', 'in', [False, product.id]),
+                    ('company_id', 'in', [False, company.id]),
+                ])
+                if not sellers:
+                    # Deliberately omit price: native supplierinfo default, not
+                    # an inferred quote. The buyer must review it before purchase.
+                    self.env['product.supplierinfo'].with_context(context).with_company(company).create({
+                        'partner_id': supplier.id, 'product_tmpl_id': product.product_tmpl_id.id,
+                        'company_id': company.id,
+                    })
             else:
                 product = self.product_id
                 if not product:
@@ -88,4 +104,5 @@ class ApprovalProductResolve(models.TransientModel):
         product = self._apply()
         action = product.with_context(product_form_context(self.env.context, product.id)).get_formview_action()
         action['name'] = _('Товар та постачальники')
+        action['target'] = 'new'
         return action

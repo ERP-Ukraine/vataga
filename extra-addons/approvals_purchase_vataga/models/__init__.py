@@ -4,3 +4,5 @@ from . import approval_product_line
 from . import approval_category
 from . import product_template
 from . import purchase_order_line
+from . import purchase_order
+from . import res_company

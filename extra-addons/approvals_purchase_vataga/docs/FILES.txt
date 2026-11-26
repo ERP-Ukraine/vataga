@@ -16,6 +16,7 @@ extra-addons/approvals_purchase_vataga/docs/STUDIO_INTEGRATION_17_0_1_0_5_RU.md
 extra-addons/approvals_purchase_vataga/docs/UAT_17_0_1_0_4_RU.md
 extra-addons/approvals_purchase_vataga/docs/UAT_17_0_1_0_5_RU.md
 extra-addons/approvals_purchase_vataga/docs/UAT_17_0_1_0_6_RU.md
+extra-addons/approvals_purchase_vataga/docs/UAT_17_0_1_0_7_RU.md
 extra-addons/approvals_purchase_vataga/docs/UAT_ROLES_UK.md
 extra-addons/approvals_purchase_vataga/docs/USER_GUIDE_UK.md
 extra-addons/approvals_purchase_vataga/docs/screenshots/registry-after-1036.jpg
@@ -35,8 +36,11 @@ extra-addons/approvals_purchase_vataga/models/approval_category.py
 extra-addons/approvals_purchase_vataga/models/approval_product_line.py
 extra-addons/approvals_purchase_vataga/models/approval_request.py
 extra-addons/approvals_purchase_vataga/models/product_template.py
+extra-addons/approvals_purchase_vataga/models/purchase_order.py
 extra-addons/approvals_purchase_vataga/models/purchase_order_line.py
+extra-addons/approvals_purchase_vataga/models/res_company.py
 extra-addons/approvals_purchase_vataga/policy.py
+extra-addons/approvals_purchase_vataga/rfq_scope.py
 extra-addons/approvals_purchase_vataga/scripts/odoo_preflight.py
 extra-addons/approvals_purchase_vataga/scripts/production_field_diagnostic.py
 extra-addons/approvals_purchase_vataga/scripts/production_install_diagnostic.py
@@ -69,6 +73,7 @@ extra-addons/approvals_purchase_vataga/tests/portable/test_registry_layout.py
 extra-addons/approvals_purchase_vataga/tests/portable/test_rfq_projection.py
 extra-addons/approvals_purchase_vataga/tests/portable/test_studio_fields.py
 extra-addons/approvals_purchase_vataga/tests/portable/test_url_policy.mjs
+extra-addons/approvals_purchase_vataga/tests/portable/test_v7_contracts.py
 extra-addons/approvals_purchase_vataga/tests/portable/test_workflow_bridge.py
 extra-addons/approvals_purchase_vataga/tests/test_production_studio.py
 extra-addons/approvals_purchase_vataga/tests/test_purchase_approval.py
@@ -80,6 +85,7 @@ extra-addons/approvals_purchase_vataga/tests/test_purchase_studio.py
 extra-addons/approvals_purchase_vataga/views/approval_request_views.xml
 extra-addons/approvals_purchase_vataga/views/product_template_views.xml
 extra-addons/approvals_purchase_vataga/views/purchase_request_registry_views.xml
+extra-addons/approvals_purchase_vataga/views/res_company_views.xml
 extra-addons/approvals_purchase_vataga/wizard/__init__.py
 extra-addons/approvals_purchase_vataga/wizard/approval_product_resolve.py
 extra-addons/approvals_purchase_vataga/wizard/approval_product_resolve_views.xml
