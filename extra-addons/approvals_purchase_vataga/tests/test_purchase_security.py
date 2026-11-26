@@ -78,6 +78,35 @@ class TestPurchaseSecurity(PurchaseApprovalCase):
         self.assertEqual(self.env['product.product'].search_count([]), before)
         self.assertFalse(request.product_line_ids.product_id)
 
+    def test_new_product_with_supplier_from_an_extension_is_not_duplicated(self):
+        from unittest.mock import patch
+        request = self.approve(self.request([self.line_values(missing=True)], user=self.catalog_buyer))
+        wizard = self.env['approval.product.resolve.vataga'].with_user(self.catalog_buyer).create({
+            'line_id': request.product_line_ids.id, 'mode': 'new', 'new_product_name': 'TEST extension supplier'})
+        model = type(self.env['product.product'])
+        original = model.create
+        def create_with_supplier(records, values):
+            product = original(records, values)
+            records.env['product.supplierinfo'].create({
+                'product_tmpl_id': product.product_tmpl_id.id, 'partner_id': self.default_vendor.id,
+                'company_id': self.company.id})
+            return product
+        with patch.object(model, 'create', create_with_supplier):
+            wizard.action_apply()
+        self.assertEqual(len(request.product_line_ids.product_id.seller_ids), 1)
+
+    def test_unconfigured_ambiguous_names_never_choose_a_supplier(self):
+        self.env['res.partner'].create({'name': 'довільний постачальник', 'supplier_rank': 1})
+        self.company.vataga_default_supplier_id = False
+        request = self.approve(self.request([self.line_values(missing=True)], user=self.catalog_buyer))
+        wizard = self.env['approval.product.resolve.vataga'].with_user(self.catalog_buyer).create({
+            'line_id': request.product_line_ids.id, 'mode': 'new', 'new_product_name': 'TEST ambiguous supplier'})
+        before = self.env['product.product'].search_count([])
+        with self.assertRaises(ValidationError):
+            wizard.action_apply()
+        self.assertEqual(self.env['product.product'].search_count([]), before)
+        self.assertFalse(request.product_line_ids.product_id)
+
     def test_new_wizard_permission_defaults_match_existing_acl(self):
         for user in (self.buyer, self.catalog_buyer):
             wizard = self.env['approval.product.resolve.vataga'].with_user(user)

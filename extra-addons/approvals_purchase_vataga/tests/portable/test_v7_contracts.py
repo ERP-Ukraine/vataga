@@ -57,6 +57,33 @@ except ImportError:
 
 @unittest.skipIf(company_module is None, 'Odoo contract runtime unavailable')
 class TestV7OdooContracts(unittest.TestCase):
+    def test_unscoped_purchase_line_operations_do_not_read_parent(self):
+        import ast
+        from copy import deepcopy
+        runtime_scope = importlib.import_module('odoo.addons.approvals_purchase_vataga.rfq_scope')
+        tree = ast.parse((ROOT / 'models/purchase_order_line.py').read_text(encoding='utf-8'))
+        cls = next(n for n in tree.body if isinstance(n, ast.ClassDef))
+        methods = [deepcopy(n) for n in cls.body if isinstance(n, ast.FunctionDef) and n.name in {'create', 'write'}]
+        for method in methods:
+            method.decorator_list = []
+        class Base:
+            @property
+            def order_id(self):
+                raise AssertionError('No new parent read outside the RFQ operation')
+            def create(self, values):
+                return ('native-create', values)
+            def write(self, values):
+                return ('native-write', values)
+        definition = ast.ClassDef(name=cls.name, bases=[ast.Name(id='Base', ctx=ast.Load())],
+                                 keywords=[], body=methods, decorator_list=[])
+        namespace = {'Base': Base, 'current_scope': runtime_scope.current_scope}
+        exec(compile(ast.fix_missing_locations(ast.Module(body=[definition], type_ignores=[])),
+                     'actual-unscoped-line-adapter', 'exec'), namespace)
+        record = namespace[cls.name]()
+        record.env = SimpleNamespace(cr=object())
+        self.assertEqual(record.create([{'name': 'TEST'}]), ('native-create', [{'name': 'TEST'}]))
+        self.assertEqual(record.write({'product_qty': 1}), ('native-write', {'product_qty': 1}))
+
     def test_purchase_search_is_not_overridden_globally(self):
         self.assertNotIn('_search', order_module.PurchaseOrder.__dict__)
 

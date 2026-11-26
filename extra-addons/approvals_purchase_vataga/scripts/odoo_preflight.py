@@ -61,6 +61,24 @@ def preflight(env):
     }
     report['seller_helper_signature'] = (str(inspect.signature(env['approval.product.line']._get_seller_id))
                                           if hasattr(env['approval.product.line'], '_get_seller_id') else None)
+    report['rfq_mro'] = []
+    for model_name, names in (
+        ('approval.request', ('action_create_purchase_orders',)),
+        ('approval.product.line', ('_get_purchase_orders_domain', '_get_seller_id')),
+    ):
+        for cls in type(env[model_name]).__mro__:
+            for name in names:
+                method = cls.__dict__.get(name)
+                if method:
+                    item = {'model': model_name, 'method': name, 'module': cls.__module__,
+                            'signature': str(inspect.signature(method))}
+                    try:
+                        source = textwrap.dedent(inspect.getsource(method))
+                        item['file'] = inspect.getsourcefile(method)
+                        item['source_sha256'] = hashlib.sha256(source.encode()).hexdigest()
+                    except (OSError, TypeError):
+                        item['source'] = 'UNAVAILABLE'
+                    report['rfq_mro'].append(item)
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
 
