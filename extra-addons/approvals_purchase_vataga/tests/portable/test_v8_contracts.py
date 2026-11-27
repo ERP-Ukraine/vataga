@@ -9,7 +9,7 @@ from unittest.mock import patch
 from lxml import etree
 from support import ROOT
 from test_odoo_contracts import line_module, request_module, RequestSet, models
-from odoo.exceptions import ValidationError
+from odoo.exceptions import AccessError, ValidationError
 from odoo.tools import SQL
 from odoo.tools.query import Query
 
@@ -18,6 +18,19 @@ product_module = importlib.import_module('odoo.addons.approvals_purchase_vataga.
 
 
 class TestV8Contracts(unittest.TestCase):
+    def test_actual_direct_approve_adapter_checks_new_subject_before_native_workflow(self):
+        class Records(RequestSet):
+            def filtered(self, predicate):
+                return Records(record for record in self if predicate(record))
+            def _vataga_lock(self):
+                pass
+            def _vataga_validate_subject(self):
+                return request_module.ApprovalRequest._vataga_validate_subject(self)
+        records = Records([SimpleNamespace(approval_type='purchase', request_status='new',
+            automated_sequence=True, name='APPR00020', vataga_purchase_subject=False)])
+        with patch.object(request_module, '_', lambda value: value), self.assertRaises(ValidationError):
+            request_module.ApprovalRequest.action_approve(records)
+
     def test_subject_is_checked_only_for_new_purchase_and_never_accepts_number(self):
         for automatic in (False, True):
             for value in (False, '', ' \t\n'):
@@ -118,6 +131,29 @@ class TestV8Contracts(unittest.TestCase):
         method = line_module.ApprovalProductLine._search_vataga_purchase_order
         self.assertEqual(method(record, '=', False), [])
         self.assertEqual(method(record, '!=', 15174), [])
+
+    def test_field_level_purchase_denial_masks_before_querying_names(self):
+        def denied(*args):
+            raise AccessError('TEST name field denied')
+        order = SimpleNamespace(check_access_rights=lambda *args, **kwargs: True,
+                                check_field_access_rights=denied)
+        lines = SimpleNamespace(check_access_rights=lambda *args, **kwargs: True,
+                                check_field_access_rights=lambda *args: None)
+        record = SimpleNamespace(env={'purchase.order': order, 'purchase.order.line': lines},
+                                 check_field_access_rights=lambda *args: None)
+        self.assertIsNone(line_module.ApprovalProductLine._vataga_readable_purchase_lines(record))
+
+    def test_no_purchase_acl_compute_does_not_read_the_protected_native_fk(self):
+        class Line:
+            @property
+            def purchase_order_line_id(self):
+                raise AssertionError('Hidden source must not be read')
+        class Lines(list):
+            def _vataga_readable_purchase_lines(self):
+                return None
+        line = Line()
+        line_module.ApprovalProductLine._compute_vataga_purchase_order(Lines([line]))
+        self.assertIs(line.vataga_purchase_order_id, False)
 
     def test_sources_are_relational_copy_false_and_user_visible_compute_is_not_stored(self):
         order = order_module.PurchaseOrder

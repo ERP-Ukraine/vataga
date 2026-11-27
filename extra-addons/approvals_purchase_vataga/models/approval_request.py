@@ -278,6 +278,10 @@ class ApprovalRequest(models.Model):
         if not purchases:
             return super().action_approve(*args, **kwargs)
         purchases._vataga_lock()
+        # Native Odoo permits action_approve() directly from a new request via
+        # RPC. Apply the submission invariant there too, while deliberately
+        # exempting historical pending/approved requests with no separate topic.
+        purchases._vataga_validate_subject()
         purchases._vataga_validate_lines()
         before = {r.id: r.request_status for r in purchases}
         with self.env.cr.savepoint(), approval_scope(self):

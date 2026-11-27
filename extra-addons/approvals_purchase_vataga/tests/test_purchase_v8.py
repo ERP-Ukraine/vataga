@@ -9,6 +9,15 @@ from .common import PurchaseApprovalCase
 
 @tagged('post_install', '-at_install')
 class TestPurchaseV8(PurchaseApprovalCase):
+    def test_direct_approve_from_new_cannot_bypass_required_topic(self):
+        category = self.category.copy({'name': 'TEST direct approval auto topic',
+                                       'automated_sequence': True, 'sequence_code': 'TESTDIRECT'})
+        request = self.request(category=category, vataga_purchase_subject=False)
+        with self.assertRaisesRegex(ValidationError, 'Вкажіть тему закупівлі'):
+            request.with_user(self.approver).action_approve()
+        self.assertEqual(request.request_status, 'new')
+        self.assertFalse(request.vataga_approved_once)
+
     def editor(self, mode='new', **line_values):
         request = self.approve(self.request([self.line_values(missing=True, **line_values)], user=self.catalog_buyer))
         wizard = self.env['approval.product.resolve.vataga'].with_user(self.catalog_buyer).create({
@@ -153,3 +162,25 @@ class TestPurchaseV8(PurchaseApprovalCase):
         self.assertEqual(line.export_data(['vataga_purchase_order_id'])['datas'], [['']])
         with self.assertRaises(AccessError):
             line.action_vataga_open_purchase_order()
+
+    def test_registry_number_empty_negative_and_group_domains_agree(self):
+        self.add_vendor()
+        request = self.approve(self.request([self.line_values(), self.line_values(quantity=3)]))
+        request.with_user(self.buyer).action_create_purchase_orders()
+        empty = self.approve(self.request([self.line_values(missing=True)])).product_line_ids
+        linked = request.product_line_ids
+        order = linked.purchase_order_line_id.order_id
+        lines = self.env['approval.product.line']
+        base = [('id', 'in', (linked | empty).ids)]
+        for operator, value, expected in [('=', order.id, linked), ('ilike', order.name, linked),
+                ('=', False, empty), ('!=', False, linked), ('!=', order.id, empty),
+                ('not ilike', order.name, empty), ('in', [False, order.id], linked | empty),
+                ('not in', [False, order.id], lines), ('ilike', 'TEST-NONEXISTENT-PO', lines)]:
+            self.assertEqual(set(lines.search(base + [('vataga_purchase_order_id', operator, value)]).ids),
+                             set(expected.ids))
+        groups = lines.read_group(base, ['vataga_purchase_order_id'], ['vataga_purchase_order_id'])
+        for group in groups:
+            matching = lines.search(group['__domain'])
+            self.assertEqual(len(matching), group['vataga_purchase_order_id_count'])
+        exported = linked.export_data(['vataga_purchase_order_id'])['datas']
+        self.assertEqual(exported, [[order.name], [order.name]])
