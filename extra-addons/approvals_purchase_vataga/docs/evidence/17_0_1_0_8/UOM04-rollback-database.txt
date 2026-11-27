@@ -1,0 +1,88 @@
+- generic: "Базу даних для тестування відключено: не надіслано електронних листів тощо."
+- banner:
+  - navigation:
+    - link "Домашнє меню":
+      - /url: "#"
+    - menu:
+      - button "Відвідування":
+        - img "Відвідування": 
+      - button "Відкрити інструменти розробника":
+        - img "Відкрити інструменти розробника": 
+      - button "Повідомлення 3":
+        - img "Повідомлення": 
+        - generic: "3"
+      - button "Дії 3":
+        - img "Дії": 
+        - generic: "3"
+      - button "Переключити студію":
+        - img: 
+      - generic: 
+      - button "Користувач Вадим Герасименко  odoo17-vataga-staging":
+        - img "Користувач"
+        - text: Вадим Герасименко
+        - mark:
+          - generic: 
+          - text: odoo17-vataga-staging
+- button "Новий"
+- generic: TEST-VATAGA-APPROVALS-UAT7-READONLY-RESULTS
+- button "":
+  - generic: 
+- button "Пошук статей бази знань":
+- search:
+  - navigation "Сторінки":
+    - generic: "1"
+    - text: / 1
+    - button "Попередній" [disabled]:
+      - generic: 
+    - button "Наступний" [disabled]:
+      - generic: 
+- button "Створити контекстну дію"
+- button "Запустити"
+- heading "TEST-VATAGA-APPROVALS-UAT7-READONLY-RESULTS UK" [level=1]:
+  - textbox "e.g. Mass archive contacts": TEST-VATAGA-APPROVALS-UAT7-READONLY-RESULTS
+  - generic: UK
+- text: Тип
+- superscript: "?"
+- generic: Оновити запис
+- generic: Створіть дію
+- generic: Надіслати ел. листа
+- generic: Надішліть SMS
+- generic: Додати підписників
+- generic: Вилучити підписників
+- generic: Створити запис
+- generic: Execute Code
+- generic: Надіслати сповіщення Webhook
+- generic: Execute Existing Actions
+- generic: Технічні налаштування
+- text: Модель
+- superscript: "?"
+- combobox "Модель?": Дія на сервері
+- text: Дозволені групи
+- superscript: "?"
+- combobox "Дозволені групи?"
+- text: Доступно на сайті
+- superscript: "?"
+- checkbox "Доступно на сайті?"
+- generic: Action Details
+- list:
+  - tab "Код"
+  - tab "Допомога"
+- textbox
+- generic: "1"
+- generic: "2"
+- generic: "3"
+- generic: "4"
+- generic: products=env['product.product'].with_context(active_test=False).search([('name','=like','TEST-VATAGA-APPROVALS-UAT8%')])
+- generic: sellers=env['product.supplierinfo'].search([('product_tmpl_id.name','=like','TEST-VATAGA-APPROVALS-UAT8%')])
+- generic: line=env['approval.product.line'].browse(97)
+- generic: raise UserError('products='+str(products.ids)+' count='+str(len(products))+' sellers='+str(sellers.ids)+' count='+str(len(sellers))+' line='+str(line.read(['product_id','product_uom_id','vataga_filled_after_approval','vataga_product_created_from_request','vataga_filled_at'])))
+- dialog:
+  - banner:
+    - heading "Недійсна операція" [level=4]
+    - button "Закрити"
+  - contentinfo:
+    - button "Закрити" [active]
+  - main:
+    - alert:
+      - paragraph: "products=[12114, 12112, 12113] count=3 sellers=[12217, 12219, 12218] count=3 line=[{'id': 97, 'product_id': False, 'product_uom_id': (1, 'шт.'), 'vataga_filled_after_approval': False, 'vataga_product_created_from_request': False, 'vataga_filled_at': False}]"
+- paragraph: Натисніть esc, щоби вийти з повноекранного режиму

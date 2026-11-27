@@ -1,0 +1,98 @@
+- generic: "Базу даних для тестування відключено: не надіслано електронних листів тощо."
+- banner:
+  - navigation:
+    - link "Домашнє меню":
+      - /url: "#"
+    - menu:
+      - button "Відвідування":
+        - img "Відвідування": 
+      - button "Відкрити інструменти розробника":
+        - img "Відкрити інструменти розробника": 
+      - button "Повідомлення 3":
+        - img "Повідомлення": 
+        - generic: "3"
+      - button "Дії 4":
+        - img "Дії": 
+        - generic: "4"
+      - button "Переключити студію":
+        - img: 
+      - generic: 
+      - button "Користувач Вадим Герасименко  odoo17-vataga-staging":
+        - img "Користувач"
+        - text: Вадим Герасименко
+        - mark:
+          - generic: 
+          - text: odoo17-vataga-staging
+- button "Новий"
+- generic: TEST-VATAGA-APPROVALS-UAT7-READONLY-RESULTS
+- button "":
+  - generic: 
+- button "Пошук статей бази знань":
+- search:
+  - navigation "Сторінки":
+    - generic: "1"
+    - text: / 1
+    - button "Попередній" [disabled]:
+      - generic: 
+    - button "Наступний" [disabled]:
+      - generic: 
+- button "Створити контекстну дію"
+- button "Запустити"
+- heading "TEST-VATAGA-APPROVALS-UAT7-READONLY-RESULTS UK" [level=1]:
+  - textbox "e.g. Mass archive contacts": TEST-VATAGA-APPROVALS-UAT7-READONLY-RESULTS
+  - generic: UK
+- text: Тип
+- superscript: "?"
+- generic: Оновити запис
+- generic: Створіть дію
+- generic: Надіслати ел. листа
+- generic: Надішліть SMS
+- generic: Додати підписників
+- generic: Вилучити підписників
+- generic: Створити запис
+- generic: Execute Code
+- generic: Надіслати сповіщення Webhook
+- generic: Execute Existing Actions
+- generic: Технічні налаштування
+- text: Модель
+- superscript: "?"
+- combobox "Модель?": Дія на сервері
+- text: Дозволені групи
+- superscript: "?"
+- combobox "Дозволені групи?"
+- text: Доступно на сайті
+- superscript: "?"
+- checkbox "Доступно на сайті?"
+- generic: Action Details
+- list:
+  - tab "Код"
+  - tab "Допомога"
+- textbox
+- generic: "1"
+- generic: "2"
+- generic: "3"
+- generic: "4"
+- generic: "5"
+- generic: "6"
+- generic: "7"
+- generic: "8"
+- generic: "9"
+- generic: module=env['ir.module.module'].search([('name','=','approvals_purchase_vataga')],limit=1)
+- generic: requests=env['approval.request'].search([('reference','=like','TEST-VATAGA-APPROVALS-UAT8%')],order='id')
+- generic: report=['DB='+env.cr.dbname+' uid='+str(env.uid)+' installed='+module.installed_version+' state='+module.state]
+- generic: "for r in requests:"
+- generic: report.append(str(r.id)+' '+str(r.vataga_display_number)+' '+r.request_status+' topic='+str(bool(r.vataga_display_subject))+' lines='+str(r.product_line_ids.ids)+' nativePO='+str(r.product_line_ids.purchase_order_line_id.order_id.ids)+' sources='+str(r.product_line_ids.purchase_order_line_id.order_id.mapped('vataga_origin_approval_ids').ids))
+- generic: report.append('products='+str(env['product.product'].with_context(active_test=False).search([('name','=like','TEST-VATAGA-APPROVALS-UAT8%')]).ids))
+- generic: report.append('suppliers='+str(env['product.supplierinfo'].search([('product_tmpl_id.name','=like','TEST-VATAGA-APPROVALS-UAT8%')]).ids))
+- generic: report.append('original_registry_lines='+str(env['approval.product.line'].search_count([('approval_request_id','=',2067)])))
+- generic: raise UserError('\n'.join(report))
+- dialog:
+  - banner:
+    - heading "Недійсна операція" [level=4]
+    - button "Закрити"
+  - contentinfo:
+    - button "Закрити" [active]
+  - main:
+    - alert:
+      - paragraph: DB=odoo17-vataga-staging uid=64 installed=17.0.1.0.8 state=installed 2065 TESTUAT800001 pending topic=True lines=[92] nativePO=[] sources=[] 2066 VPR/2026/000023 pending topic=True lines=[93] nativePO=[] sources=[] 2067 TESTUAT800002 approved topic=True lines=[94] nativePO=[15170] sources=[2067] 2068 TESTUAT800003 approved topic=True lines=[95] nativePO=[] sources=[] 2069 TESTUAT800004 approved topic=True lines=[96] nativePO=[] sources=[] 2070 TESTUAT800005 approved topic=True lines=[97] nativePO=[] sources=[] 2071 TESTUAT800006 approved topic=True lines=[98, 99, 100] nativePO=[15174, 15175] sources=[2071] 2072 TESTUAT800007 approved topic=True lines=[101] nativePO=[15176] sources=[2072] 2073 TESTHIST800001 approved topic=False lines=[102] nativePO=[15173] sources=[] 2074 TESTHIST800002 approved topic=False lines=[103] nativePO=[15173] sources=[] products=[12114, 12116, 12112, 12113, 12117] suppliers=[12221, 12222, 12217, 12219, 12218] original_registry_lines=1
+- paragraph: Натисніть esc, щоби вийти з повноекранного режиму

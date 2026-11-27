@@ -1,0 +1,92 @@
+- generic: "Базу даних для тестування відключено: не надіслано електронних листів тощо."
+- banner:
+  - navigation:
+    - link "Домашнє меню":
+      - /url: "#"
+    - menu:
+      - button "Відвідування":
+        - img "Відвідування": 
+      - button "Відкрити інструменти розробника":
+        - img "Відкрити інструменти розробника": 
+      - button "Повідомлення 3":
+        - img "Повідомлення": 
+        - generic: "3"
+      - button "Дії 4":
+        - img "Дії": 
+        - generic: "4"
+      - button "Переключити студію":
+        - img: 
+      - generic: 
+      - button "Користувач Вадим Герасименко  odoo17-vataga-staging":
+        - img "Користувач"
+        - text: Вадим Герасименко
+        - mark:
+          - generic: 
+          - text: odoo17-vataga-staging
+- button "Новий"
+- generic: TEST-VATAGA-APPROVALS-UAT7-READONLY-RESULTS
+- button "":
+  - generic: 
+- button "Пошук статей бази знань":
+- search:
+  - navigation "Сторінки":
+    - generic: "1"
+    - text: / 1
+    - button "Попередній" [disabled]:
+      - generic: 
+    - button "Наступний" [disabled]:
+      - generic: 
+- button "Створити контекстну дію"
+- button "Запустити"
+- heading "TEST-VATAGA-APPROVALS-UAT7-READONLY-RESULTS UK" [level=1]:
+  - textbox "e.g. Mass archive contacts": TEST-VATAGA-APPROVALS-UAT7-READONLY-RESULTS
+  - generic: UK
+- text: Тип
+- superscript: "?"
+- generic: Оновити запис
+- generic: Створіть дію
+- generic: Надіслати ел. листа
+- generic: Надішліть SMS
+- generic: Додати підписників
+- generic: Вилучити підписників
+- generic: Створити запис
+- generic: Execute Code
+- generic: Надіслати сповіщення Webhook
+- generic: Execute Existing Actions
+- generic: Технічні налаштування
+- text: Модель
+- superscript: "?"
+- combobox "Модель?": Дія на сервері
+- text: Дозволені групи
+- superscript: "?"
+- combobox "Дозволені групи?"
+- text: Доступно на сайті
+- superscript: "?"
+- checkbox "Доступно на сайті?"
+- generic: Action Details
+- list:
+  - tab "Код"
+  - tab "Допомога"
+- textbox
+- generic: "1"
+- generic: "2"
+- generic: "3"
+- generic: "4"
+- generic: "5"
+- generic: "6"
+- generic: orders=env['purchase.order'].browse([15170,15171,15172])
+- generic: report=[]
+- generic: "for name,field in orders._fields.items():"
+- generic: "if field.relational and any(token in name for token in ['payment','picking','invoice','move']):"
+- generic: report.append(name+' type='+field.type+' model='+field.comodel_name+' copy='+str(field.copy)+' compute='+str(field.compute)+' ids='+str([(o.id,o[name].ids) for o in orders]))
+- generic: raise UserError('\n'.join(report))
+- dialog:
+  - banner:
+    - heading "Недійсна операція" [level=4]
+    - button "Закрити"
+  - contentinfo:
+    - button "Закрити" [active]
+  - main:
+    - alert:
+      - paragraph: invoice_ids type=many2many model=account.move copy=False compute=_compute_invoice ids=[(15170, []), (15171, []), (15172, [])] payment_term_id type=many2one model=account.payment.term copy=True compute=None ids=[(15170, []), (15171, []), (15172, [])] advance_move_line_ids type=one2many model=account.move.line copy=False compute=None ids=[(15170, []), (15171, []), (15172, [])] picking_ids type=many2many model=stock.picking copy=False compute=_compute_picking_ids ids=[(15170, []), (15171, []), (15172, [])] picking_type_id type=many2one model=stock.picking.type copy=True compute=None ids=[(15170, [311]), (15171, [311]), (15172, [311])]
+- paragraph: Натисніть esc, щоби вийти з повноекранного режиму

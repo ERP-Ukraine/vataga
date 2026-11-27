@@ -1,0 +1,193 @@
+- generic: "Базу даних для тестування відключено: не надіслано електронних листів тощо."
+- banner:
+  - navigation:
+    - link "Домашнє меню":
+      - /url: "#"
+    - menu:
+      - button "Відвідування":
+        - img "Відвідування": 
+      - button "Відкрити інструменти розробника":
+        - img "Відкрити інструменти розробника": 
+      - button "Повідомлення 3":
+        - img "Повідомлення": 
+        - generic: "3"
+      - button "Дії 4":
+        - img "Дії": 
+        - generic: "4"
+      - button "Переключити студію":
+        - img: 
+      - generic: 
+      - button "Користувач Вадим Герасименко  odoo17-vataga-staging":
+        - img "Користувач"
+        - text: Вадим Герасименко
+        - mark:
+          - generic: 
+          - text: odoo17-vataga-staging
+- generic: TESTUAT800005
+- button "":
+  - generic: 
+- button "Пошук статей бази знань":
+- search:
+  - navigation "Сторінки":
+    - generic: "1"
+    - text: / 1
+    - button "Попередній" [disabled]:
+      - generic: 
+    - button "Наступний" [disabled]:
+      - generic: 
+- button "Створити ЗНКП"
+- button "Зняти"
+- button "Скасувати"
+- button "Прикріпити документ"
+- radiogroup "Statusbar":
+  - radio "Скасувати" [disabled]
+  - radio "Відхилено" [disabled]
+  - radio "Затверджено" [checked] [disabled]
+  - radio "Відправлено" [disabled]
+  - radio "До розгляду" [disabled]
+- img "Бінарний файл"
+- text: Тема схвалення
+- superscript: "?"
+- heading "TESTUAT800005" [level=1]:
+  - generic: TESTUAT800005
+- text: Власник запиту
+- superscript: "?"
+- link "Вадим Герасименко":
+  - /url: "#id=64&model=res.users"
+  - generic: Вадим Герасименко
+- text: Ініціатор закупівлі
+- superscript: "?"
+- text: Отримувач
+- superscript: "?"
+- text: Тема закупівлі
+- superscript: "?"
+- generic: TEST-VATAGA-APPROVALS-UAT8 APPROVEDUOM
+- text: Категорія
+- superscript: "?"
+- link "TEST-VATAGA-APPROVALS-UAT8 AUTO":
+  - /url: "#id=24&model=approval.category"
+  - generic: TEST-VATAGA-APPROVALS-UAT8 AUTO
+- text: Підтверджена дата
+- superscript: "?"
+- generic: 27.11.2026 12:11:49
+- text: Тип контракту
+- superscript: "?"
+- combobox "Тип контракту?":
+  - option
+  - option "Продаж"
+  - option "Купівля" [selected]
+- text: Інкотерм
+- superscript: "?"
+- combobox "Інкотерм?"
+- text: Термін оплати
+- superscript: "?"
+- combobox "Термін оплати?"
+- text: Валюта
+- superscript: "?"
+- combobox "Валюта?": UAH
+- text: Дата початку
+- superscript: "?"
+- text: Дата закінчення
+- superscript: "?"
+- list:
+  - tab "Товари"
+  - tab "Опис"
+  - tab "Підтверджувач(і)"
+- table:
+  - rowgroup:
+    - row "Товари  Опис  URL  Кількість  Одиниця вимірювання  ":
+      - columnheader "Товари ":
+        - generic: Товари
+        - generic: 
+      - columnheader "Опис ":
+        - generic: Опис
+        - generic: 
+      - columnheader "URL ":
+        - generic: URL
+        - generic: 
+      - columnheader "Кількість ":
+        - generic: Кількість
+        - generic: 
+      - columnheader "Одиниця вимірювання ":
+        - generic: Одиниця вимірювання
+        - generic: 
+      - columnheader
+      - columnheader "":
+        - button "":
+          - generic: 
+  - rowgroup:
+    - row "TEST-VATAGA-APPROVALS-UAT8 RACE B TEST-VATAGA-APPROVALS-UAT8 APPROVEDUOM item 1 https://example.com/vataga-uat8 1,00 шт.":
+      - cell "TEST-VATAGA-APPROVALS-UAT8 RACE B"
+      - cell "TEST-VATAGA-APPROVALS-UAT8 APPROVEDUOM item 1"
+      - cell "https://example.com/vataga-uat8":
+        - link "https://example.com/vataga-uat8":
+          - /url: https://example.com/vataga-uat8
+      - cell "1,00"
+      - cell "шт."
+      - cell
+      - cell
+    - row:
+      - cell
+    - row:
+      - cell
+    - row:
+      - cell
+  - rowgroup:
+    - row:
+      - cell
+      - cell
+      - cell
+      - cell
+      - cell
+      - cell
+      - cell
+- button "Надіслати повідомлення"
+- button "Примітка"
+- button "Дії"
+- button "Пошук повідомлень":
+  - img: 
+- button "Прикріпити файли":
+  - generic: 
+- button "1":
+  - img: 
+  - superscript: "1"
+- button "Підписка":
+  - generic: Підписка
+- separator
+- generic: Сьогодні
+- separator
+- group "Сповіщення системи":
+  - generic "Відкрити картку":
+  - generic "Відкрити картку":
+    - strong: Вадим Герасименко
+  - generic "27.11.2026, 12:11:49": "- 6 хвилин тому"
+  - list:
+    - text: Відправлено
+    - generic: 
+    - text: Затверджено
+    - generic: (Статус запиту)
+- group "Сповіщення системи":
+  - generic "Відкрити картку":
+  - generic "Відкрити картку":
+    - strong: Вадим Герасименко
+  - generic "27.11.2026, 12:11:49": "- 6 хвилин тому"
+  - paragraph:
+    - generic: 
+    - text: Схвалення завершено
+- group "Сповіщення системи":
+  - generic "Відкрити картку":
+  - generic "Відкрити картку":
+    - strong: Вадим Герасименко
+  - generic "27.11.2026, 12:11:49": "- 6 хвилин тому"
+  - list:
+    - text: До розгляду
+    - generic: 
+    - text: Відправлено
+    - generic: (Статус запиту)
+- group "Сповіщення системи":
+  - generic "Відкрити картку":
+  - generic "Відкрити картку":
+    - strong: Вадим Герасименко
+  - generic "27.11.2026, 12:11:49": "- 6 хвилин тому"
+  - paragraph: Запит на затвердження створено
+- paragraph: Натисніть esc, щоби вийти з повноекранного режиму

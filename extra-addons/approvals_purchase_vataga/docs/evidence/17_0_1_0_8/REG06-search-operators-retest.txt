@@ -1,0 +1,92 @@
+- generic: "Базу даних для тестування відключено: не надіслано електронних листів тощо."
+- banner:
+  - navigation:
+    - link "Домашнє меню":
+      - /url: "#"
+    - menu:
+      - button "Відвідування":
+        - img "Відвідування": 
+      - button "Відкрити інструменти розробника":
+        - img "Відкрити інструменти розробника": 
+      - button "Повідомлення 3":
+        - img "Повідомлення": 
+        - generic: "3"
+      - button "Дії 4":
+        - img "Дії": 
+        - generic: "4"
+      - button "Переключити студію":
+        - img: 
+      - generic: 
+      - button "Користувач Вадим Герасименко  odoo17-vataga-staging":
+        - img "Користувач"
+        - text: Вадим Герасименко
+        - mark:
+          - generic: 
+          - text: odoo17-vataga-staging
+- button "Новий"
+- generic: TEST-VATAGA-APPROVALS-UAT7-READONLY-RESULTS
+- button "":
+  - generic: 
+- button "Пошук статей бази знань":
+- search:
+  - navigation "Сторінки":
+    - generic: "1"
+    - text: / 1
+    - button "Попередній" [disabled]:
+      - generic: 
+    - button "Наступний" [disabled]:
+      - generic: 
+- button "Створити контекстну дію"
+- button "Запустити"
+- heading "TEST-VATAGA-APPROVALS-UAT7-READONLY-RESULTS UK" [level=1]:
+  - textbox "e.g. Mass archive contacts": TEST-VATAGA-APPROVALS-UAT7-READONLY-RESULTS
+  - generic: UK
+- text: Тип
+- superscript: "?"
+- generic: Оновити запис
+- generic: Створіть дію
+- generic: Надіслати ел. листа
+- generic: Надішліть SMS
+- generic: Додати підписників
+- generic: Вилучити підписників
+- generic: Створити запис
+- generic: Execute Code
+- generic: Надіслати сповіщення Webhook
+- generic: Execute Existing Actions
+- generic: Технічні налаштування
+- text: Модель
+- superscript: "?"
+- combobox "Модель?": Дія на сервері
+- text: Дозволені групи
+- superscript: "?"
+- combobox "Дозволені групи?"
+- text: Доступно на сайті
+- superscript: "?"
+- checkbox "Доступно на сайті?"
+- generic: Action Details
+- list:
+  - tab "Код"
+  - tab "Допомога"
+- textbox
+- generic: "1"
+- generic: "2"
+- generic: "3"
+- generic: "4"
+- generic: "5"
+- generic: "6"
+- generic: L=env['approval.product.line'].with_context(vataga_purchase_registry=True)
+- generic: base=[('description','=like','TEST-VATAGA-APPROVALS-UAT8%')]
+- generic: report=[]
+- generic: "for op,value in [('=',15174),('ilike','P14925'),('=',False),('!=',False),('!=',15174),('not ilike','P14925'),('in',[False,15174]),('not in',[False,15174]),('ilike','TEST-NONEXISTENT-PO')]:"
+- generic: report.append(str((op,value,L.search(base+[('vataga_purchase_order_id',op,value)]).ids)))
+- generic: raise UserError('\n'.join(report))
+- dialog:
+  - banner:
+    - heading "Недійсна операція" [level=4]
+    - button "Закрити"
+  - contentinfo:
+    - button "Закрити" [active]
+  - main:
+    - alert:
+      - paragraph: ('=', 15174, [98, 99]) ('ilike', 'P14925', [98, 99]) ('=', False, [92, 93, 95, 96, 97]) ('!=', False, [94, 98, 99, 100, 101, 102, 103]) ('!=', 15174, [92, 93, 94, 95, 96, 97, 100, 101, 102, 103]) ('not ilike', 'P14925', [92, 93, 94, 95, 96, 97, 100, 101, 102, 103]) ('in', [False, 15174], [92, 93, 95, 96, 97, 98, 99]) ('not in', [False, 15174], [94, 100, 101, 102, 103]) ('ilike', 'TEST-NONEXISTENT-PO', [])
+- paragraph: Натисніть esc, щоби вийти з повноекранного режиму

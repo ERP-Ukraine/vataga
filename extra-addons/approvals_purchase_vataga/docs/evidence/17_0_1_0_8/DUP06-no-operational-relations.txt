@@ -1,0 +1,90 @@
+- generic: "Базу даних для тестування відключено: не надіслано електронних листів тощо."
+- banner:
+  - navigation:
+    - link "Домашнє меню":
+      - /url: "#"
+    - menu:
+      - button "Відвідування":
+        - img "Відвідування": 
+      - button "Відкрити інструменти розробника":
+        - img "Відкрити інструменти розробника": 
+      - button "Повідомлення 3":
+        - img "Повідомлення": 
+        - generic: "3"
+      - button "Дії 4":
+        - img "Дії": 
+        - generic: "4"
+      - button "Переключити студію":
+        - img: 
+      - generic: 
+      - button "Користувач Вадим Герасименко  odoo17-vataga-staging":
+        - img "Користувач"
+        - text: Вадим Герасименко
+        - mark:
+          - generic: 
+          - text: odoo17-vataga-staging
+- button "Новий"
+- generic: TEST-VATAGA-APPROVALS-UAT7-READONLY-RESULTS
+- button "":
+  - generic: 
+- button "Пошук статей бази знань":
+- search:
+  - navigation "Сторінки":
+    - generic: "1"
+    - text: / 1
+    - button "Попередній" [disabled]:
+      - generic: 
+    - button "Наступний" [disabled]:
+      - generic: 
+- button "Створити контекстну дію"
+- button "Запустити"
+- heading "TEST-VATAGA-APPROVALS-UAT7-READONLY-RESULTS UK" [level=1]:
+  - textbox "e.g. Mass archive contacts": TEST-VATAGA-APPROVALS-UAT7-READONLY-RESULTS
+  - generic: UK
+- text: Тип
+- superscript: "?"
+- generic: Оновити запис
+- generic: Створіть дію
+- generic: Надіслати ел. листа
+- generic: Надішліть SMS
+- generic: Додати підписників
+- generic: Вилучити підписників
+- generic: Створити запис
+- generic: Execute Code
+- generic: Надіслати сповіщення Webhook
+- generic: Execute Existing Actions
+- generic: Технічні налаштування
+- text: Модель
+- superscript: "?"
+- combobox "Модель?": Дія на сервері
+- text: Дозволені групи
+- superscript: "?"
+- combobox "Дозволені групи?"
+- text: Доступно на сайті
+- superscript: "?"
+- checkbox "Доступно на сайті?"
+- generic: Action Details
+- list:
+  - tab "Код"
+  - tab "Допомога"
+- textbox
+- generic: "1"
+- generic: "2"
+- generic: "3"
+- generic: "4"
+- generic: "5"
+- generic: orders=env['purchase.order'].browse([15170,15171,15172])
+- generic: fields=[name for name in ['name','state','invoice_ids','picking_ids','date_approve','vataga_rfq_origin_key','vataga_origin_approval_ids'] if name in orders._fields]
+- generic: lines=orders.order_line
+- generic: line_fields=[name for name in ['order_id','move_ids','invoice_lines','qty_received','qty_invoiced'] if name in lines._fields]
+- generic: raise UserError('orders='+str(orders.read(fields))+' lines='+str(lines.read(line_fields)))
+- dialog:
+  - banner:
+    - heading "Недійсна операція" [level=4]
+    - button "Закрити"
+  - contentinfo:
+    - button "Закрити" [active]
+  - main:
+    - alert:
+      - paragraph: "orders=[{'id': 15170, 'name': 'P14921', 'state': 'draft', 'invoice_ids': [], 'picking_ids': [], 'date_approve': False, 'vataga_rfq_origin_key': '19c54ead97374112a69560b44105f203', 'vataga_origin_approval_ids': [2067]}, {'id': 15171, 'name': 'P14922', 'state': 'draft', 'invoice_ids': [], 'picking_ids': [], 'date_approve': False, 'vataga_rfq_origin_key': False, 'vataga_origin_approval_ids': [2067]}, {'id': 15172, 'name': 'P14923', 'state': 'draft', 'invoice_ids': [], 'picking_ids': [], 'date_approve': False, 'vataga_rfq_origin_key': False, 'vataga_origin_approval_ids': []}] lines=[{'id': 35826, 'order_id': (15170, 'P14921'), 'move_ids': [], 'invoice_lines': [], 'qty_received': 0.0, 'qty_invoiced': 0.0}, {'id': 35827, 'order_id': (15171, 'P14922'), 'move_ids': [], 'invoice_lines': [], 'qty_received': 0.0, 'qty_invoiced': 0.0}, {'id': 35828, 'order_id': (15172, 'P14923'), 'move_ids': [], 'invoice_lines': [], 'qty_received': 0.0, 'qty_invoiced': 0.0}]"
+- paragraph: Натисніть esc, щоби вийти з повноекранного режиму

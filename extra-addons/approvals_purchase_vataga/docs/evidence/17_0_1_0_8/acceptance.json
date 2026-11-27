@@ -1,0 +1,224 @@
+{
+  "version": "17.0.1.0.8",
+  "date": "2026-11-27",
+  "environment": "odoo17-vataga-staging",
+  "uid": 64,
+  "mandatory": [
+    {
+      "id": "TOP01",
+      "status": "PASS",
+      "evidence": "Auto2065 и manual2066: пустое значение и пробелы отклонены сервером с «Вкажіть тему закупівлі»; пустые черновики сохранены. После review дополнительно4 прямых action_approve из new отклонены, state=new/audit=False"
+    },
+    {
+      "id": "TOP02",
+      "status": "PASS",
+      "evidence": "После ввода темы обе заявки pending; исходные TESTUAT800001/VPR/2026/000023 сохранены. На финальном коде auto/manual прошли pending→approved с неизменными номерами; обычный nonpurchase прошел native workflow без отдельной темы"
+    },
+    {
+      "id": "TOP03",
+      "status": "PASS",
+      "evidence": "TEST2073/2074 approved без темы читаются. На финальном коде2073 прошла approved→new(readonly)→pending→approved с пустой темой, тем же номером/FK и без line snapshot. Весь диагностический цикл откатан, исходные flags отдельно сверены"
+    },
+    {
+      "id": "UI01",
+      "status": "PASS",
+      "evidence": "Desktop кнопка, мастер, footer и сообщение защиты; фактический generated mobile kanban содержит одну новую подпись и не содержит старой. Мобильный runtime отдельно MOB01"
+    },
+    {
+      "id": "UOM01",
+      "status": "PASS",
+      "evidence": "Товар12114 сохранен с uom_id=uom_po_id=5 «м», строка94 также5, approved UOM отсутствовала"
+    },
+    {
+      "id": "UOM02",
+      "status": "PASS",
+      "evidence": "Реестр и XLSX строки94 показывают «м»"
+    },
+    {
+      "id": "UOM03",
+      "status": "PASS",
+      "evidence": "P14921/POL35826:1м, цена18,50; штатные native закупочные вычисления"
+    },
+    {
+      "id": "UOM04",
+      "status": "PASS",
+      "evidence": "У строки97 явно согласована1 «шт.»; сохранение нового товара с5 «м» отклонено, product/supplierinfo/audit откатились. Позднее строка использована для CON01 с совместимой единицей"
+    },
+    {
+      "id": "MOD01",
+      "status": "PASS",
+      "evidence": "Создание происходит на Save; закрылись обе модали, родитель обновился автоматически"
+    },
+    {
+      "id": "MOD02",
+      "status": "PASS",
+      "evidence": "«Відмінити» вернул в исходный мастер с mode=new и введенным EDITOR FINAL"
+    },
+    {
+      "id": "MOD03",
+      "status": "PASS",
+      "evidence": "IDs/count products и supplierinfo до/при открытии/после отмены идентичны, см. таблицу ниже"
+    },
+    {
+      "id": "MOD04",
+      "status": "PASS",
+      "evidence": "После отмены line94 product=False, filled/created=False, filled_at=False"
+    },
+    {
+      "id": "MOD05",
+      "status": "PASS",
+      "evidence": "X и Escape вернули мастер; оба DB-сравнения также2/2 с теми же IDs"
+    },
+    {
+      "id": "MOD06",
+      "status": "PASS",
+      "evidence": "После трех отмен создан ровно один12114 и один12219; повторное заполнение отклонено"
+    },
+    {
+      "id": "MOD07",
+      "status": "PASS",
+      "evidence": "На TEST12112 временная новая name отменена; БД не изменилась, line96 пустая. Последующее Save неизмененной карточки корректно заполнило строку без создания товара"
+    },
+    {
+      "id": "MOD08",
+      "status": "PASS",
+      "evidence": "Обычная «Створити»: product12116/supplierinfo12221 созданы сразу, line95 заполнена"
+    },
+    {
+      "id": "LINK01",
+      "status": "PASS",
+      "evidence": "P14921 хранит источник2067 и показывает кликабельный TESTUAT800002; прежний собственный TEST P14906 показывает именно VPR/2026/000022, а не текст темы"
+    },
+    {
+      "id": "LINK02",
+      "status": "PASS",
+      "evidence": "Реальный click P14927→TESTUAT800007 открыл request2072"
+    },
+    {
+      "id": "LINK03",
+      "status": "PASS",
+      "evidence": "P14925/P14926 обе содержат источник2071; строки по двум поставщикам"
+    },
+    {
+      "id": "LINK04",
+      "status": "PASS",
+      "evidence": "Штатная копия P14923 без источников не показывает пустой хедер; специального пункта меню нет"
+    },
+    {
+      "id": "LINK05",
+      "status": "PASS",
+      "evidence": "P14924 отображает TESTHIST800001 и TESTHIST800002 по двум native FK; raw sources=[], marker=False"
+    },
+    {
+      "id": "DUP01",
+      "status": "PASS",
+      "evidence": "«Дублювати з погодженням» рядом с native Duplicate, фактический menu click"
+    },
+    {
+      "id": "DUP02",
+      "status": "PASS",
+      "evidence": "P14921→P14922: отдельный новый номер, draft, без подтверждения/отправки"
+    },
+    {
+      "id": "DUP03",
+      "status": "PASS",
+      "evidence": "P14922 сохраняет2067; UI предупреждает, что ссылка не подтверждает согласование измененных строк"
+    },
+    {
+      "id": "DUP04",
+      "status": "PASS",
+      "evidence": "Native Duplicate P14922→P14923: источники=[], computed refs=[], copy flag=False"
+    },
+    {
+      "id": "DUP05",
+      "status": "PASS",
+      "evidence": "Машинное точное сравнение request/audit/order/POL до и после совпало"
+    },
+    {
+      "id": "DUP06",
+      "status": "PASS",
+      "evidence": "У обеих копий origin_key=False; исходная line94 по-прежнему POL35826. invoice_ids/picking_ids/advance_move_line_ids имеют фактический native copy=False; у копий они пусты, move/invoice lines пусты, received/invoiced0"
+    },
+    {
+      "id": "DUP07",
+      "status": "BLOCKED",
+      "evidence": "Нет другой реально авторизованной роли. Отказ копии без источника/подмене refs текущей сессией не заменяет эту проверку"
+    },
+    {
+      "id": "REG01",
+      "status": "PASS",
+      "evidence": "Вместо checkbox видны actual PO names; технические поля сохранены"
+    },
+    {
+      "id": "REG02",
+      "status": "PASS",
+      "evidence": "Click P14927 в реестре открыл PO15176, а не форму строки"
+    },
+    {
+      "id": "REG03",
+      "status": "PASS",
+      "evidence": "Две строки2071→P14925, третья→P14926"
+    },
+    {
+      "id": "REG04",
+      "status": "PASS",
+      "evidence": "Пять строк без native закупки имеют пустой PO; False-domain вернул именно их"
+    },
+    {
+      "id": "REG05",
+      "status": "PASS",
+      "evidence": "Прочитан прежний собственный TEST2027: marker=True, FK=[], registry PO=False; в UI нет неработающей ссылки. Нового удаления не выполнялось"
+    },
+    {
+      "id": "REG06",
+      "status": "PASS",
+      "evidence": "UI search P14925→ровно2 строки; group/expand, пустая группа, прежний fact filter→7, nine search conditions и XLSX12 строк сверены"
+    },
+    {
+      "id": "REG07",
+      "status": "PASS",
+      "evidence": "После обеих копий у2067 одна registry-строка; ссылка остается P14921; всего UAT8 строк12"
+    },
+    {
+      "id": "SEC01",
+      "status": "BLOCKED",
+      "evidence": "Текущая сессия:12 предусмотренных серверных отказов PASS. Реальные другие роли, hidden PO record rules/field groups и компании не имитировались"
+    },
+    {
+      "id": "RFQ01",
+      "status": "PASS",
+      "evidence": "Перед2072 P14925 реально подходил native grouping domain; создан новый P14927; P14925/P14926 qty/price/UOM не изменились"
+    }
+  ],
+  "additional": {
+    "AT01": "PASS",
+    "CON01": "BLOCKED",
+    "MOB01": "BLOCKED"
+  },
+  "counts": {
+    "mandatory": {
+      "PASS": 35,
+      "FAIL": 0,
+      "BLOCKED": 2
+    },
+    "with_additional": {
+      "PASS": 36,
+      "FAIL": 0,
+      "BLOCKED": 4
+    }
+  },
+  "local": {
+    "portable_pass": 92,
+    "url_pass": 16,
+    "enterprise_collected": 97,
+    "enterprise_executed": 0
+  },
+  "legacy": {
+    "version": "17.0.1.0.7",
+    "PASS": 139,
+    "FAIL": 0,
+    "BLOCKED": 17,
+    "rerun": false,
+    "note": "Optional-topic acceptance superseded. No arithmetic merging of matrices."
+  }
+}

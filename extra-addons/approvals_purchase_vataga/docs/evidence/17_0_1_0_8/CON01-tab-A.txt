@@ -1,0 +1,377 @@
+- generic: "Базу даних для тестування відключено: не надіслано електронних листів тощо."
+- banner:
+  - navigation:
+    - link "Домашнє меню":
+      - /url: "#"
+    - menu:
+      - button "Відвідування":
+        - img "Відвідування": 
+      - button "Відкрити інструменти розробника":
+        - img "Відкрити інструменти розробника": 
+      - button "Повідомлення 3":
+        - img "Повідомлення": 
+        - generic: "3"
+      - button "Дії 4":
+        - img "Дії": 
+        - generic: "4"
+      - button "Переключити студію":
+        - img: 
+      - generic: 
+      - button "Користувач Вадим Герасименко  odoo17-vataga-staging":
+        - img "Користувач"
+        - text: Вадим Герасименко
+        - mark:
+          - generic: 
+          - text: odoo17-vataga-staging
+- generic: TESTUAT800005
+- button "":
+  - generic: 
+- button "Пошук статей бази знань":
+- search:
+  - navigation "Сторінки":
+    - generic: "1"
+    - text: / 1
+    - button "Попередній" [disabled]:
+      - generic: 
+    - button "Наступний" [disabled]:
+      - generic: 
+- button "Зняти"
+- button "Скасувати"
+- button "Прикріпити документ"
+- radiogroup "Statusbar":
+  - radio "Скасувати" [disabled]
+  - radio "Відхилено" [disabled]
+  - radio "Затверджено" [checked] [disabled]
+  - radio "Відправлено" [disabled]
+  - radio "До розгляду" [disabled]
+- img "Бінарний файл"
+- text: Тема схвалення
+- superscript: "?"
+- heading "TESTUAT800005" [level=1]:
+  - generic: TESTUAT800005
+- text: Власник запиту
+- superscript: "?"
+- link "Вадим Герасименко":
+  - /url: "#id=64&model=res.users"
+  - generic: Вадим Герасименко
+- text: Ініціатор закупівлі
+- superscript: "?"
+- text: Отримувач
+- superscript: "?"
+- text: Тема закупівлі
+- superscript: "?"
+- generic: TEST-VATAGA-APPROVALS-UAT8 APPROVEDUOM
+- text: Категорія
+- superscript: "?"
+- link "TEST-VATAGA-APPROVALS-UAT8 AUTO":
+  - /url: "#id=24&model=approval.category"
+  - generic: TEST-VATAGA-APPROVALS-UAT8 AUTO
+- text: Підтверджена дата
+- superscript: "?"
+- generic: 27.11.2026 12:11:49
+- text: Тип контракту
+- superscript: "?"
+- combobox "Тип контракту?":
+  - option
+  - option "Продаж"
+  - option "Купівля" [selected]
+- text: Інкотерм
+- superscript: "?"
+- combobox "Інкотерм?"
+- text: Термін оплати
+- superscript: "?"
+- combobox "Термін оплати?"
+- text: Валюта
+- superscript: "?"
+- combobox: UAH
+- text: Дата початку
+- superscript: "?"
+- text: Дата закінчення
+- superscript: "?"
+- list:
+  - tab "Товари"
+  - tab "Опис"
+  - tab "Підтверджувач(і)"
+- table:
+  - rowgroup:
+    - row "Товари  Опис  URL  Кількість  Одиниця вимірювання  ":
+      - columnheader "Товари ":
+        - generic: Товари
+        - generic: 
+      - columnheader "Опис ":
+        - generic: Опис
+        - generic: 
+      - columnheader "URL ":
+        - generic: URL
+        - generic: 
+      - columnheader "Кількість ":
+        - generic: Кількість
+        - generic: 
+      - columnheader "Одиниця вимірювання ":
+        - generic: Одиниця вимірювання
+        - generic: 
+      - columnheader
+      - columnheader "":
+        - button "":
+          - generic: 
+  - rowgroup:
+    - row "TEST-VATAGA-APPROVALS-UAT8 APPROVEDUOM item 1 https://example.com/vataga-uat8 1,00 шт.  Створити товар":
+      - cell
+      - cell "TEST-VATAGA-APPROVALS-UAT8 APPROVEDUOM item 1"
+      - cell "https://example.com/vataga-uat8":
+        - link "https://example.com/vataga-uat8":
+          - /url: https://example.com/vataga-uat8
+      - cell "1,00"
+      - cell "шт."
+      - cell " Створити товар":
+        - button " Створити товар":
+          - generic: 
+          - text: Створити товар
+      - cell
+    - row:
+      - cell
+    - row:
+      - cell
+    - row:
+      - cell
+  - rowgroup:
+    - row:
+      - cell
+      - cell
+      - cell
+      - cell
+      - cell
+      - cell
+      - cell
+- button "Надіслати повідомлення"
+- button "Примітка"
+- button "Дії"
+- button "Пошук повідомлень":
+  - img: 
+- button "Прикріпити файли":
+  - generic: 
+- button "1":
+  - img: 
+  - superscript: "1"
+- button "Підписка":
+  - generic: Підписка
+- separator
+- generic: Сьогодні
+- separator
+- group "Сповіщення системи":
+  - generic "Відкрити картку":
+  - generic "Відкрити картку":
+    - strong: Вадим Герасименко
+  - generic "27.11.2026, 12:11:49": "- 6 хвилин тому"
+  - list:
+    - text: Відправлено
+    - generic: 
+    - text: Затверджено
+    - generic: (Статус запиту)
+- group "Сповіщення системи":
+  - generic "Відкрити картку":
+  - generic "Відкрити картку":
+    - strong: Вадим Герасименко
+  - generic "27.11.2026, 12:11:49": "- 6 хвилин тому"
+  - paragraph:
+    - generic: 
+    - text: Схвалення завершено
+- group "Сповіщення системи":
+  - generic "Відкрити картку":
+  - generic "Відкрити картку":
+    - strong: Вадим Герасименко
+  - generic "27.11.2026, 12:11:49": "- 6 хвилин тому"
+  - list:
+    - text: До розгляду
+    - generic: 
+    - text: Відправлено
+    - generic: (Статус запиту)
+- group "Сповіщення системи":
+  - generic "Відкрити картку":
+  - generic "Відкрити картку":
+    - strong: Вадим Герасименко
+  - generic "27.11.2026, 12:11:49": "- 6 хвилин тому"
+  - paragraph: Запит на затвердження створено
+- dialog:
+  - banner:
+    - button "Відкрити інструменти розробника":
+      - img "Відкрити інструменти розробника": 
+    - heading "Створити товар" [level=4]
+    - button "Закрити"
+  - contentinfo:
+    - contentinfo:
+      - button "Створити"
+      - button "Створити та редагувати"
+      - button "Скасувати"
+  - main:
+    - text: Погоджений опис
+    - superscript: "?"
+    - generic: TEST-VATAGA-APPROVALS-UAT8 APPROVEDUOM item 1
+    - text: URL
+    - superscript: "?"
+    - link "https://example.com/vataga-uat8":
+      - /url: https://example.com/vataga-uat8
+    - text: Спосіб заповнення
+    - superscript: "?"
+    - radiogroup "Спосіб заповнення":
+      - radio "Вибрати існуючий товар"
+      - generic: Вибрати існуючий товар
+      - radio "Створити новий товар" [checked]
+      - generic: Створити новий товар
+    - text: Назва нового товару
+    - superscript: "?"
+    - textbox "Назва нового товару?": TEST-VATAGA-APPROVALS-UAT8 RACE A
+- dialog:
+  - banner:
+    - heading "Створити та редагувати" [level=4]
+    - button "Закрити"
+  - contentinfo:
+    - toolbar "Основні дії":
+      - button "Зберегти"
+      - button "Відмінити"
+  - main:
+    - button "Оновіть кількість"
+    - button "Поповнити"
+    - button "Друк етикеток"
+    - button "Редагувати":
+      - generic: 
+    - img "Бінарний файл"
+    - text: Назва товару
+    - superscript: "?"
+    - heading "Пріоритет TEST-VATAGA-APPROVALS-UAT8 RACE A UK" [level=1]:
+      - radiogroup "Пріоритет":
+        - radio "Закладка": 
+      - textbox "Тема схвалення? Назва товару?":
+        - /placeholder: напр. Чізбургер
+        - text: TEST-VATAGA-APPROVALS-UAT8 RACE A
+      - generic: UK
+    - checkbox "Можна продати?" [checked]
+    - text: Можна продати
+    - superscript: "?"
+    - checkbox "Можна купити?" [checked]
+    - text: Можна купити
+    - superscript: "?"
+    - list:
+      - tab "Загальна інформація"
+      - tab "Продажі"
+      - tab "Купівля"
+      - tab "Склад"
+      - tab "Бухоблік"
+      - tab "Аналоги"
+    - text: Тип товару
+    - superscript: "?"
+    - combobox "Тип товару?":
+      - option "Витратний"
+      - option "Послуга"
+      - option "Товар, що зберігається" [selected]
+    - text: Політика виставлення рахунків
+    - superscript: "?"
+    - combobox "Політика виставлення рахунків?":
+      - option "По замовленій кількості" [selected]
+      - option "По доставленій кількості"
+    - text: Повторне виставлення рахунку на витрати
+    - superscript: "?"
+    - radiogroup "Повторне виставлення рахунку на витрати":
+      - radio "Ні" [checked]
+      - generic: Ні
+      - radio "За вартістю"
+      - generic: За вартістю
+      - radio "Ціна продажу"
+      - generic: Ціна продажу
+    - superscript: "?"
+    - generic: Товари для зберігання – це фізичні предмети, для яких ви керуєте рівнем запасів.
+    - superscript: "?"
+    - generic: Ви можете виставити рахунок до доставки.
+    - text: Одиниця вимірювання
+    - superscript: "?"
+    - combobox "Одиниця вимірювання?": шт.
+    - text: Одиниця купівлі
+    - superscript: "?"
+    - combobox "Одиниця купівлі?": шт.
+    - text: Створити ремонт
+    - superscript: "?"
+    - checkbox "Створити ремонт?"
+    - text: Ціна продажу
+    - superscript: "?"
+    - generic: ₴
+    - textbox "Ціна продажу?": 1,0000
+    - generic: (= 1,20 ₴ Включно з ПДВ)
+    - text: Податки клієнта
+    - superscript: "?"
+    - generic "Реалізація ПДВ 20%":
+      - generic: Реалізація ПДВ 20%
+      - link "Видалити":
+        - /url: "#"
+        - generic: 
+    - combobox "Податки клієнта?"
+    - text: Собівартість
+    - superscript: "?"
+    - generic: ₴
+    - textbox "Собівартість?": 0,0000
+    - text: на
+    - generic: шт.
+    - text: Внутрішні посилання
+    - superscript: "?"
+    - textbox "Внутрішні посилання?"
+    - text: Версія
+    - superscript: "?"
+    - generic: "1"
+    - text: Штрих-код
+    - superscript: "?"
+    - textbox "Штрих-код?"
+    - text: Імпортний
+    - superscript: "?"
+    - checkbox "Імпортний?"
+    - text: УКТ ЗЕД
+    - superscript: "?"
+    - combobox
+    - text: Без приходу УКТ ЗЕД
+    - superscript: "?"
+    - checkbox "Без приходу УКТ ЗЕД?"
+    - text: Акцизний код
+    - superscript: "?"
+    - textbox "Акцизний код?"
+    - text: Власна СГ продукція
+    - superscript: "?"
+    - checkbox "Власна СГ продукція?"
+    - text: Код пільги
+    - superscript: "?"
+    - textbox "Код пільги?"
+    - text: Категорія товару
+    - superscript: "?"
+    - combobox "Категорія товару?": Ресурси [RES]
+    - text: Теги шаблону товару
+    - superscript: "?"
+    - combobox "Теги шаблону товару?"
+    - text: Теги додаткових товарів
+    - superscript: "?"
+    - combobox "Теги додаткових товарів?"
+    - button " Налаштувати теги":
+      - generic: 
+      - text: Налаштувати теги
+    - generic: Внутрішні примітки
+    - paragraph: Ця примітка призначена лише для внутрішніх цілей.
+    - generic: UK
+    - generic: Вхідний контроль CAB
+    - text: Вхідний контроль CAB
+    - superscript: "?"
+    - checkbox "Вхідний контроль CAB?"
+    - generic: Міжопераційний контроль CAB
+    - text: Поштучний випуск ВТК (етап B)
+    - superscript: "?"
+    - checkbox "Поштучний випуск ВТК (етап B)?"
+    - text: Обробка виробничого браку (етап C)
+    - superscript: "?"
+    - checkbox "Обробка виробничого браку (етап C)?"
+    - text:    
+- dialog:
+  - banner:
+    - heading "Недійсна операція" [level=4]
+    - button "Закрити"
+  - contentinfo:
+    - button "Закрити" [active]
+  - main:
+    - alert:
+      - paragraph: Цю позицію вже заповнено або вона недоступна для заповнення.
+- paragraph: Натисніть esc, щоби вийти з повноекранного режиму
+- text:         

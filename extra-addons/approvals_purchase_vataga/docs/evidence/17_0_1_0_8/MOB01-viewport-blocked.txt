@@ -1,0 +1,1 @@
+Requested viewport: 390x844. Browser capability returned without error, but both DOM measurements remained width=1280 height=720. Responsive/mobile runtime is BLOCKED; no mobile screenshot or PASS is claimed. The desktop wizard and mobile XML labels were checked separately. Viewport override reset.

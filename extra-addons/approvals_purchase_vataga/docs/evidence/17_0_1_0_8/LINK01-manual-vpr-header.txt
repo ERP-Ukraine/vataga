@@ -1,0 +1,228 @@
+- generic: "Базу даних для тестування відключено: не надіслано електронних листів тощо."
+- banner:
+  - navigation:
+    - link "Домашнє меню":
+      - /url: "#"
+    - menu:
+      - button "Відвідування":
+        - img "Відвідування": 
+      - button "Відкрити інструменти розробника":
+        - img "Відкрити інструменти розробника": 
+      - button "Повідомлення 3":
+        - img "Повідомлення": 
+        - generic: "3"
+      - button "Дії 4":
+        - img "Дії": 
+        - generic: "4"
+      - button "Переключити студію":
+        - img: 
+      - generic: 
+      - button "Користувач Вадим Герасименко  odoo17-vataga-staging":
+        - img "Користувач"
+        - text: Вадим Герасименко
+        - mark:
+          - generic: 
+          - text: odoo17-vataga-staging
+- button "Новий"
+- generic: P14906
+- button "":
+  - generic: 
+- button "Пошук статей бази знань":
+- search:
+  - navigation "Сторінки":
+    - generic: "1"
+    - text: / 1
+    - button "Попередній" [disabled]:
+      - generic: 
+    - button "Наступний" [disabled]:
+      - generic: 
+- button "Надіслати поштою"
+- button "Надрукувати ЗНКП"
+- button "Підтвердити замовлення"
+- button "Скасувати"
+- radiogroup "Statusbar":
+  - radio "Замовлення на купівлю" [disabled]
+  - radio "ЗНКП відправлено" [disabled]
+  - radio "ЗНКП" [checked] [disabled]
+- text: Запит на комерційну пропозицію
+- heading "Пріоритет P14906" [level=1]:
+  - radiogroup "Пріоритет":
+    - radio "Терміновий": 
+  - generic: P14906
+- text: Постачальник
+- superscript: "?"
+- combobox "Ім'я, TIN, Email, або посилання": <redacted>
+- text: Документ погодження
+- superscript: "?"
+- link "VPR/2026/000022":
+  - /url: "#"
+- text: Референс постачальника
+- superscript: "?"
+- textbox "Референс постачальника?"
+- text: Валюта
+- superscript: "?"
+- combobox "Валюта?": UAH
+- text: Договір продажу (NEW)
+- superscript: "?"
+- combobox "Договір продажу (NEW)?"
+- text: Договір
+- superscript: "?"
+- combobox "Договір?"
+- text: Проект
+- superscript: "?"
+- combobox "Проект?"
+- text: Бюджет
+- superscript: "?"
+- combobox "Бюджет?"
+- text: Стаття Cashflow
+- superscript: "?"
+- combobox "Стаття Cashflow?"
+- text: Контракт продажу
+- superscript: "?"
+- combobox "Контракт продажу?"
+- text: Дедлайн замовлення
+- superscript: "?"
+- textbox "Дедлайн замовлення?": 26.11.2026 14:43:07
+- text: Очікуване прибуття
+- superscript: "?"
+- textbox "Очікуване прибуття?": 27.11.2026 14:43:07
+- button "Немає даних вчасної доставки"
+- generic "Автоматично надіслати підтвердження електронною поштою постачальнику за X днів до передбачуваної дати отримання з проханням підтвердити точну дату.":
+  - checkbox "Email нагадування отримання?" [disabled]
+  - generic: Запитати підтвердження
+- text: Доставити на
+- superscript: "?"
+- combobox "Доставити на?": "Комплектація та відвантаження: Надходження"
+- text: Дата обліку
+- superscript: "?"
+- textbox "Дата обліку?"
+- text: Bill Status
+- superscript: "?"
+- text: Payment Status
+- superscript: "?"
+- list:
+  - tab "Товари"
+  - tab "Інша інформація"
+  - tab "Авансові платежі"
+- table:
+  - rowgroup:
+    - row "Товар  Оригінал аналога  Опис  Кількість  Одиниця вимірювання  Кількість упаковок  Упаковка  Ціна одиниці  Податки Без ПДВ  ":
+      - columnheader
+      - columnheader "Товар ":
+        - generic: Товар
+        - generic: 
+      - columnheader "Оригінал аналога ":
+        - generic: Оригінал аналога
+        - generic: 
+      - columnheader "Опис ":
+        - generic: Опис
+        - generic: 
+      - columnheader "Кількість ":
+        - generic: Кількість
+        - generic: 
+      - columnheader
+      - columnheader "Одиниця вимірювання ":
+        - generic: Одиниця вимірювання
+        - generic: 
+      - columnheader "Кількість упаковок ":
+        - generic: Кількість упаковок
+        - generic: 
+      - columnheader "Упаковка ":
+        - generic: Упаковка
+        - generic: 
+      - columnheader "Ціна одиниці ":
+        - generic: Ціна одиниці
+        - generic: 
+      - columnheader
+      - columnheader "Податки":
+        - generic: Податки
+        - text: 
+      - columnheader "Без ПДВ ":
+        - generic: Без ПДВ
+        - generic: 
+      - columnheader "":
+        - button "":
+          - generic: 
+  - rowgroup:
+    - row " TEST-VATAGA-APPROVALS-UAT7 APPLY item 1 TEST-VATAGA-APPROVALS-UAT7 APPLY item 1 1,0000  шт. 0,0000  Придбання ПДВ 20% 0,00 ₴ Видалити рядок":
+      - cell "":
+        - generic: 
+      - cell "TEST-VATAGA-APPROVALS-UAT7 APPLY item 1"
+      - cell
+      - cell "TEST-VATAGA-APPROVALS-UAT7 APPLY item 1":
+        - generic: TEST-VATAGA-APPROVALS-UAT7 APPLY item 1
+      - cell "1,0000"
+      - cell "":
+        - button "":
+          - generic: 
+      - cell "шт."
+      - cell
+      - cell
+      - cell "0,0000"
+      - cell "":
+        - button "":
+          - generic: 
+      - cell "Придбання ПДВ 20%":
+        - generic "Придбання ПДВ 20%":
+          - generic: Придбання ПДВ 20%
+      - cell "0,00 ₴"
+      - cell "Видалити рядок":
+        - button "Видалити рядок": 
+    - row "Додати товарДодати розділДодати примітку Каталог":
+      - cell
+      - cell "Додати товарДодати розділДодати примітку Каталог":
+        - button "Додати товар"
+        - button "Додати розділ"
+        - button "Додати примітку"
+        - button "Каталог"
+    - row:
+      - cell
+    - row:
+      - cell
+  - rowgroup:
+    - row:
+      - cell
+      - cell
+      - cell
+      - cell
+      - cell
+      - cell
+      - cell
+      - cell
+      - cell
+      - cell
+      - cell
+      - cell
+      - cell
+      - cell
+- paragraph: Визначте свої умови ...
+- table:
+  - rowgroup:
+    - 'row "Всього без ПДВ: 0,00 ₴"':
+      - cell "Всього без ПДВ:":
+        - generic: "Всього без ПДВ:"
+      - cell "0,00 ₴"
+    - 'row "ПДВ 20%: 0,00 ₴"':
+      - cell "ПДВ 20%:":
+        - generic: "ПДВ 20%:"
+      - cell "0,00 ₴":
+        - generic: 0,00 ₴
+    - 'row "Разом: 0,00 ₴"':
+      - cell "Разом:":
+        - generic: "Разом:"
+      - cell "0,00 ₴"
+- button "Надіслати повідомлення" [disabled]
+- button "Примітка" [disabled]
+- button "Дії" [disabled]
+- button "Пошук повідомлень":
+  - img: 
+- button "Прикріпити файли" [disabled]:
+  - generic: 
+- button "" [disabled]:
+  - img: 
+  - generic: 
+- button "Стежити":
+  - generic: Стежити
+- generic: Завантаження (2)
+- paragraph: Натисніть esc, щоби вийти з повноекранного режиму
+- text:         

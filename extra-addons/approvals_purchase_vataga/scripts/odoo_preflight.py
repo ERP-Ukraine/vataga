@@ -9,6 +9,7 @@ import inspect
 import json
 from pathlib import Path
 import textwrap
+from lxml import etree
 
 
 def preflight(env):
@@ -50,7 +51,8 @@ def preflight(env):
                   'approvals.approval_product_kanban_mobile_view',
                   'approvals.approvals_menu_root', 'purchase.group_purchase_user',
                   'approvals.group_approval_user', 'approvals.group_approval_manager',
-                  'product.product_template_form_view'):
+                  'product.product_template_form_view', 'product.product_normal_form_view',
+                  'purchase.purchase_order_form'):
         record = env.ref(xmlid, raise_if_not_found=False)
         report['xmlids'][xmlid] = {'exists': bool(record), 'model': record._name if record else None}
     rules = env['ir.rule'].search([('model_id.model', 'in', list(required))])
@@ -79,6 +81,34 @@ def preflight(env):
                     except (OSError, TypeError):
                         item['source'] = 'UNAVAILABLE'
                     report['rfq_mro'].append(item)
+    # .8 uses narrowly scoped native web_save and form controller contracts.
+    # This runs before Install too; it never imports the new addon.
+    report['v8_contracts'] = {
+        'product_web_save': str(inspect.signature(env['product.product'].web_save)),
+        'line_field_to_sql': str(inspect.signature(env['approval.product.line']._field_to_sql)),
+        'line_order_field_to_sql': str(inspect.signature(env['approval.product.line']._order_field_to_sql)),
+        'request_name_required': env['approval.request']._fields['name'].required,
+        'uom_fields': {model: {name: env[model]._fields[name].type for name in names}
+                       for model, names in (
+                           ('approval.product.line', ('product_uom_id',)),
+                           ('product.product', ('uom_id', 'uom_po_id')),
+                           ('product.template', ('uom_id', 'uom_po_id')))},
+    }
+    report['v8_forms'] = {}
+    for model in ('purchase.order', 'product.product'):
+        try:
+            arch = etree.fromstring(env[model].get_view(view_type='form')['arch'].encode())
+            controller = arch.get('js_class')
+            report['v8_forms'][model] = {
+                'js_class': controller,
+                'foreign_controller_review': bool(model == 'purchase.order' and controller
+                                                   and controller != 'vataga_purchase_order_form'),
+                'purchase_header_anchor_matches': len(arch.xpath("//sheet/group/group/field[@name='partner_id']")),
+                'product_uom_matches': len(arch.xpath(".//field[@name='uom_id']")),
+                'product_purchase_uom_matches': len(arch.xpath(".//field[@name='uom_po_id']")),
+            }
+        except Exception as error:
+            report['v8_forms'][model] = {'status': 'BLOCKED', 'error_type': type(error).__name__}
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
 

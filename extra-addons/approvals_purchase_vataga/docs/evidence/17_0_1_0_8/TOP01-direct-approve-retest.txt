@@ -1,0 +1,120 @@
+- generic: "Базу даних для тестування відключено: не надіслано електронних листів тощо."
+- banner:
+  - navigation:
+    - link "Домашнє меню":
+      - /url: "#"
+    - menu:
+      - button "Відвідування":
+        - img "Відвідування": 
+      - button "Відкрити інструменти розробника":
+        - img "Відкрити інструменти розробника": 
+      - button "Повідомлення 3":
+        - img "Повідомлення": 
+        - generic: "3"
+      - button "Дії 4":
+        - img "Дії": 
+        - generic: "4"
+      - button "Переключити студію":
+        - img: 
+      - generic: 
+      - button "Користувач Вадим Герасименко  odoo17-vataga-staging":
+        - img "Користувач"
+        - text: Вадим Герасименко
+        - mark:
+          - generic: 
+          - text: odoo17-vataga-staging
+- button "Новий"
+- generic: TEST-VATAGA-APPROVALS-UAT7-READONLY-RESULTS
+- button "":
+  - generic: 
+- button "Пошук статей бази знань":
+- search:
+  - navigation "Сторінки":
+    - generic: "1"
+    - text: / 1
+    - button "Попередній" [disabled]:
+      - generic: 
+    - button "Наступний" [disabled]:
+      - generic: 
+- button "Створити контекстну дію"
+- button "Запустити"
+- heading "TEST-VATAGA-APPROVALS-UAT7-READONLY-RESULTS UK" [level=1]:
+  - textbox "e.g. Mass archive contacts": TEST-VATAGA-APPROVALS-UAT7-READONLY-RESULTS
+  - generic: UK
+- text: Тип
+- superscript: "?"
+- generic: Оновити запис
+- generic: Створіть дію
+- generic: Надіслати ел. листа
+- generic: Надішліть SMS
+- generic: Додати підписників
+- generic: Вилучити підписників
+- generic: Створити запис
+- generic: Execute Code
+- generic: Надіслати сповіщення Webhook
+- generic: Execute Existing Actions
+- generic: Технічні налаштування
+- text: Модель
+- superscript: "?"
+- combobox "Модель?": Дія на сервері
+- text: Дозволені групи
+- superscript: "?"
+- combobox "Дозволені групи?"
+- text: Доступно на сайті
+- superscript: "?"
+- checkbox "Доступно на сайті?"
+- generic: Action Details
+- list:
+  - tab "Код"
+  - tab "Допомога"
+- textbox
+- generic: "1"
+- generic: "2"
+- generic: "3"
+- generic: "4"
+- generic: "5"
+- generic: "6"
+- generic: "7"
+- generic: "8"
+- generic: "9"
+- generic: "10"
+- generic: "11"
+- generic: "12"
+- generic: "13"
+- generic: "14"
+- generic: "15"
+- generic: "16"
+- generic: "17"
+- generic: "18"
+- generic: "19"
+- generic: "20"
+- generic: "if env.cr.dbname!='odoo17-vataga-staging' or env.uid!=64:"
+- generic: raise UserError('TEST authorized session only')
+- generic: auto=env['approval.category'].search([('name','=','TEST-VATAGA-APPROVALS-UAT8 AUTO')],limit=1)
+- generic: manual=env['approval.category'].search([('name','=','TEST-VATAGA-APPROVALS-UAT8 MANUAL')],limit=1)
+- generic: product=env['product.product'].browse(12112)
+- generic: warehouse=env['stock.warehouse'].search([('company_id','=',env.company.id)],limit=1)
+- generic: report=[]
+- generic: "for label,category,value in [('auto-empty',auto,False),('auto-spaces',auto,' '),('manual-empty',manual,False),('manual-spaces',manual,' ')]:"
+- generic: "line={'product_id':product.id,'product_uom_id':product.uom_id.id,'description':'TEST-VATAGA-APPROVALS-UAT8 DIRECT TOPIC','quantity':1}"
+- generic: "if 'warehouse_id' in env['approval.product.line']._fields:"
+- generic: line['warehouse_id']=warehouse.id
+- generic: "r=env['approval.request'].create({'name':'TEST-VATAGA-APPROVALS-UAT8 DIRECT' if category==auto else value,'reference':'TEST-VATAGA-APPROVALS-UAT8 DIRECT '+label,'category_id':category.id,'vataga_purchase_subject':value,'product_line_ids':[(0,0,line)],'approver_ids':[(0,0,{'user_id':env.uid,'required':True})]})"
+- generic: outcome='UNEXPECTED ALLOWED'
+- generic: "try:"
+- generic: r.action_approve()
+- generic: "except Exception as error:"
+- generic: outcome=str(error)
+- generic: report.append(label+' state='+r.request_status+' audit='+str(r.vataga_approved_once)+' outcome='+outcome)
+- generic: raise UserError('TEST rollback all:\n'+'\n'.join(report))
+- generic: Завантаження (0)
+- dialog:
+  - banner:
+    - heading "Недійсна операція" [level=4]
+    - button "Закрити"
+  - contentinfo:
+    - button "Закрити" [active]
+  - main:
+    - alert:
+      - paragraph: "TEST rollback all: auto-empty state=new audit=False outcome=Вкажіть тему закупівлі auto-spaces state=new audit=False outcome=Вкажіть тему закупівлі manual-empty state=new audit=False outcome=Вкажіть тему закупівлі manual-spaces state=new audit=False outcome=Вкажіть тему закупівлі"
+- paragraph: Натисніть esc, щоби вийти з повноекранного режиму

@@ -1,0 +1,86 @@
+- generic: "Базу даних для тестування відключено: не надіслано електронних листів тощо."
+- banner:
+  - navigation:
+    - link "Домашнє меню":
+      - /url: "#"
+    - menu:
+      - button "Відвідування":
+        - img "Відвідування": 
+      - button "Відкрити інструменти розробника":
+        - img "Відкрити інструменти розробника": 
+      - button "Повідомлення 3":
+        - img "Повідомлення": 
+        - generic: "3"
+      - button "Дії 3":
+        - img "Дії": 
+        - generic: "3"
+      - button "Переключити студію":
+        - img: 
+      - generic: 
+      - button "Користувач Вадим Герасименко  odoo17-vataga-staging":
+        - img "Користувач"
+        - text: Вадим Герасименко
+        - mark:
+          - generic: 
+          - text: odoo17-vataga-staging
+- button "Новий"
+- generic: TEST-VATAGA-APPROVALS-UAT7-READONLY-RESULTS
+- button "":
+  - generic: 
+- button "Пошук статей бази знань":
+- search:
+  - navigation "Сторінки":
+    - generic: "1"
+    - text: / 1
+    - button "Попередній" [disabled]:
+      - generic: 
+    - button "Наступний" [disabled]:
+      - generic: 
+- button "Створити контекстну дію"
+- button "Запустити"
+- heading "TEST-VATAGA-APPROVALS-UAT7-READONLY-RESULTS UK" [level=1]:
+  - textbox "e.g. Mass archive contacts": TEST-VATAGA-APPROVALS-UAT7-READONLY-RESULTS
+  - generic: UK
+- text: Тип
+- superscript: "?"
+- generic: Оновити запис
+- generic: Створіть дію
+- generic: Надіслати ел. листа
+- generic: Надішліть SMS
+- generic: Додати підписників
+- generic: Вилучити підписників
+- generic: Створити запис
+- generic: Execute Code
+- generic: Надіслати сповіщення Webhook
+- generic: Execute Existing Actions
+- generic: Технічні налаштування
+- text: Модель
+- superscript: "?"
+- combobox "Модель?": Дія на сервері
+- text: Дозволені групи
+- superscript: "?"
+- combobox "Дозволені групи?"
+- text: Доступно на сайті
+- superscript: "?"
+- checkbox "Доступно на сайті?"
+- generic: Action Details
+- list:
+  - tab "Код"
+  - tab "Допомога"
+- textbox
+- generic: "1"
+- generic: "2"
+- generic: "3"
+- generic: r=env['approval.request'].browse(2067)
+- generic: o=r.product_line_ids.purchase_order_line_id.order_id
+- generic: raise UserError('request='+str(r.read(['name','request_status','vataga_rfq_created','vataga_rfq_created_at','vataga_rfq_created_by_id']))+' lines='+str(r.product_line_ids.read(['purchase_order_line_id','quantity','product_uom_id']))+' order='+str(o.read(['name','origin','state','vataga_rfq_origin_key','vataga_origin_approval_ids','vataga_approval_request_ids']))+' pol='+str(o.order_line.read(['product_id','product_qty','product_uom','price_unit']))+' copies='+str(env['purchase.order'].browse([15171,15172]).read(['name','state','vataga_origin_approval_ids','vataga_approval_request_ids','vataga_rfq_origin_key','vataga_approval_is_copy']))+' registry='+str(r.product_line_ids.read(['vataga_purchase_order_id'])))
+- dialog:
+  - banner:
+    - heading "Недійсна операція" [level=4]
+    - button "Закрити"
+  - contentinfo:
+    - button "Закрити" [active]
+  - main:
+    - alert:
+      - paragraph: "request=[{'id': 2067, 'name': 'TESTUAT800002', 'request_status': 'approved', 'vataga_rfq_created': True, 'vataga_rfq_created_at': datetime.datetime(2026, 11, 27, 10, 15, 4), 'vataga_rfq_created_by_id': (64, 'Вадим Герасименко')}] lines=[{'id': 94, 'purchase_order_line_id': (35826, 'TEST-VATAGA-APPROVALS-UAT8 EDITOR FINAL'), 'quantity': 1.0, 'product_uom_id': (5, 'м')}] order=[{'id': 15170, 'name': 'P14921', 'origin': 'TESTUAT800002', 'state': 'draft', 'vataga_rfq_origin_key': '19c54ead97374112a69560b44105f203', 'vataga_origin_approval_ids': [2067], 'vataga_approval_request_ids': [2067]}] pol=[{'id': 35826, 'product_id': (12114, 'TEST-VATAGA-APPROVALS-UAT8 EDITOR FINAL'), 'product_qty': 1.0, 'product_uom': (5, 'м'), 'price_unit': 18.5}] copies=[{'id': 15171, 'name': 'P14922', 'state': 'draft', 'vataga_origin_approval_ids': [2067], 'vataga_approval_request_ids': [2067], 'vataga_rfq_origin_key': False, 'vataga_approval_is_copy': True}, {'id': 15172, 'name': 'P14923', 'state': 'draft', 'vataga_origin_approval_ids': [], 'vataga_approval_request_ids': [], 'vataga_rfq_origin_key': False, 'vataga_approval_is_copy': False}] registry=[{'id': 94, 'vataga_purchase_order_id': (15170, 'P14921')}]"
+- paragraph: Натисніть esc, щоби вийти з повноекранного режиму

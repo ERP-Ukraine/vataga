@@ -1,6 +1,6 @@
 # До main: production preflight, первая установка и откат / 17.0.1.0.8
 
-Актуализация .6: собственный реестр использует `vataga_rfq_exists` = audit marker OR any native RFQ link, без backfill исходного аудита. Исторический display-limit .5 устранен; неизвестная удаленная до Install история не восстанавливается. Дополнительно доступен [safe_eval report](SAFE_EVAL_DIAGNOSTIC_RU.md) без shell; он не заменяет Install/rollback/runtime proof. Указанные ниже preflight и первая Install относятся к текущей17.0.1.0.7.
+Актуализация .8: технический `vataga_rfq_exists` = audit marker OR any native RFQ link, без backfill исходного аудита; видимая колонка показывает доступный фактический PO каждой строки. Исторический display-limit .5 устранен; неизвестная удаленная до Install история не восстанавливается. Дополнительно доступен [safe_eval report](SAFE_EVAL_DIAGNOSTIC_RU.md) без shell; он не заменяет Install/rollback/runtime proof. Указанные ниже preflight и первая Install относятся к текущей17.0.1.0.8.
 
 **Это план будущих действий администратора, не разрешение публикации в main/production.** На production `odoo17-vataga` модуль NOT FOUND: нужен **Apps Install** либо штатный `-i approvals_purchase_vataga`, а не Upgrade/`-u`. На staging он уже установлен: Upgrade проверяет иной путь и не доказывает первой установки. База staging давно не синхронизировалась с production; все данные, конфигурация, прочие addons, Studio и права проверяются отдельно. Базу production на staging не переносить.
 
