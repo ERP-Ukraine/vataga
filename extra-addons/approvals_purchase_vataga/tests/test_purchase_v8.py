@@ -18,6 +18,23 @@ class TestPurchaseV8(PurchaseApprovalCase):
         self.assertEqual(request.request_status, 'new')
         self.assertFalse(request.vataga_approved_once)
 
+    def test_legacy_approved_empty_topic_can_follow_native_draft_resubmit_without_unlock(self):
+        category = self.other_category.copy({'name': 'TEST legacy empty auto topic',
+            'automated_sequence': True, 'sequence_code': 'TESTLEGACY'})
+        request = self.approve(self.request(category=category, vataga_purchase_subject=False))
+        number = request.name
+        category.approval_type = 'purchase'
+        request.action_draft()
+        self.assertTrue(request.vataga_lines_locked)
+        self.assertFalse(request.vataga_purchase_subject)
+        request.action_confirm()
+        request.with_user(self.approver).action_approve()
+        self.assertEqual(request.request_status, 'approved')
+        self.assertEqual(request.name, number)
+        self.assertFalse(request.vataga_purchase_subject)
+        self.assertTrue(request.vataga_lines_locked)
+        self.assertFalse(request.product_line_ids.vataga_approval_recorded)
+
     def editor(self, mode='new', **line_values):
         request = self.approve(self.request([self.line_values(missing=True, **line_values)], user=self.catalog_buyer))
         wizard = self.env['approval.product.resolve.vataga'].with_user(self.catalog_buyer).create({

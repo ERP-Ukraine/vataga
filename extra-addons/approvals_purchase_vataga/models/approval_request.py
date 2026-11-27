@@ -66,7 +66,11 @@ class ApprovalRequest(models.Model):
             raise ValidationError(_('Вкажіть назву заявки.'))
 
     def _vataga_validate_subject(self):
-        for request in self.filtered(lambda r: r.approval_type == 'purchase' and r.request_status == 'new'):
+        # A previously approved/legacy-locked document returned to new cannot
+        # edit its historical topic. Preserve that workflow without unlocking
+        # or inventing a topic; new editable drafts still require a real topic.
+        for request in self.filtered(lambda r: r.approval_type == 'purchase' and r.request_status == 'new'
+                                     and not r._vataga_is_locked()):
             subject = request.vataga_purchase_subject if request.automated_sequence else request.name
             if not (subject or '').strip():
                 raise ValidationError(_('Вкажіть тему закупівлі'))

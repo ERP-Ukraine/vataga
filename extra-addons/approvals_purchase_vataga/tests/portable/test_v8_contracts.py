@@ -27,7 +27,8 @@ class TestV8Contracts(unittest.TestCase):
             def _vataga_validate_subject(self):
                 return request_module.ApprovalRequest._vataga_validate_subject(self)
         records = Records([SimpleNamespace(approval_type='purchase', request_status='new',
-            automated_sequence=True, name='APPR00020', vataga_purchase_subject=False)])
+            automated_sequence=True, name='APPR00020', vataga_purchase_subject=False,
+            _vataga_is_locked=lambda: False)])
         with patch.object(request_module, '_', lambda value: value), self.assertRaises(ValidationError):
             request_module.ApprovalRequest.action_approve(records)
 
@@ -36,7 +37,7 @@ class TestV8Contracts(unittest.TestCase):
             for value in (False, '', ' \t\n'):
                 record = SimpleNamespace(approval_type='purchase', request_status='new',
                     automated_sequence=automatic, vataga_purchase_subject=value,
-                    name='APPR00020' if automatic else value)
+                    name='APPR00020' if automatic else value, _vataga_is_locked=lambda: False)
                 with patch.object(request_module, '_', lambda value: value), self.assertRaises(ValidationError):
                     request_module.ApprovalRequest._vataga_validate_subject(RequestSet([record]))
                 record.vataga_purchase_subject = record.name = 'Valid topic'
@@ -44,6 +45,12 @@ class TestV8Contracts(unittest.TestCase):
         for kind, status in [('purchase', 'approved'), ('purchase', 'pending'), (False, 'new')]:
             record = SimpleNamespace(approval_type=kind, request_status=status)
             request_module.ApprovalRequest._vataga_validate_subject(RequestSet([record]))
+
+    def test_immutable_historical_request_returned_to_new_does_not_require_editing_topic(self):
+        record = SimpleNamespace(approval_type='purchase', request_status='new', _vataga_is_locked=lambda: True)
+        # Absence of even the topic attributes proves no historical value read
+        # or invented; the existing lock remains the authoritative boundary.
+        request_module.ApprovalRequest._vataga_validate_subject(RequestSet([record]))
 
     def test_native_nonpurchase_name_requirement_preserved(self):
         for kind, name, fails in [('purchase', False, False), (False, False, True), (False, ' ', False)]:
