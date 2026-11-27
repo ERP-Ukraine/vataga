@@ -82,6 +82,43 @@ class TestV8Contracts(unittest.TestCase):
             result = method(model, op, val)
             self.assertTrue(result == [] or result == expression.TRUE_DOMAIN)
 
+    def test_real_odoo17_many2one_group_order_keeps_complete_joined_column(self):
+        # Execute the actual native parser that truncated the former scalar
+        # SELECT to '(SELECT' on staging. No database/Enterprise simulation.
+        column = SQL.identifier('approval_product_line__vataga_readable_purchase_line', 'order_id')
+        class Env(dict):
+            cr = SimpleNamespace(mogrify=lambda sql: sql.code.encode())
+        record = SimpleNamespace(
+            _fields={'vataga_purchase_order_id': SimpleNamespace(type='many2one', comodel_name='purchase.order')},
+            env=Env({'purchase.order': SimpleNamespace(_order='name desc')}),
+            _order_to_sql=lambda order, query: SQL('%s ASC', column))
+        order, extra, fields_used = models.BaseModel._read_group_orderby(record,
+            'vataga_purchase_order_id ASC', {'vataga_purchase_order_id': column}, Query(None, 'approval_product_line'))
+        self.assertEqual(order.code, column.code + ' ASC')
+        self.assertEqual(extra.code, column.code)
+        self.assertEqual(fields_used, [])
+
+    def test_po_search_uses_number_and_includes_null_fk_for_empty_and_negation(self):
+        queries = []
+        def visible(domain=()):
+            queries.append(domain)
+            return Query(None, 'purchase_order_line')
+        record = SimpleNamespace(_vataga_readable_purchase_lines=visible)
+        method = line_module.ApprovalProductLine._search_vataga_purchase_order
+        for op, val in [('=', False), ('!=', 15174), ('not ilike', 'P14925')]:
+            domain = method(record, op, val)
+            self.assertIn(('purchase_order_line_id', '=', False), domain)
+        method(record, 'ilike', 'P14925')
+        self.assertEqual(queries[-1], [('name', 'ilike', 'P14925')])
+
+    def test_known_empty_native_query_has_safe_empty_and_negative_semantics(self):
+        empty = Query(None, 'purchase_order_line')
+        empty.set_result_ids(())
+        record = SimpleNamespace(_vataga_readable_purchase_lines=lambda domain=(): empty)
+        method = line_module.ApprovalProductLine._search_vataga_purchase_order
+        self.assertEqual(method(record, '=', False), [])
+        self.assertEqual(method(record, '!=', 15174), [])
+
     def test_sources_are_relational_copy_false_and_user_visible_compute_is_not_stored(self):
         order = order_module.PurchaseOrder
         self.assertFalse(order.vataga_origin_approval_ids.copy)

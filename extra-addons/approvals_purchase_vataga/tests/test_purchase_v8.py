@@ -144,7 +144,7 @@ class TestPurchaseV8(PurchaseApprovalCase):
     def test_registry_purchase_is_masked_without_native_purchase_read_acl(self):
         self.add_vendor()
         request = self.approve(self.request())
-        request.with_user(self.catalog_buyer).action_create_purchase_orders()
+        request.with_user(self.buyer).action_create_purchase_orders()
         line = request.product_line_ids.with_user(self.owner)
         self.assertFalse(line.vataga_purchase_order_id)
         self.assertFalse(line.search([('id', '=', line.id), ('vataga_purchase_order_id', '!=', False)]))

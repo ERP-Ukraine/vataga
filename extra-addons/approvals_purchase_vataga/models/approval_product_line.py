@@ -79,6 +79,12 @@ class ApprovalProductLine(models.Model):
         if not (orders.check_access_rights('read', raise_exception=False)
                 and lines.check_access_rights('read', raise_exception=False)):
             return None
+        try:
+            self.check_field_access_rights('read', ['purchase_order_line_id'])
+            lines.check_field_access_rights('read', ['order_id'])
+            orders.check_field_access_rights('read', ['name'])
+        except AccessError:
+            return None
         domain = expression.AND([[('company_id', 'in', self.env.companies.ids)], list(order_domain)])
         # Native queries apply each model's real record rules. No elevated read.
         order_query = orders._search(domain)
@@ -88,6 +94,10 @@ class ApprovalProductLine(models.Model):
     @api.depends_context('uid', 'allowed_company_ids')
     def _compute_vataga_purchase_order(self):
         query = self._vataga_readable_purchase_lines()
+        if query is None:
+            for line in self:
+                line.vataga_purchase_order_id = False
+            return
         visible = (self.env['purchase.order.line'].search([
             ('id', 'in', self.purchase_order_line_id.ids), ('id', 'in', query)])
             if query is not None else self.env['purchase.order.line'])
@@ -104,16 +114,29 @@ class ApprovalProductLine(models.Model):
             raise ValueError('Unsupported purchase search operator: %s' % operator)
         if positive == '=' and value is False:
             query = self._vataga_readable_purchase_lines()
-            return ([('purchase_order_line_id', 'in' if negate else 'not in', query)]
-                    if query is not None else (expression.FALSE_DOMAIN if negate else []))
-        include_empty = positive == 'in' and False in value
-        actual = [item for item in value if item is not False] if positive == 'in' else value
-        target = 'display_name' if isinstance(actual, str) else 'id'
+            if query is None or query.is_empty():
+                return expression.FALSE_DOMAIN if negate else []
+            if negate:
+                return [('purchase_order_line_id', 'in', query)]
+            return expression.OR([[('purchase_order_line_id', '=', False)],
+                                  [('purchase_order_line_id', 'not in', query)]])
+        include_empty = positive == 'in' and any(item is False or item is None for item in value)
+        actual = [item for item in value if item is not False and item is not None] if positive == 'in' else value
+        # ERP-UA's display_name search is not a reliable number predicate.
+        # Search the confirmed native document-number column instead.
+        target = 'name' if isinstance(actual, str) else 'id'
         query = self._vataga_readable_purchase_lines([(target, positive, actual)])
-        domain = [('purchase_order_line_id', 'in', query)] if query is not None else expression.FALSE_DOMAIN
+        if query is None or query.is_empty():
+            domain, negative_domain = expression.FALSE_DOMAIN, []
+        else:
+            domain = [('purchase_order_line_id', 'in', query)]
+            # Odoo17 Query operands bypass the native list/NULL handling.
+            negative_domain = expression.OR([[('purchase_order_line_id', '=', False)],
+                                             [('purchase_order_line_id', 'not in', query)]])
         if include_empty:
-            domain = expression.OR([domain, self._search_vataga_purchase_order('=', False)])
-        return expression.distribute_not(['!'] + domain) if negate else domain
+            return (expression.AND([negative_domain, self._search_vataga_purchase_order('!=', False)])
+                    if negate else expression.OR([domain, self._search_vataga_purchase_order('=', False)]))
+        return negative_domain if negate else domain
 
     def _field_to_sql(self, alias, fname, query=None):
         if fname != 'vataga_purchase_order_id':
