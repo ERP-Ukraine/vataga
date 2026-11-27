@@ -20,6 +20,9 @@ REQUEST_INPUT = frozenset({'vataga_purchase_subject'})
 class ApprovalRequest(models.Model):
     _inherit = 'approval.request'
 
+    # Purchase drafts may have no topic; enforce the native requirement for
+    # other types below, and the purchase requirement at submission only.
+    name = fields.Char(required=False)
     vataga_number = fields.Char(string='Номер заявки', readonly=True, copy=False, index=True)
     vataga_purchase_subject = fields.Char(string='Тема закупівлі')
     vataga_display_subject = fields.Char(string='Тема заявки', compute='_compute_vataga_identity', store=True)
@@ -50,8 +53,23 @@ class ApprovalRequest(models.Model):
     @api.model
     def _get_view(self, view_id=None, view_type='form', **options):
         arch, view = super()._get_view(view_id, view_type, **options)
-        return (employee_form_arch(arch, {name: self._fields[name].domain for name in EMPLOYEE_FIELDS})
-                if view_type == 'form' else arch), view
+        if view_type == 'form':
+            arch = employee_form_arch(arch, {name: self._fields[name].domain for name in EMPLOYEE_FIELDS})
+            for node in arch.xpath(".//field[@name='name' and not(ancestor::field)]"):
+                required = node.get('required', 'True')
+                node.set('required', "approval_type != 'purchase' and (%s)" % required)
+        return arch, view
+
+    @api.constrains('name', 'category_id')
+    def _vataga_native_name_required(self):
+        if any(request.approval_type != 'purchase' and not request.name for request in self):
+            raise ValidationError(_('Вкажіть назву заявки.'))
+
+    def _vataga_validate_subject(self):
+        for request in self.filtered(lambda r: r.approval_type == 'purchase' and r.request_status == 'new'):
+            subject = request.vataga_purchase_subject if request.automated_sequence else request.name
+            if not (subject or '').strip():
+                raise ValidationError(_('Вкажіть тему закупівлі'))
 
     @api.model
     def _vataga_validate_employee_input(self, vals, company):
@@ -244,6 +262,7 @@ class ApprovalRequest(models.Model):
             return super().action_confirm()
         purchases._vataga_lock()
         with self.env.cr.savepoint():
+            purchases._vataga_validate_subject()
             purchases._vataga_preserve_approval_lock()
             self._vataga_validate_lines()
             for line in purchases.product_line_ids:
@@ -380,7 +399,7 @@ class ApprovalRequest(models.Model):
             for request in purchases:
                 # A separate scope for EACH request, even in a multi-record call.
                 # Keep the complete native MRO, grouping and value preparation.
-                with new_rfq_scope(self.env.cr) as scope:
+                with new_rfq_scope(self.env.cr, request.ids) as scope:
                     result = super(ApprovalRequest, request.with_context(
                         _vataga_rfq=RFQ)).action_create_purchase_orders()
                     orders = request.product_line_ids.purchase_order_line_id.order_id

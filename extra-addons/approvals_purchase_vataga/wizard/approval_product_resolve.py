@@ -101,8 +101,39 @@ class ApprovalProductResolve(models.TransientModel):
         return {'type': 'ir.actions.act_window_close'}
 
     def action_apply_open_product(self):
-        product = self._apply()
-        action = product.with_context(product_form_context(self.env.context, product.id)).get_formview_action()
-        action['name'] = _('Товар та постачальники')
-        action['target'] = 'new'
-        return action
+        self.ensure_one()
+        line = self._vataga_editor_line()
+        context = product_form_context(self.env.context, False)
+        context['vataga_product_editor_id'] = self.id
+        product = self.env['product.product']
+        if self.mode == 'new':
+            if not self.can_create_product:
+                raise AccessError(_('Поточні права не дозволяють створювати товари.'))
+            if not (self.new_product_name or '').strip():
+                raise ValidationError(_('Укажіть назву нового товару.'))
+            company = line.approval_request_id.company_id
+            supplier = company._vataga_default_supplier()
+            self.env['product.supplierinfo'].check_access_rights('create')
+            context.update(default_name=self.new_product_name.strip(), default_purchase_ok=True,
+                default_company_id=company.id, default_vataga_purchase_url=line.vataga_product_url,
+                default_seller_ids=[(0, 0, {'partner_id': supplier.id, 'company_id': company.id})])
+        else:
+            product = self.product_id
+            if not product:
+                raise ValidationError(_('Оберіть товар.'))
+            product.check_access_rights('read')
+            product.check_access_rule('read')
+            context.update(active_id=product.id, active_ids=product.ids)
+        # No product/supplierinfo/request mutation when opening the editor.
+        return {'type': 'ir.actions.client', 'tag': 'vataga_product_editor',
+                'params': {'context': context, 'res_id': product.id or False,
+                           'view_id': product.get_formview_id(), 'wizard_id': self.id}}
+
+    def _vataga_editor_line(self):
+        self.ensure_one()
+        self.check_access_rights('read')
+        self.check_access_rule('read')
+        if self.create_uid.id != self.env.uid:
+            raise AccessError(_('Майстер належить іншому користувачу.'))
+        self.line_id._vataga_assert_can_resolve()
+        return self.line_id

@@ -45,7 +45,7 @@ QUnit.module('Vataga: resolve from readonly purchase lines', (hooks) => {
             arch: `<form><field name="product_line_ids" readonly="1"><tree editable="bottom">
                 <field name="quantity"/>
                 <field name="vataga_can_resolve" column_invisible="True"/>
-                <button name="action_vataga_resolve" type="object" string="Заповнити товар"
+                <button name="action_vataga_resolve" type="object" string="Створити товар"
                     invisible="not vataga_can_resolve"/>
             </tree></field></form>`,
             mockRPC(route, args) {

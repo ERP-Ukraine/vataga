@@ -113,7 +113,7 @@ class TestV7OdooContracts(unittest.TestCase):
                 self.assertIn(term, result)
         self.assertEqual(record._get_purchase_orders_domain(42), native)
 
-    def test_empty_automatic_subject_is_not_a_submission_error(self):
+    def test_legacy_line_validation_does_not_require_subject(self):
         line = SimpleNamespace(product_id=True, description='Valid', vataga_product_url=False,
                                quantity=1, product_uom_id=False)
         request = SimpleNamespace(approval_type='purchase', vataga_purchase_managed=True,

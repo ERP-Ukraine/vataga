@@ -67,6 +67,85 @@ class ApprovalProductLine(models.Model):
     vataga_rfq_created = fields.Boolean(related='approval_request_id.vataga_rfq_created', string='Технічна відмітка ЗНКП', store=True, compute_sudo=False)
     vataga_rfq_exists = fields.Boolean(related='approval_request_id.vataga_rfq_exists', string='ЗНКП сформовано',
                                       store=True, index=True, compute_sudo=False)
+    # User-dependent visibility cannot be persisted in a shared related column.
+    vataga_purchase_order_id = fields.Many2one(
+        'purchase.order', string='ЗНКП', compute='_compute_vataga_purchase_order',
+        search='_search_vataga_purchase_order', compute_sudo=False)
+
+    @api.model
+    def _vataga_readable_purchase_lines(self, order_domain=()):
+        orders = self.env['purchase.order']
+        lines = self.env['purchase.order.line']
+        if not (orders.check_access_rights('read', raise_exception=False)
+                and lines.check_access_rights('read', raise_exception=False)):
+            return None
+        domain = expression.AND([[('company_id', 'in', self.env.companies.ids)], list(order_domain)])
+        # Native queries apply each model's real record rules. No elevated read.
+        order_query = orders._search(domain)
+        return lines._search([('order_id', 'in', order_query)])
+
+    @api.depends('purchase_order_line_id', 'purchase_order_line_id.order_id')
+    @api.depends_context('uid', 'allowed_company_ids')
+    def _compute_vataga_purchase_order(self):
+        query = self._vataga_readable_purchase_lines()
+        visible = (self.env['purchase.order.line'].search([
+            ('id', 'in', self.purchase_order_line_id.ids), ('id', 'in', query)])
+            if query is not None else self.env['purchase.order.line'])
+        orders = {line.id: line.order_id for line in visible}
+        for line in self:
+            line.vataga_purchase_order_id = orders.get(line.purchase_order_line_id.id, False)
+
+    @api.model
+    def _search_vataga_purchase_order(self, operator, value):
+        negatives = {'!=': '=', 'not in': 'in', 'not like': 'like', 'not ilike': 'ilike'}
+        negate = operator in negatives
+        positive = negatives.get(operator, operator)
+        if positive not in ('=', 'in', 'like', 'ilike', '=like', '=ilike', '<', '<=', '>', '>='):
+            raise ValueError('Unsupported purchase search operator: %s' % operator)
+        if positive == '=' and value is False:
+            query = self._vataga_readable_purchase_lines()
+            return ([('purchase_order_line_id', 'in' if negate else 'not in', query)]
+                    if query is not None else (expression.FALSE_DOMAIN if negate else []))
+        include_empty = positive == 'in' and False in value
+        actual = [item for item in value if item is not False] if positive == 'in' else value
+        target = 'display_name' if isinstance(actual, str) else 'id'
+        query = self._vataga_readable_purchase_lines([(target, positive, actual)])
+        domain = [('purchase_order_line_id', 'in', query)] if query is not None else expression.FALSE_DOMAIN
+        if include_empty:
+            domain = expression.OR([domain, self._search_vataga_purchase_order('=', False)])
+        return expression.distribute_not(['!'] + domain) if negate else domain
+
+    def _field_to_sql(self, alias, fname, query=None):
+        if fname != 'vataga_purchase_order_id':
+            return super()._field_to_sql(alias, fname, query)
+        visible = self._vataga_readable_purchase_lines()
+        if visible is None:
+            return SQL('NULL::integer')
+        self.flush_model(['purchase_order_line_id'])
+        self.env['purchase.order.line'].flush_model(['order_id'])
+        # One native line FK -> at most one order. Grouping must use exactly the
+        # same access-filtered value as read/export, including the empty group.
+        return SQL('''(SELECT vp.order_id FROM purchase_order_line AS vp
+                       WHERE vp.id = %s AND vp.id IN %s)''',
+                   SQL.identifier(alias, 'purchase_order_line_id'), visible.subselect())
+
+    def _order_field_to_sql(self, alias, field_name, direction, nulls, query):
+        if field_name == 'vataga_purchase_order_id':
+            return SQL('%s %s %s', self._field_to_sql(alias, field_name, query), direction, nulls)
+        return super()._order_field_to_sql(alias, field_name, direction, nulls, query)
+
+    def action_vataga_open_purchase_order(self):
+        self.ensure_one()
+        self.check_access_rights('read')
+        self.check_access_rule('read')
+        self.approval_request_id._vataga_check_access('read')
+        self.invalidate_recordset(['vataga_purchase_order_id'])
+        order = self.vataga_purchase_order_id
+        if not order:
+            raise AccessError(_('ЗНКП недоступний або відсутній.'))
+        order._vataga_check_approval_access()
+        return {'type': 'ir.actions.act_window', 'res_model': 'purchase.order',
+                'res_id': order.id, 'view_mode': 'form', 'views': [(False, 'form')], 'target': 'current'}
 
     @api.model
     def _get_view(self, view_id=None, view_type='form', **options):
@@ -268,7 +347,7 @@ class ApprovalProductLine(models.Model):
                 return super().write(vals)
             if len(self) == 1 and set(vals) == {'product_id'} and vals['product_id']:
                 return self._vataga_resolve_product(self.env['product.product'].browse(vals['product_id']))
-            raise UserError(_('Погоджені дані захищено. Для відсутнього товару використайте «Заповнити товар».'))
+            raise UserError(_('Погоджені дані захищено. Для відсутнього товару використайте «Створити товар».'))
         return super().write(vals)
 
     def unlink(self):
@@ -354,7 +433,7 @@ class ApprovalProductLine(models.Model):
         self.ensure_one()
         self._vataga_assert_can_resolve()
         return {
-            'type': 'ir.actions.act_window', 'name': _('Заповнити товар'),
+            'type': 'ir.actions.act_window', 'name': _('Створити товар'),
             'res_model': 'approval.product.resolve.vataga', 'view_mode': 'form',
             'target': 'new', 'context': {'default_line_id': self.id},
         }

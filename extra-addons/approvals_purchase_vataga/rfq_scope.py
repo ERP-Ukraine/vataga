@@ -12,10 +12,11 @@ _SCOPE = ContextVar('vataga_new_rfq_scope', default=None)
 
 
 class NewRFQScope:
-    def __init__(self, cursor):
+    def __init__(self, cursor, approval_ids=()):
         self.cursor = cursor
         self.key = uuid4().hex
         self.order_ids = set()
+        self.approval_ids = tuple(approval_ids)
 
 
 def current_scope(cursor):
@@ -24,8 +25,8 @@ def current_scope(cursor):
 
 
 @contextmanager
-def new_rfq_scope(cursor):
-    scope = NewRFQScope(cursor)
+def new_rfq_scope(cursor, approval_ids=()):
+    scope = NewRFQScope(cursor, approval_ids)
     token = _SCOPE.set(scope)
     try:
         yield scope

@@ -271,7 +271,8 @@ class TestOdooContracts(unittest.TestCase):
         tree = ast.parse((ROOT / 'models/approval_request.py').read_text(encoding='utf-8'))
         source_class = next(item for item in tree.body if isinstance(item, ast.ClassDef))
         methods = [item for item in source_class.body if isinstance(item, ast.FunctionDef)
-                   and item.name in {'action_confirm', '_vataga_preserve_approval_lock', '_vataga_capture_approval'}]
+                   and item.name in {'action_confirm', '_vataga_preserve_approval_lock', '_vataga_capture_approval',
+                                     '_vataga_validate_subject'}]
         cls = ast.ClassDef(name='ApprovalRequest', bases=[ast.Name(id='Base', ctx=ast.Load())],
                            keywords=[], body=methods, decorator_list=[])
         class Base:

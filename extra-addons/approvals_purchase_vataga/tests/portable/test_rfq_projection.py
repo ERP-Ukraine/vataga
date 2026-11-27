@@ -21,9 +21,9 @@ class TestRFQProjection(unittest.TestCase):
             self.assertIs(record.vataga_rfq_exists, expected)
             self.assertIs(record.vataga_rfq_created, audit)
 
-    def test_column_filter_and_group_use_same_projection(self):
+    def test_actual_po_column_preserves_fact_filter_and_group(self):
         document = etree.parse(str(ROOT / 'views/purchase_request_registry_views.xml'))
-        self.assertEqual(len(document.xpath('//tree/field[@name="vataga_rfq_exists"]')), 1)
+        self.assertEqual(len(document.xpath('//tree/field[@name="vataga_purchase_order_id"]')), 1)
         self.assertFalse(document.xpath('//tree/field[@name="vataga_rfq_created"]'))
         self.assertEqual(ast.literal_eval(document.xpath('//filter[@name="rfq_created"]/@domain')[0]),
                          [('vataga_rfq_exists','=',True)])

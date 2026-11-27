@@ -131,7 +131,7 @@ class TestPurchaseApproval(PurchaseApprovalCase):
         self.assertEqual(request.vataga_display_number, request.name)
         self.assertEqual(request.vataga_display_subject, 'A separate purchase topic')
 
-    def test_empty_subject_can_be_created_imported_and_approved(self):
+    def test_empty_subject_can_be_created_imported_but_not_submitted(self):
         category = self.category.copy({'name': 'Optional topic auto purchase', 'automated_sequence': True, 'sequence_code': 'TESTOPTIONAL'})
         request = self.request(category=category, vataga_purchase_subject=False)
         number = request.name
@@ -139,6 +139,9 @@ class TestPurchaseApproval(PurchaseApprovalCase):
         result = request.load(['.id', 'vataga_purchase_subject'], [[str(request.id), '']])
         self.assertEqual(result['ids'], [request.id])
         self.assertFalse(request.vataga_purchase_subject)
+        with self.assertRaisesRegex(ValidationError, 'Вкажіть тему закупівлі'):
+            request.action_confirm()
+        request.vataga_purchase_subject = 'Valid topic'
         self.approve(request)
         self.assertEqual(request.name, number)
 

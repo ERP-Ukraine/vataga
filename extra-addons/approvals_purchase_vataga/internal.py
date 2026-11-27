@@ -6,6 +6,7 @@ from copy import deepcopy
 INTERNAL = object()
 RFQ = object()
 WORKFLOW = object()
+PO_APPROVAL = object()
 APPROVAL_SCOPE = ContextVar('vataga_purchase_approval_scope', default=None)
 
 

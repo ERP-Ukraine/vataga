@@ -10,7 +10,7 @@ class TestRegistryLayout(unittest.TestCase):
         visible = [f.get('name') for f in tree.findall('field') if f.get('optional') != 'hide']
         self.assertEqual(visible, ['vataga_request_number', 'vataga_request_date', 'vataga_category_id',
                                   'product_id', 'description', 'vataga_product_url', 'quantity', 'product_uom_id',
-                                  'vataga_employee_initiator_id', 'vataga_employee_recipient_id', 'vataga_request_status', 'vataga_rfq_exists'])
+                                  'vataga_employee_initiator_id', 'vataga_employee_recipient_id', 'vataga_request_status', 'vataga_purchase_order_id'])
         hidden = {f.get('name') for f in tree.findall('field') if f.get('optional') == 'hide'}
         self.assertEqual(hidden, {'vataga_request_subject', 'vataga_owner_id', 'vataga_date_start', 'vataga_date_end',
                                  'vataga_partner_id', 'vataga_filled_after_approval', 'vataga_product_created_from_request', 'company_id'})

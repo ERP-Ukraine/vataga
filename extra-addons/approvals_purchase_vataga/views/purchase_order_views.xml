@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_purchase_order_approval" model="ir.ui.view">
+        <field name="name">purchase.order.vataga.approval</field>
+        <field name="model">purchase.order</field>
+        <field name="inherit_id" ref="purchase.purchase_order_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet/group/group/field[@name='partner_id']" position="after">
+                <field name="vataga_can_duplicate_with_approval" invisible="1"/>
+                <field name="vataga_approval_is_copy" invisible="1"/>
+                <field name="vataga_approval_request_ids" widget="vataga_approval_documents"
+                       readonly="1" invisible="not vataga_approval_request_ids"/>
+                <div class="text-muted" colspan="2" invisible="not vataga_approval_is_copy">
+                    Копія закупки. Посилання на погодження не підтверджує погодження змінених позицій.
+                </div>
+            </xpath>
+        </field>
+    </record>
+</odoo>

@@ -4,7 +4,7 @@
         <field name="name">approval.product.resolve.vataga.form</field>
         <field name="model">approval.product.resolve.vataga</field>
         <field name="arch" type="xml">
-            <form string="Заповнити товар">
+            <form string="Створити товар">
                 <group>
                     <field name="line_id" invisible="1"/>
                     <field name="description" string="Погоджений опис"/>
@@ -23,8 +23,8 @@
                     </div>
                 </group>
                 <footer>
-                    <button name="action_apply" type="object" string="Заповнити" class="btn-primary"/>
-                    <button name="action_apply_open_product" type="object" string="Заповнити та відкрити товар"/>
+                    <button name="action_apply" type="object" string="Створити" class="btn-primary"/>
+                    <button name="action_apply_open_product" type="object" string="Створити та редагувати"/>
                     <button string="Скасувати" special="cancel"/>
                 </footer>
             </form>

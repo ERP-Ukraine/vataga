@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="approvals_purchase_vataga.ProductEditorButtons" t-inherit="web.FormViewDialog.ToOne.buttons" t-inherit-mode="primary">
+        <xpath expr="//button[contains(@class, 'o_form_button_save')]" position="replace">
+            <button class="btn btn-primary o_form_button_save" t-on-click="saveButtonClicked" data-hotkey="c">Зберегти</button>
+        </xpath>
+    </t>
+    <t t-name="approvals_purchase_vataga.ApprovalDocuments">
+        <div class="d-flex flex-wrap gap-2">
+            <a t-foreach="props.record.data[props.name].records" t-as="request" t-key="request.resId"
+               href="#" t-on-click.stop.prevent="() => this.openApproval(request.resId)">
+                <t t-esc="request.data.vataga_display_number || request.data.display_name"/>
+            </a>
+        </div>
+    </t>
+</templates>

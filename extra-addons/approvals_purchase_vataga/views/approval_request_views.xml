@@ -84,7 +84,7 @@
                 <field name="vataga_can_resolve" column_invisible="True"/>
                 <field name="vataga_filled_after_approval" column_invisible="parent.approval_type != 'purchase'" optional="hide"/>
                 <field name="vataga_product_created_from_request" column_invisible="parent.approval_type != 'purchase'" optional="hide"/>
-                <button name="action_vataga_resolve" type="object" string="Заповнити товар" icon="fa-pencil-square-o"
+                <button name="action_vataga_resolve" type="object" string="Створити товар" icon="fa-pencil-square-o"
                         groups="purchase.group_purchase_user" invisible="not vataga_can_resolve"
                         column_invisible="parent.approval_type != 'purchase'"/>
             </xpath>
@@ -107,7 +107,7 @@
                     <div><field name="vataga_product_url" widget="vataga_purchase_url"/></div>
                     <button name="action_vataga_resolve" type="object" class="btn btn-link"
                             t-if="record.vataga_can_resolve.raw_value" groups="purchase.group_purchase_user">
-                        Заповнити товар
+                        Створити товар
                     </button>
                 </div>
             </xpath>

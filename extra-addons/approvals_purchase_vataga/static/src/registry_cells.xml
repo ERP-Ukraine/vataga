@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <templates xml:space="preserve">
+    <t t-name="approvals_purchase_vataga.PurchaseOrderLink">
+        <a t-if="props.record.data[props.name]" href="#" t-on-click.stop.prevent="openOrder"
+           class="o_vataga_request_link" t-att-title="props.record.data[props.name][1]">
+            <t t-esc="props.record.data[props.name][1]"/>
+        </a>
+    </t>
     <t t-name="approvals_purchase_vataga.RequestLink">
         <a href="#" t-on-click.stop.prevent="openRequest"
            t-att-title="props.record.data[props.name] || 'Відкрити заявку'"

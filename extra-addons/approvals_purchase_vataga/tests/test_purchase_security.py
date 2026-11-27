@@ -25,12 +25,13 @@ class TestPurchaseSecurity(PurchaseApprovalCase):
                 'line_id': request.product_line_ids.id, 'mode': 'new',
                 'new_product_name': 'Vataga isolated product context'})
         action = wizard.action_apply_open_product()
-        self.assertEqual(action['target'], 'new')
-        self.assertNotIn('default_category_id', action['context'])
-        self.assertNotIn('default_line_id', action['context'])
-        self.assertEqual(action['context']['active_model'], 'product.product')
-        self.assertEqual(action['context']['active_id'], action['res_id'])
-        context = dict(wizard.env.context, **action['context'])
+        self.assertEqual(action['tag'], 'vataga_product_editor')
+        params = action['params']
+        self.assertNotIn('default_category_id', params['context'])
+        self.assertNotIn('default_line_id', params['context'])
+        self.assertEqual(params['context']['active_model'], 'product.product')
+        self.assertEqual(params['context']['active_id'], params['res_id'])
+        context = dict(wizard.env.context, **params['context'])
         self.assertFalse(context['category_id'])
         vendor = self.env['res.partner'].with_user(self.catalog_buyer).with_context(context).create({
             'name': 'Vataga isolated-context supplier', 'supplier_rank': 1})
@@ -42,11 +43,15 @@ class TestPurchaseSecurity(PurchaseApprovalCase):
             wizard = self.env['approval.product.resolve.vataga'].with_user(self.catalog_buyer).create({
                 'line_id': request.product_line_ids.id, 'mode': 'new', 'new_product_name': 'TEST wizard vendor'})
             result = wizard.action_apply_open_product() if open_product else wizard.action_apply()
+            if open_product:
+                self.assertFalse(request.product_line_ids.product_id)
+                self.env['product.product'].with_user(self.catalog_buyer).with_context(
+                    result['params']['context']).web_save({'name': 'TEST wizard vendor'}, {})
             sellers = request.product_line_ids.product_id.seller_ids
             self.assertEqual(sellers.partner_id, self.default_vendor)
             self.assertEqual(len(sellers), 1)
             self.assertEqual(sellers.price, 0)
-            self.assertEqual(result['type'], 'ir.actions.act_window' if open_product else 'ir.actions.act_window_close')
+            self.assertEqual(result['type'], 'ir.actions.client' if open_product else 'ir.actions.act_window_close')
             with self.assertRaises(UserError):
                 wizard.action_apply()
             self.assertEqual(len(sellers), 1)

@@ -7,6 +7,7 @@ import { UrlField, urlField } from '@web/views/fields/url/url_field';
 import { safePurchaseHref } from './url_policy';
 import { BadgeField, badgeField } from '@web/views/fields/badge/badge_field';
 import { _t } from '@web/core/l10n/translation';
+import { Many2OneField, many2OneField } from '@web/views/fields/many2one/many2one_field';
 
 export class RegistryStatusField extends BadgeField {
     get formattedValue() {
@@ -40,6 +41,17 @@ export class RegistryUrlField extends UrlField {
     }
 }
 
+export class PurchaseOrderLinkField extends Many2OneField {
+    static template = 'approvals_purchase_vataga.PurchaseOrderLink';
+
+    async openOrder() {
+        const action = await this.orm.call(this.props.record.resModel,
+            'action_vataga_open_purchase_order', [[this.props.record.resId]]);
+        await this.action.doAction(action);
+    }
+}
+
 registry.category('fields').add('vataga_request_link', { ...charField, component: RequestLinkField });
 registry.category('fields').add('vataga_registry_url', { ...urlField, component: RegistryUrlField });
 registry.category('fields').add('vataga_registry_status', { ...badgeField, component: RegistryStatusField });
+registry.category('fields').add('vataga_purchase_order_link', { ...many2OneField, component: PurchaseOrderLinkField });
