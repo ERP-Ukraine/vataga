@@ -1,4 +1,4 @@
-# До main: production preflight, первая установка и откат / 17.0.1.0.7
+# До main: production preflight, первая установка и откат / 17.0.1.0.8
 
 Актуализация .6: собственный реестр использует `vataga_rfq_exists` = audit marker OR any native RFQ link, без backfill исходного аудита. Исторический display-limit .5 устранен; неизвестная удаленная до Install история не восстанавливается. Дополнительно доступен [safe_eval report](SAFE_EVAL_DIAGNOSTIC_RU.md) без shell; он не заменяет Install/rollback/runtime proof. Указанные ниже preflight и первая Install относятся к текущей17.0.1.0.7.
 
@@ -6,7 +6,7 @@
 
 ## Контроль перед main
 
-- [ ] Зафиксированы reviewed SHA, manifest17.0.1.0.6, diff только своего addon, лицензированные Enterprise/ERP-UA версии, список установленных модулей, конфигурация addons_path, Python/PostgreSQL и активные компании. Не менять main до отдельного разрешения.
+- [ ] Зафиксированы reviewed SHA, manifest17.0.1.0.8, diff только своего addon, лицензированные Enterprise/ERP-UA версии, список установленных модулей, конфигурация addons_path, Python/PostgreSQL и активные компании. Не менять main до отдельного разрешения.
 - [ ] Получены read-only отчеты с **production**, предоставленные ответственным администратором. Не заменять их отчетом старого staging. Сверены требуемые XML IDs/поля/тип дат, реальная цепочка action_approve и seller helper: scripts/odoo_preflight.py. Недоступный source/неподтвержденный bridge/helper — остановка и отдельный review, не обход проверки.
 - [ ] До первого импорта addon/Apps Install оба существующих Studio-поля optional editable stored Many2one(hr.employee), state=manual, по одной metadata row. Сохранены существующие значения и XML IDs, поля не переобъявляются и не пересоздаются. hr и hr.employee.public существуют; dependencies approvals/approvals_purchase/purchase/hr доступны и установлены. Нет предположения о наличии/составе studio_customization как installable addon.
 - [ ] Сверены полные Studio form/tree по внешним IDs, parent/active/priority160/99 и предоставленному XML; проверена полная **production** цепочка остальных form/tree расширений. Отдельные fixtures не доказывают отсутствия третьего расширения с дублирующим полем, ограниченными groups или удаленным XPath-anchor.
@@ -64,3 +64,11 @@ odoo shell -c /etc/odoo/odoo.conf -d odoo17-vataga --no-http < production_instal
 - До main сверить фактический native `approval.product.line._get_purchase_orders_domain(partner)` и цепочку approvals_purchase_stock/ERP-UA; общий PO search модулем не меняется. Новый технический ключ purchase.order добавляет колонку и индекс при Install; namespace preflight теперь также проверяет purchase.order/res.company. Существующие закупки не переписываются. Полный Enterprise/конкурентный прогон остается BLOCKED.
 - До Install определить существующего «довільний постачальник»: XML ID при наличии, active/supplier_rank/company и однозначную идентичность. Не копировать ID2951 из staging. **После первой Install, до создания товаров мастером** выбрать этого партнера в компании → «Закупочні заявки Vataga». Поле res.company.vataga_default_supplier_id не заполнится автоматически и до установки не существует. При одноименных дублях нужен осознанный выбор ответственного администратора. Не создавать нового контрагента и не расширять права.
 - Проверить стандартный supplierinfo default цены на production (стандарт17:0), валюту и последующее формирование draft RFQ. Нулевая цена не является подтвержденной ценой поставщика. Проверить возможность редактирования в стандартной модальной карточке под фактическими правами.
+
+## Дополнения .8
+
+- Проверить namespace всех новых полей purchase.order, approval.product.line и relation table `vataga_po_approval_rel`. Первая Install создает пустую таблицу источников, без миграции/изменения исторических закупок. Историческая связь вычисляется из настоящего native FK и может содержать несколько заявок.
+- Проверить фактический `purchase.order.get_view(view_type='form')`: если итоговая форма уже имеет сторонний `js_class`, он сохраняется. Пункт локального меню дублирования требует отдельной совместимой интеграции; нельзя молча заменять чужой controller. Сверить native `web_save(vals, specification, next_id=None)` и SQL/order hooks именно Odoo17.
+- На отдельной лицензированной БД проверить атомарное сохранение новой/существующей полной карточки product.product, supplierinfo и заполнения строки, Cancel/X/Escape с сохранением мастера, неподменяемый контекст и конкурентный повтор. Не запускать TransactionCase/HttpCase на общей staging/production.
+- Schema `approval.request.name` допускает пустой purchase-черновик; обязательность других типов восстановлена ORM-ограничением и modifier формы. Старые значения/номера не мигрируются. До отправки новой purchase-заявки нужна тема; исторические approved без темы не переписываются.
+- `vataga_purchase_order_id` не хранится: чтение/поиск/group/export применяют native ACL/rules PO/POL и активные компании. Проверить реальные роли, производительность группировок на production-объеме и field-level ограничения имен закупок. Старые маркеры и неизменяемые исходные line FK сохраняются; специальная копия их не заменяет.

@@ -58,11 +58,16 @@ class TestV8Contracts(unittest.TestCase):
             _vataga_readable_purchase_lines=lambda: visible,
             flush_model=lambda names: None,
             env={'purchase.order.line': SimpleNamespace(flush_model=lambda names: None)})
-        value = line_module.ApprovalProductLine._field_to_sql(model, 'approval_product_line', 'vataga_purchase_order_id')
+        query = Query(cursor, 'approval_product_line')
+        value = line_module.ApprovalProductLine._field_to_sql(model, 'approval_product_line', 'vataga_purchase_order_id', query)
         self.assertIsInstance(value, SQL)
-        self.assertIn('vp.id IN (SELECT', value.code)
-        self.assertIn('"approval_product_line"."purchase_order_line_id"', value.code)
-        self.assertEqual(value.params, [37])
+        self.assertEqual(value.code, '"approval_product_line__vataga_readable_purchase_line"."order_id"')
+        self.assertIn('LEFT JOIN', query.from_clause.code)
+        self.assertIn('"approval_product_line"."purchase_order_line_id"', query.from_clause.code)
+        self.assertEqual(query.from_clause.params, [37])
+        # Odoo17 native Many2one group ordering takes the first token; it must
+        # remain a complete column, not the truncated "(SELECT" seen in UAT.
+        self.assertEqual(value.code.split()[0], value.code)
         model._vataga_readable_purchase_lines = lambda: None
         self.assertEqual(line_module.ApprovalProductLine._field_to_sql(
             model, 'approval_product_line', 'vataga_purchase_order_id').code, 'NULL::integer')

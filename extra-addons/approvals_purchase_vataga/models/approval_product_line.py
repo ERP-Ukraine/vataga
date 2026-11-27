@@ -123,11 +123,14 @@ class ApprovalProductLine(models.Model):
             return SQL('NULL::integer')
         self.flush_model(['purchase_order_line_id'])
         self.env['purchase.order.line'].flush_model(['order_id'])
-        # One native line FK -> at most one order. Grouping must use exactly the
-        # same access-filtered value as read/export, including the empty group.
-        return SQL('''(SELECT vp.order_id FROM purchase_order_line AS vp
-                       WHERE vp.id = %s AND vp.id IN %s)''',
-                   SQL.identifier(alias, 'purchase_order_line_id'), visible.subselect())
+        # Native _read_group_orderby extracts a column token from Many2one
+        # ordering. Return a joined column, not a scalar SELECT expression.
+        # One PK join cannot multiply registry rows; inaccessible lines join NULL.
+        purchase_alias = query.make_alias(alias, 'vataga_readable_purchase_line')
+        query.add_join('LEFT JOIN', purchase_alias, 'purchase_order_line', SQL(
+            '%s = %s AND %s IN %s', SQL.identifier(alias, 'purchase_order_line_id'),
+            SQL.identifier(purchase_alias, 'id'), SQL.identifier(purchase_alias, 'id'), visible.subselect()))
+        return SQL.identifier(purchase_alias, 'order_id')
 
     def _order_field_to_sql(self, alias, field_name, direction, nulls, query):
         if field_name == 'vataga_purchase_order_id':
